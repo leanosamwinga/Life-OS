@@ -55,7 +55,7 @@ export default tseslint.config(
     languageOptions: { globals: { Deno: 'readonly' } },
   },
   {
-    files: ['**/*.cjs', 'apps/mobile/*.js'],
+    files: ['**/*.cjs', 'apps/mobile/*.js', 'apps/mobile/jest.setup.ts'],
     languageOptions: { sourceType: 'commonjs' },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
