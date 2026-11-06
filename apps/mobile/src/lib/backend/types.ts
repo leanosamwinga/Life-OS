@@ -51,7 +51,10 @@ export interface Backend {
     currentUser(): Promise<AuthUser | null>;
     /** Subscribe to sign-in / sign-out. Returns an unsubscribe function. */
     onChange(listener: AuthListener): () => void;
+    /** Email a sign-in link and a 6-digit code. */
     sendMagicLink(email: string): Promise<void>;
+    /** Sign in with the 6-digit code from that email. */
+    verifyEmailCode(email: string, code: string): Promise<void>;
     signInWithPassword(email: string, password: string): Promise<void>;
     signUpWithPassword(email: string, password: string): Promise<SignUpResult>;
     signInWithApple(): Promise<void>;

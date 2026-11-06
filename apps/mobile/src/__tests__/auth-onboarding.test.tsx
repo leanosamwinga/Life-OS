@@ -1,7 +1,12 @@
 import path from 'node:path';
 import { Alert, Platform } from 'react-native';
 import { fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
-import { createMemoryBackend, TEST_USER, type MemoryBackend } from '@/test/memoryBackend';
+import {
+  createMemoryBackend,
+  MEMORY_EMAIL_CODE,
+  TEST_USER,
+  type MemoryBackend,
+} from '@/test/memoryBackend';
 import type { MemoryState } from '@/test/memoryBackend';
 
 const APP_DIR = path.resolve(__dirname, '../app');
@@ -84,6 +89,36 @@ describe('sign-in', () => {
     expect(screen.getByText(/don’t match/)).toBeTruthy();
     await fireEvent.changeText(screen.getByLabelText('Password'), 'correct horse');
     await press('Sign in');
+    expect(await screen.findByTestId('screen-onboarding-consent')).toBeTruthy();
+  });
+
+  it('email: the 6-digit code from the email signs you in on this device', async () => {
+    await start();
+    await press('Continue with email');
+    await fireEvent.changeText(screen.getByLabelText('Email'), 'user-a@example.test');
+    await press('Send sign-in link');
+    const signIn = screen.getByRole('button', { name: 'Sign in with code' });
+    expect(signIn.props.accessibilityState.disabled).toBe(true);
+    await fireEvent.changeText(screen.getByLabelText('6-digit code'), '000000');
+    await press('Sign in with code');
+    expect(screen.getByText(/expired or was already used/)).toBeTruthy();
+    await fireEvent.changeText(screen.getByLabelText('6-digit code'), `${MEMORY_EMAIL_CODE} `);
+    await press('Sign in with code');
+    expect(await screen.findByTestId('screen-onboarding-consent')).toBeTruthy();
+  });
+
+  it('development: "admin" signs in to the seeded local account with its password', async () => {
+    await start({ passwords: { 'admin@example.test': 'lifeos-admin' } });
+    await press('Continue with email');
+    await fireEvent.press(screen.getByRole('link', { name: 'Use a password instead' }));
+    await fireEvent.changeText(screen.getByLabelText('Email'), 'admin');
+    await fireEvent.changeText(screen.getByLabelText('Password'), 'lifeos-admin');
+    await press('Sign in');
+    expect(mockBackend.state.user?.email).toBe('admin@example.test');
+  });
+
+  it('the link in the email (token_hash) signs in without a PKCE code', async () => {
+    await start({}, '/auth/callback?token_hash=fake-hash&type=email');
     expect(await screen.findByTestId('screen-onboarding-consent')).toBeTruthy();
   });
 

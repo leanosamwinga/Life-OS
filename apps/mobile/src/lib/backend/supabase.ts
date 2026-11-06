@@ -5,6 +5,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import { PRIVACY_POLICY_VERSION, toFood } from '@life-os/core';
 import type { LifeOsClient } from '../supabase';
+import { canUseNativeGoogle, nativeGoogleIdToken } from './googleNative';
 import {
   escapeLike,
   foodRecordFromRow,
@@ -54,9 +55,7 @@ function friendly(error: { message?: string; code?: string; status?: number } | 
     throw new UserFacingError('Too many attempts. Wait a minute and try again.');
   }
   if (/expired|invalid.*(otp|token|code)|verifier/i.test(msg)) {
-    throw new UserFacingError(
-      'That link has expired or was opened on another device. Send a new one.',
-    );
+    throw new UserFacingError('That code or link has expired or was already used. Send a new one.');
   }
   throw new UserFacingError(msg);
 }
@@ -77,6 +76,15 @@ export function supabaseBackend(client: LifeOsClient): Backend {
   async function exchange(params: Record<string, string | undefined>): Promise<void> {
     if (params.error_description || params.error) {
       friendly({ message: params.error_description ?? params.error });
+    }
+    // Link from our email template: ?token_hash=…&type=email. Works on any device, no PKCE verifier.
+    if (params.token_hash) {
+      const { error } = await auth.verifyOtp({
+        token_hash: params.token_hash,
+        type: params.type === 'signup' ? 'signup' : 'email',
+      });
+      if (error) friendly(error);
+      return;
     }
     if (params.code) {
       const { error } = await auth.exchangeCodeForSession(
@@ -188,7 +196,17 @@ export function supabaseBackend(client: LifeOsClient): Backend {
             .is('display_name', null);
         }
       },
-      signInWithGoogle: () => oauth('google'),
+      async signInWithGoogle() {
+        // Native account sheet in development/store builds; the browser in Expo Go and on web.
+        if (!canUseNativeGoogle()) return oauth('google');
+        const token = await nativeGoogleIdToken();
+        const { error } = await auth.signInWithIdToken({ provider: 'google', token });
+        if (error) friendly(error);
+      },
+      async verifyEmailCode(email, code) {
+        const { error } = await auth.verifyOtp({ email, token: code, type: 'email' });
+        if (error) friendly(error);
+      },
       completeRedirect: exchange,
       async signOut() {
         const { error } = await auth.signOut();
