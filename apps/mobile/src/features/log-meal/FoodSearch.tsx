@@ -19,6 +19,8 @@ export function FoodSearch(props: {
   onPick: (food: Food) => void;
   onIncomplete?: (record: StoredFood) => void;
   showSearch?: boolean;
+  /** Show the Open Food Facts credit under results (off when the screen shows its own). */
+  showCredit?: boolean;
 }) {
   const session = useSession();
   const lm = useLogMeal();
@@ -104,7 +106,9 @@ export function FoodSearch(props: {
           );
         })
       )}
-      {anyOff ? <Text style={styles.credit}>{OPEN_FOOD_FACTS_CREDIT}</Text> : null}
+      {anyOff && props.showCredit !== false ? (
+        <Text style={styles.credit}>{OPEN_FOOD_FACTS_CREDIT}</Text>
+      ) : null}
     </View>
   );
 }
