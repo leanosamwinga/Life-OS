@@ -13,4 +13,72 @@ values
 on conflict do nothing;
 
 -- To try the app locally, sign up through the app or create a user in Studio
--- (http://127.0.0.1:54323), then grant health consent from Me → Privacy & data.
+-- (http://127.0.0.1:54323), then grant health consent from Me → Privacy & data. Or use the
+-- ready-made local account below.
+
+-- ---------------------------------------------------------------------------
+-- Local development account — LOCAL ONLY.
+--   Sign in with username "admin" (development builds) or admin@example.test, password
+--   "lifeos-admin". Already onboarded, health-data consent on, targets and a few plan meals set,
+--   so you land straight on Today. The seed never runs against the hosted project
+--   (`supabase db push` doesn't apply it). Skipped on the plain-Postgres test shim.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_id constant uuid := '00000000-0000-4000-8000-00000000ad01';
+  v_meal uuid;
+begin
+  if to_regclass('auth.identities') is null then
+    raise notice 'seed: no Supabase Auth schema here, skipping the local admin account';
+    return;
+  end if;
+  if exists (select 1 from auth.users where id = v_id) then
+    return;
+  end if;
+
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    confirmation_token, email_change, email_change_token_new, recovery_token
+  ) values (
+    '00000000-0000-0000-0000-000000000000', v_id, 'authenticated', 'authenticated',
+    'admin@example.test', extensions.crypt('lifeos-admin', extensions.gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}', '{"display_name":"Admin"}', now(), now(),
+    '', '', '', ''
+  );
+  insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+  values (
+    v_id::text, v_id,
+    jsonb_build_object('sub', v_id::text, 'email', 'admin@example.test', 'email_verified', true),
+    'email', now(), now(), now()
+  );
+
+  -- handle_new_user() created the profile and settings; finish onboarding.
+  insert into public.consents (user_id, type, policy_version) values (v_id, 'health_data', '2026-11-06');
+  update public.user_settings
+     set onboarding_completed_at = now(), apple_health_choice = 'not_now', screen_time_choice = 'not_now',
+         target_kcal = 2450, target_protein_g = 180, target_carbs_g = 250, target_fat_g = 75,
+         target_water_ml = 3000, target_steps = 10000
+   where user_id = v_id;
+
+  -- A small plan so Today has "Ate it" rows (foods are the fake ones above).
+  insert into public.saved_meals (user_id, name, in_daily_plan, usual_time, sort_order)
+  values (v_id, 'Breakfast · porridge & yoghurt', true, '08:00', 0) returning id into v_meal;
+  insert into public.saved_meal_components (saved_meal_id, user_id, food_id, grams, position)
+  select v_meal, v_id, f.id, g.grams, g.pos
+    from (values ('0000000000055', 80, 0), ('0000000000017', 150, 1)) as g(barcode, grams, pos)
+    join public.foods f on f.barcode = g.barcode and f.user_id is null;
+
+  insert into public.saved_meals (user_id, name, in_daily_plan, usual_time, sort_order)
+  values (v_id, 'Lunch · chicken rice bowl', true, '12:30', 1) returning id into v_meal;
+  insert into public.saved_meal_components (saved_meal_id, user_id, food_id, grams, position)
+  select v_meal, v_id, f.id, g.grams, g.pos
+    from (values ('0000000000024', 200, 0), ('0000000000031', 200, 1)) as g(barcode, grams, pos)
+    join public.foods f on f.barcode = g.barcode and f.user_id is null;
+
+  insert into public.saved_meals (user_id, name, in_daily_plan, usual_time, sort_order)
+  values (v_id, 'Snack · yoghurt', true, '16:00', 2) returning id into v_meal;
+  insert into public.saved_meal_components (saved_meal_id, user_id, food_id, grams, position)
+  select v_meal, v_id, f.id, 200, 0 from public.foods f where f.barcode = '0000000000017' and f.user_id is null;
+end;
+$$;
