@@ -108,3 +108,31 @@ export function isWithinWindow(time: LocalTime, start: LocalTime, end: LocalTime
   if (s === e) return false;
   return s < e ? t >= s && t < e : t >= s || t < e;
 }
+
+/**
+ * The instant at which a Europe/London wall-clock time occurs on a local date,
+ * e.g. ('2026-07-01', '08:00') → '2026-07-01T07:00:00.000Z' (BST).
+ * For the skipped hour when clocks go forward, the result lands an hour later.
+ */
+export function londonDateTimeToInstant(date: LocalDate, time: LocalTime): Instant {
+  const d = parseLocalDate(date);
+  if (!d) throw new RangeError(`Invalid date: ${date}`);
+  const minutes = minutesOf(time);
+  const wallAsUtc = Date.UTC(d.year, d.month - 1, d.day, Math.floor(minutes / 60), minutes % 60);
+  // London is UTC+0 or UTC+1; find the offset at the guessed instant, then correct once more.
+  let guess = wallAsUtc;
+  for (let i = 0; i < 2; i++) {
+    const p = londonParts(new Date(guess));
+    const shownAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+    guess = wallAsUtc - (shownAsUtc - guess);
+  }
+  return new Date(guess).toISOString();
+}
+
+/** Add whole days to a local date, e.g. ('2026-11-06', 1) → '2026-11-07'. */
+export function addDays(date: LocalDate, days: number): LocalDate {
+  const d = parseLocalDate(date);
+  if (!d) throw new RangeError(`Invalid date: ${date}`);
+  const t = new Date(Date.UTC(d.year, d.month - 1, d.day + days, 12));
+  return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`;
+}

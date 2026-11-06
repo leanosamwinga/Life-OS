@@ -9,7 +9,14 @@ import {
   parsePounds,
   pence,
 } from './format.ts';
-import { formatDateUK, formatTimeUK, isWithinWindow, toLondonDate } from './time.ts';
+import {
+  addDays,
+  formatDateUK,
+  formatTimeUK,
+  isWithinWindow,
+  londonDateTimeToInstant,
+  toLondonDate,
+} from './time.ts';
 
 describe('formatPence', () => {
   it('formats negative balances with a true minus sign', () => {
@@ -85,5 +92,16 @@ describe('dates and times (Europe/London)', () => {
     expect(isWithinWindow('07:00', '22:30', '07:00')).toBe(false);
     expect(isWithinWindow('12:00', '22:30', '07:00')).toBe(false);
     expect(isWithinWindow('12:00', '09:00', '17:00')).toBe(true);
+  });
+});
+
+describe('londonDateTimeToInstant / addDays', () => {
+  it('converts London wall-clock time to UTC in GMT and BST', () => {
+    expect(londonDateTimeToInstant('2026-11-06', '08:00')).toBe('2026-11-06T08:00:00.000Z');
+    expect(londonDateTimeToInstant('2026-07-01', '08:00')).toBe('2026-07-01T07:00:00.000Z');
+    expect(londonDateTimeToInstant('2026-07-01', '00:30')).toBe('2026-06-30T23:30:00.000Z');
+    expect(addDays('2026-11-06', 1)).toBe('2026-11-07');
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
   });
 });
