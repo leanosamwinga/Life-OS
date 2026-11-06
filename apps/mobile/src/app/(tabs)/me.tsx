@@ -1,26 +1,77 @@
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { Alert, Linking, Platform, StyleSheet, Text } from 'react-native';
+import { router } from 'expo-router';
 import Constants from 'expo-constants';
-import { DEFAULT_NUDGE_SETTINGS, OPEN_FOOD_FACTS_CREDIT, type NudgeSettings } from '@life-os/core';
+import {
+  DEFAULT_NUDGE_SETTINGS,
+  OPEN_FOOD_FACTS_CREDIT,
+  PRIVACY_POLICY_URL,
+  TERMS_URL,
+  type NudgeSettings,
+} from '@life-os/core';
 import { Avatar, Card, Row, Screen, SectionTitle, ToggleRow } from '@/components/ui';
+import { FormMessage } from '@/components/forms';
+import { ordinal } from '@/features/nudges/labels';
+import type { NudgeKey } from '@/lib/backend/settings';
+import { useSession } from '@/lib/session';
 import { colors, space, type } from '@/theme';
 
-const ordinal = (n: number) => {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
-};
+/** Ask before withdrawing consent; web has no native alert with buttons. */
+function confirmWithdraw(): Promise<boolean> {
+  const message =
+    'Life OS will stop processing your meals, water and supplements. Your other data and the rest of the app keep working.';
+  if (Platform.OS === 'web') {
+    const c = (globalThis as { confirm?: (m: string) => boolean }).confirm;
+    return Promise.resolve(c ? c(message) : true);
+  }
+  return new Promise((resolve) =>
+    Alert.alert('Stop using your health data?', message, [
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Withdraw', style: 'destructive', onPress: () => resolve(true) },
+    ]),
+  );
+}
 
 export default function MeScreen() {
-  // Local state until settings sync arrives (phase 6). Defaults are quiet.
-  const [nudges, setNudges] = useState<NudgeSettings>(
+  const session = useSession();
+  const connected = session.status === 'signedIn' && session.settings !== null;
+
+  // Not connected: local state only, so the sample app still demonstrates the toggles.
+  const [localNudges, setLocalNudges] = useState<NudgeSettings>(
     () => JSON.parse(JSON.stringify(DEFAULT_NUDGE_SETTINGS)) as NudgeSettings,
   );
-  const [healthConsent, setHealthConsent] = useState(false);
-  const [appLock, setAppLock] = useState(false);
+  const [localConsent, setLocalConsent] = useState(false);
+  const [localLock, setLocalLock] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const toggle = (key: Exclude<keyof NudgeSettings, 'quietHours'>) => (enabled: boolean) =>
-    setNudges((n) => ({ ...n, [key]: { ...n[key], enabled } }));
+  const nudges = connected ? session.settings!.nudges : localNudges;
+  const healthConsent = connected ? session.healthConsent : localConsent;
+  const appLock = connected ? session.settings!.appLockEnabled : localLock;
+
+  const save = async (fn: () => Promise<void>) => {
+    setError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Couldn’t save that change.');
+    }
+  };
+
+  const toggle = (key: NudgeKey) => (enabled: boolean) =>
+    connected
+      ? void save(() => session.updateSettings({ nudges: { [key]: enabled } }))
+      : setLocalNudges((n) => ({ ...n, [key]: { ...n[key], enabled } }));
+
+  const setHealthConsent = async (granted: boolean) => {
+    if (!connected) return setLocalConsent(granted);
+    if (!granted && !(await confirmWithdraw())) return;
+    await save(() => session.setHealthConsent(granted));
+  };
+
+  const setAppLock = (enabled: boolean) =>
+    connected
+      ? void save(() => session.updateSettings({ appLockEnabled: enabled }))
+      : setLocalLock(enabled);
 
   const mb = nudges.morningBriefing;
   const ec = nudges.eveningCheckIn;
@@ -34,6 +85,26 @@ export default function MeScreen() {
       subtitle="Settings, nudges and connected apps"
       accessory={<Avatar size={60} label="Profile photo" />}
     >
+      {error ? <FormMessage>{error}</FormMessage> : null}
+      {session.status === 'signedIn' ? (
+        <>
+          <SectionTitle title="Account" />
+          <Card>
+            <Row
+              label={session.displayName ?? 'Add your first name'}
+              subtitle={session.user?.email ?? undefined}
+              muted={!session.displayName}
+            />
+            <Row
+              label="Sign out"
+              onPress={() => void save(() => session.backend!.auth.signOut())}
+              accessibilityHint="Signs you out on this device"
+              last
+            />
+          </Card>
+        </>
+      ) : null}
+
       <SectionTitle title="Nudges" caption="Quiet by default. Nothing else will ping you." />
       <Card>
         <ToggleRow
@@ -87,7 +158,12 @@ export default function MeScreen() {
 
       <SectionTitle title="Your setup" />
       <Card>
-        <Row label="Meal plan & macro targets" chevron muted />
+        <Row
+          label="Meal plan & macro targets"
+          chevron
+          muted={!connected}
+          onPress={connected ? () => router.push('/targets') : undefined}
+        />
         <Row label="Weekly rhythm" chevron muted />
         <Row label="Budgets & goals" chevron muted last />
       </Card>
@@ -98,11 +174,11 @@ export default function MeScreen() {
           label="Use my health data"
           subtitle="Explicit consent for nutrition, water, supplements and Apple Health. Withdraw any time."
           value={healthConsent}
-          onValueChange={setHealthConsent}
+          onValueChange={(v) => void setHealthConsent(v)}
         />
         <ToggleRow
           label="Face ID lock"
-          subtitle="Ask for Face ID or passcode when opening Life OS"
+          subtitle="Ask for Face ID or passcode when opening Life OS. Saved now; the lock itself arrives in a later update."
           value={appLock}
           onValueChange={setAppLock}
         />
@@ -112,8 +188,16 @@ export default function MeScreen() {
 
       <SectionTitle title="Help & legal" />
       <Card>
-        <Row label="Privacy Policy" pill="Draft" />
-        <Row label="Terms of Service" pill="Draft" />
+        <Row
+          label="Privacy Policy"
+          pill="Draft"
+          onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+        />
+        <Row
+          label="Terms of Service"
+          pill="Draft"
+          onPress={() => void Linking.openURL(TERMS_URL)}
+        />
         <Row label="Licences" subtitle={OPEN_FOOD_FACTS_CREDIT} last />
       </Card>
 
