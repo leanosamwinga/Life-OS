@@ -1,0 +1,18 @@
+{
+  "code": "0000000000024",
+  "status": 1,
+  "status_verbose": "product found",
+  "product": {
+    "code": "0000000000024",
+    "product_name": "  Sweet chilli sauce  ",
+    "brands": "",
+    "nutriments": {
+      "energy_100g": 502,
+      "energy_unit": "kJ",
+      "carbohydrates_100g": 28,
+      "fat_100g": -1,
+      "proteins_100g": "n/a",
+      "sodium_100g": 0.76
+    }
+  }
+}

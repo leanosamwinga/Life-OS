@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "@life-os/core": "../../../packages/core/src/index.ts",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2"
+  }
+}

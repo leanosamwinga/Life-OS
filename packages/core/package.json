@@ -1,0 +1,19 @@
+{
+  "name": "@life-os/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure TypeScript domain types, nutrition maths and UK formatting for Life OS. No I/O.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}
