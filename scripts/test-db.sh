@@ -27,6 +27,12 @@ for migration in "$ROOT"/supabase/migrations/*.sql; do
   "${PSQL[@]}" -f "$migration"
 done
 
+# Load the seed too, as `supabase start` does, so tests must coexist with seed rows.
+if [[ -f "$ROOT/supabase/seed.sql" ]]; then
+  echo "seed: seed.sql"
+  "${PSQL[@]}" -f "$ROOT/supabase/seed.sql"
+fi
+
 failed=0
 for test_file in "$ROOT"/supabase/tests/*.test.sql; do
   echo "test: $(basename "$test_file")"

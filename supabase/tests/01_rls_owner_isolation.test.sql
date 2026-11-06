@@ -16,7 +16,7 @@ insert into public.consents (user_id, type) values
   ('22222222-2222-2222-2222-222222222222', 'health_data');
 
 insert into public.foods (id, user_id, source, barcode, name, kcal_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g) values
-  ('f0000000-0000-0000-0000-000000000001', null, 'open_food_facts', '0000000000017', 'Test oats', 370, 13, 60, 7),
+  ('f0000000-0000-0000-0000-000000000001', null, 'open_food_facts', '0000000009917', 'Test oats', 370, 13, 60, 7),
   ('f0000000-0000-0000-0000-00000000000b', '22222222-2222-2222-2222-222222222222', 'user', null, 'B secret recipe', 100, 1, 1, 1);
 
 insert into public.saved_meals (id, user_id, name, in_daily_plan, usual_time) values
