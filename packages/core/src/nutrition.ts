@@ -191,3 +191,8 @@ export function dayProgress(logs: DayLogs, targets: DailyTargets, date: LocalDat
     meals,
   };
 }
+
+/** Grams are stored to 1 decimal place (numeric(7,1)); round before computing a portion. */
+export function roundGrams(grams: number): number {
+  return roundTo(grams, 1);
+}
