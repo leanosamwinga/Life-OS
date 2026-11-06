@@ -88,8 +88,11 @@ export type Database = {
           kcal_per_100g: number | null;
           name: string | null;
           off_fetched_at: string | null;
+          pack_g: number | null;
           protein_per_100g: number | null;
+          remembered: boolean;
           salt_per_100g: number | null;
+          serving_g: number | null;
           source: string;
           sugar_per_100g: number | null;
           updated_at: string;
@@ -107,8 +110,11 @@ export type Database = {
           kcal_per_100g?: number | null;
           name?: string | null;
           off_fetched_at?: string | null;
+          pack_g?: number | null;
           protein_per_100g?: number | null;
+          remembered?: boolean;
           salt_per_100g?: number | null;
+          serving_g?: number | null;
           source: string;
           sugar_per_100g?: number | null;
           updated_at?: string;
@@ -125,8 +131,11 @@ export type Database = {
           kcal_per_100g?: number | null;
           name?: string | null;
           off_fetched_at?: string | null;
+          pack_g?: number | null;
           protein_per_100g?: number | null;
+          remembered?: boolean;
           salt_per_100g?: number | null;
+          serving_g?: number | null;
           source?: string;
           sugar_per_100g?: number | null;
           updated_at?: string;
