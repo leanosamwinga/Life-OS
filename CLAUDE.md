@@ -20,7 +20,7 @@ Read this first in every session. It is the source of truth for product decision
 ## Stack
 
 - App: Expo SDK 58 + TypeScript (strict) + Expo Router (routes in `apps/mobile/src/app`). JS tabs from `expo-router/js-tabs`. Read `apps/mobile/AGENTS.md` — Expo changes every SDK; check versioned docs, use `npx expo install`.
-- Backend: Supabase — Postgres, Auth (email + Sign in with Apple), Storage, Edge Functions (Deno), scheduled jobs. **RLS on every user table.**
+- Backend: Supabase — Postgres, Auth (Sign in with Apple, Google, email magic link with optional password), Storage, Edge Functions (Deno), scheduled jobs. **RLS on every user table.**
 - Shared logic: `packages/core` (pure TS, no I/O). App and edge functions import the same types and maths. Relative imports inside core use explicit `.ts` extensions so Deno can load it directly.
 - Apple Health: a maintained Expo-compatible HealthKit module, added in phase 3.
 
@@ -28,6 +28,7 @@ Read this first in every session. It is the source of truth for product decision
 
 ```
 apps/mobile            Expo app (src/app routes, src/components, src/features, src/lib, src/data)
+                       src/lib/backend: Backend interface + Supabase implementation; src/test: in-memory fake
 packages/core          types.ts, nutrition.ts, format.ts, time.ts, training.ts, defaults.ts (+ *.test.ts)
 supabase/config.toml   local stack config
 supabase/migrations    timestamped SQL migrations
@@ -50,6 +51,9 @@ npx deno check --config supabase/functions/food-lookup/deno.json supabase/functi
 
 ## Domain rules
 
+- **Screen Time** data can never be read, stored or synced. Apple draws the card on-device (DeviceActivityReport extension); Life OS stores only the user's choice to show it (`user_settings.screen_time_choice`). Never add tables, columns, logs or analytics for Screen Time values.
+- **Sign-in & onboarding**: Supabase Auth with PKCE and the `lifeos://auth/callback` redirect. Apple is always offered wherever Google is. First run: 0c health-data consent → 0d Apple Health → 0e Screen Time → 0f nudges → 0g name & targets; web and Android skip 0d and 0e, and "Not now" on consent skips 0d. `user_settings.onboarding_completed_at` gates the app.
+
 - **Nutrition**: foods store values **per 100 g** (kcal, protein, carbs, fat; optional fibre/sugar/salt). Portion = grams × per-100g ÷ 100, rounded to **whole kcal** and **1 dp macros** (`portionMacros`). A meal is a list of components (food + grams). A logged meal **snapshots** each component's macros at log time (`snapshotComponents`, `meal_log_items`) so food edits never rewrite history. Suggestions use the amount the user had **last time** (`food_portions_last`). Saved meals form the **roster**; plan meals are saved meals with `in_daily_plan = true` and a `usual_time`.
 - Missing nutrition is `null`, never invented. A food with unknown kcal/macros is a `FoodRecord`, not a loggable `Food` (`toFood` returns null) — the user completes it (wireframe 7e).
 - **Daily targets**: kcal, protein, carbs, fat, water (ml), steps. Today's progress = sum of logs for the **Europe/London local day** (`dayProgress`).
@@ -65,6 +69,7 @@ npx deno check --config supabase/functions/food-lookup/deno.json supabase/functi
 - New tables: add `created_at`/`updated_at` + the `set_updated_at` trigger, revoke from `anon`, grant to `authenticated`, enable RLS, write pgTAP tests proving cross-user isolation. Supabase's default privileges grant new tables to `anon` — revoke explicitly in each migration.
 - Never edit an applied migration; add a new timestamped one. Regenerate `apps/mobile/src/lib/database.types.ts` after schema changes.
 - Timestamps are `timestamptz` (UTC); convert to Europe/London only for display/day boundaries (`toLondonDate`, `formatDateUK`, `formatTimeUK`).
+- Screens talk to Supabase only through `Backend` (`src/lib/backend`) via `useSession()`/`useBackend()`, so jest tests run against `src/test/memoryBackend.ts`. Without Supabase env the app is "Not connected" and shows sample data.
 - UI: greyscale tokens in `apps/mobile/src/theme.ts`, system font, ≥44 pt touch targets, accessibility role + label on every control.
 - **No secrets in the repo.** Only `*.env.example` files are tracked. `EXPO_PUBLIC_*` values ship in the app bundle — only the anon key goes there. The service role key lives only in the edge runtime.
 - Sample/seed/test data must be obviously fake (example.test emails, 000… barcodes, generic names) — never real personal data.
@@ -73,8 +78,8 @@ npx deno check --config supabase/functions/food-lookup/deno.json supabase/functi
 ## Phase plan
 
 1. **Foundations** (done): monorepo, core maths, schema + RLS, food-lookup function, app shell.
-2. **Log meal flow** (wireframes 7a–7e): roster or new, build meal from components, scan barcode → food-lookup, "how much" with last-time amount, manual entry; "Ate it" from plan; water quick add; auth (email + Sign in with Apple) and health-consent onboarding.
-3. **Health**: Apple Health (steps, sleep, weight), supplements, Strava workouts + split rotation, "Log workout in Liftoff" deep link.
+2. **Sign-in, onboarding and log meal flow**: sign-in providers (Apple, Google, email magic link + optional password) and first-run onboarding (wireframes 0a–0g; HealthKit and Screen Time steps record the choice only); wireframes 7a–7e: roster or new, build meal from components, scan barcode → food-lookup, "how much" with last-time amount, manual entry; "Ate it" from plan; water quick add; Today and Health on real data.
+3. **Health**: Apple Health (steps, sleep, weight), supplements, Strava workouts + split rotation, "Log workout in Liftoff" deep link; Screen Time card (display-only, via the DeviceActivityReport extension; needs the Family Controls distribution entitlement).
 4. **Week**: device calendars, weekly rhythm, Notion church card with "remind me to chase".
 5. **Money**: monthly CSV import (Starling, NatWest, Amex), categories, budgets, 3-month-average forecast, bill detection, Trading 212 S&S ISA daily sync via read-only API key, manual monthly balances for T212 Cash ISA and Hargreaves Lansdown LISA.
 6. **Nudges** + morning briefing / evening check-in screens.
