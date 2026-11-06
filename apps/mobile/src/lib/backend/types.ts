@@ -1,5 +1,5 @@
 import type { Food, Instant, LocalTime, MealComponent, MealLog, WaterLog } from '@life-os/core';
-import type { RosterMeal, StoredFood } from './foods';
+import type { BarcodeLookup, RosterMeal, StoredFood, UserFoodInput } from './foods';
 import type { SettingsPatch, UserSettings } from './settings';
 
 export interface TimeRange {
@@ -87,6 +87,13 @@ export interface Backend {
   getFoods(ids: readonly string[]): Promise<StoredFood[]>;
   /** Most recently logged foods with the amount last time, newest first. */
   listRecentFoods(limit: number): Promise<RecentFood[]>;
+  /**
+   * Your own food for this barcode if you have one, else the food-lookup edge function
+   * (global Open Food Facts cache, fetched and cached on a miss).
+   */
+  lookupBarcode(barcode: string): Promise<BarcodeLookup>;
+  /** Create your own food, or update your existing one with the same barcode. */
+  saveUserFood(input: UserFoodInput): Promise<StoredFood>;
 }
 
 /** An error whose message is safe and friendly to show to the user. */

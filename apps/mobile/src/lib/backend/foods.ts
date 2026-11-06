@@ -11,7 +11,8 @@ import {
 import type { Database } from '../database.types';
 
 export type FoodRow = Database['public']['Tables']['foods']['Row'];
-export type StoredFood = FoodRecord & { id: string };
+/** A stored food. `remembered: false` keeps a user food out of search and suggestions. */
+export type StoredFood = FoodRecord & { id: string; remembered?: boolean };
 
 const n = (v: number | string | null | undefined): number | null =>
   v == null || v === '' ? null : Number(v);
@@ -31,6 +32,9 @@ export function foodRecordFromRow(row: FoodRow): StoredFood {
     fibrePer100g: n(row.fibre_per_100g),
     sugarPer100g: n(row.sugar_per_100g),
     saltPer100g: n(row.salt_per_100g),
+    packGrams: n(row.pack_g),
+    servingGrams: n(row.serving_g),
+    remembered: row.remembered,
   };
 }
 
@@ -138,5 +142,21 @@ export const saveMealComponents = (components: readonly MealComponent[]) =>
 
 /** Escape LIKE wildcards in user search text. */
 export const escapeLike = (q: string): string => q.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/** A food the user adds from the label (7e) or corrects after a scan. */
+export interface UserFoodInput {
+  name: string;
+  brand?: string | null;
+  barcode?: string | null;
+  per100g: { kcal: number; protein: number; carbs: number; fat: number };
+  packGrams?: number | null;
+  servingGrams?: number | null;
+  /** "Remember this food": off keeps it out of search and suggestions. */
+  remembered: boolean;
+}
+
+export type BarcodeLookup =
+  | { status: 'found'; food: StoredFood; source: 'yours' | 'open_food_facts' }
+  | { status: 'not_found' };
 
 export type { Food };
