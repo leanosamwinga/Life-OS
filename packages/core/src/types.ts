@@ -49,6 +49,9 @@ export interface Food {
   barcode?: string | null;
   source: FoodSource;
   per100g: NutrientsPer100g;
+  /** Whole pack and one serving in grams, when known (e.g. from Open Food Facts). */
+  packGrams?: number | null;
+  servingGrams?: number | null;
 }
 
 /** A food as stored, where any nutrient may be unknown. Never invent missing numbers. */
@@ -67,6 +70,9 @@ export interface FoodRecord {
   fibrePer100g: number | null;
   sugarPer100g: number | null;
   saltPer100g: number | null;
+  /** Whole pack and one serving in grams. Unknown is `null`; absent on older records. */
+  packGrams?: number | null;
+  servingGrams?: number | null;
 }
 
 /** One part of a meal: a food and how much of it. */

@@ -3,6 +3,8 @@ import type { DailyTargets, Food, MealComponent, MealLog } from './types.ts';
 import {
   dayProgress,
   portionMacros,
+  checkPer100g,
+  per100gFromServing,
   roundGrams,
   roundTo,
   snapshotComponents,
@@ -224,5 +226,53 @@ describe('parity with the log_meal SQL function', () => {
   it('rounds grams to 1 dp like the column', () => {
     expect(roundGrams(60.25)).toBe(60.3);
     expect(roundGrams(0.04)).toBe(0);
+  });
+});
+
+describe('label entry (7e)', () => {
+  it('converts per-serving values to per 100 g, keeping unknowns null', () => {
+    expect(per100gFromServing({ kcal: 108, protein: 1.8, carbs: 24, fat: null }, 30)).toEqual({
+      kcal: 360,
+      protein: 6,
+      carbs: 80,
+      fat: null,
+    });
+    expect(per100gFromServing({ kcal: 50 }, 3)).toEqual({ kcal: 1666.67 });
+    expect(() => per100gFromServing({ kcal: 1 }, 0)).toThrow(RangeError);
+  });
+
+  it('requires every headline value and rejects impossible ones', () => {
+    expect(checkPer100g({ kcal: 360, protein: 6, carbs: 80, fat: 1 })).toEqual({});
+    expect(checkPer100g({ kcal: null, protein: 6, carbs: 80 })).toEqual({
+      kcal: 'missing',
+      fat: 'missing',
+    });
+    expect(checkPer100g({ kcal: 950, protein: -1, carbs: 80, fat: 1 })).toEqual({
+      kcal: 'too_high',
+      protein: 'negative',
+    });
+    expect(checkPer100g({ kcal: 500, protein: 40, carbs: 50, fat: 20 })).toEqual({
+      total: 'macros_over_100g',
+    });
+  });
+
+  it('passes pack and serving sizes through toFood', () => {
+    const f = toFood({
+      id: 'x',
+      userId: null,
+      source: 'open_food_facts',
+      barcode: '0000000000017',
+      name: 'Pouch',
+      brand: null,
+      kcalPer100g: 120,
+      proteinPer100g: 0.8,
+      carbsPer100g: 28,
+      fatPer100g: 0.5,
+      fibrePer100g: null,
+      sugarPer100g: null,
+      saltPer100g: null,
+      packGrams: 120,
+    });
+    expect([f?.packGrams, f?.servingGrams]).toEqual([120, null]);
   });
 });
