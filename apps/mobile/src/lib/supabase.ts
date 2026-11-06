@@ -32,7 +32,10 @@ export function createSupabaseClient(env: SupabaseEnv = readSupabaseEnv()): Life
       ...(Platform.OS === 'web' ? {} : { storage: AsyncStorage }),
       autoRefreshToken: true,
       persistSession: true,
+      // We finish magic links and OAuth ourselves in src/app/auth/callback.tsx.
       detectSessionInUrl: false,
+      // PKCE: redirects carry a one-time `code` that only this device can exchange.
+      flowType: 'pkce',
     },
   });
 }
