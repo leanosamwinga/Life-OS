@@ -166,6 +166,8 @@ additional_redirect_urls = [
   "exp://127.0.0.1:8081/--/**",
   "http://localhost:8081/**",
   "http://127.0.0.1:8081/**",
+  # Expo Go on a phone uses your Mac's Wi-Fi address, e.g. exp://192.168.1.128:8081/--/auth/callback
+  "exp://**",
 ]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
@@ -251,6 +253,16 @@ otp_expiry = 3600
 # sender_name = "Admin"
 
 # Uncomment to customize email template
+# Sign-in email with a 6-digit code and a link that opens the app directly
+# (lifeos://… or exp://<your Mac>:8081/…), so it works from a phone in local development.
+[auth.email.template.magic_link]
+subject = "Your Life OS sign-in code"
+content_path = "./supabase/templates/sign-in.html"
+
+[auth.email.template.confirmation]
+subject = "Your Life OS sign-in code"
+content_path = "./supabase/templates/sign-in.html"
+
 # [auth.email.template.invite]
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
@@ -345,14 +357,17 @@ skip_nonce_check = false
 email_optional = false
 
 [auth.external.google]
-# Sign in with Google (web OAuth client; also used by the iOS/Android in-app browser flow).
+# Sign in with Google. CLIENT_ID is a comma-separated list: the Web client id first (the browser
+# flow uses it), then the iOS and Android client ids whose ID tokens the native sheet produces.
 # Set the client id/secret via env; never commit the secret. See README → "Sign-in providers".
 enabled = true
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
 redirect_uri = ""
 url = ""
-skip_nonce_check = false
+# The native iOS Google sheet puts a nonce in the ID token that the app can't pass on, so
+# Supabase can't check it. Matches the hosted setting "Skip nonce checks" for Google.
+skip_nonce_check = true
 email_optional = false
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS) standard.
