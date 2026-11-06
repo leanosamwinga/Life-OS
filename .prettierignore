@@ -1,0 +1,11 @@
+node_modules
+dist
+.expo
+coverage
+package-lock.json
+apps/mobile/ios
+apps/mobile/android
+apps/mobile/src/lib/database.types.ts
+supabase/.temp
+supabase/.branches
+*.sql
