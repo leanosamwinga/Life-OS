@@ -1,12 +1,7 @@
 import path from 'node:path';
 import { Alert, Platform } from 'react-native';
 import { fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
-import {
-  createMemoryBackend,
-  MEMORY_EMAIL_CODE,
-  TEST_USER,
-  type MemoryBackend,
-} from '@/test/memoryBackend';
+import { createMemoryBackend, TEST_USER, type MemoryBackend } from '@/test/memoryBackend';
 import type { MemoryState } from '@/test/memoryBackend';
 
 const APP_DIR = path.resolve(__dirname, '../app');
@@ -24,7 +19,7 @@ beforeEach(() => mockRequestPermission.mockClear());
 async function start(init: Partial<MemoryState> = {}, url = '/') {
   mockBackend = createMemoryBackend(init);
   await renderRouter(APP_DIR, { initialUrl: url });
-  await screen.findByTestId(/^screen-/);
+  await screen.findByTestId(/^screen-/, undefined, { timeout: 10_000 });
 }
 
 const press = (name: string | RegExp) => fireEvent.press(screen.getByRole('button', { name }));
@@ -42,103 +37,13 @@ function setPlatform(os: typeof Platform.OS) {
   Object.defineProperty(Platform, 'OS', { configurable: true, get: () => os });
 }
 
-describe('sign-in', () => {
-  afterEach(() => setPlatform('ios'));
-
-  it('signed out: shows Welcome with Apple, Google and email, and no "Not connected" banner', async () => {
+describe('sign-in entry', () => {
+  it('signed out: shows 0a Welcome with Create account and Sign in, no "Not connected" banner', async () => {
     await start();
-    expect(screen.getByTestId('screen-welcome')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Continue with Apple' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Continue with email' })).toBeTruthy();
+    expect(screen.getByTestId('screen-0a')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Create account' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
     expect(screen.queryByText('Not connected')).toBeNull();
-  });
-
-  it.each(['web', 'android'] as const)(
-    'offers Apple wherever Google is offered (%s)',
-    async (os) => {
-      setPlatform(os);
-      await start();
-      expect(screen.getByRole('button', { name: 'Continue with Apple' })).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeTruthy();
-    },
-  );
-
-  it('email: sends a magic link and shows "Check your inbox"', async () => {
-    await start();
-    await press('Continue with email');
-    await screen.findByTestId('screen-sign-in-email');
-    const send = screen.getByRole('button', { name: 'Send sign-in link' });
-    expect(send.props.accessibilityState.disabled).toBe(true);
-    await fireEvent.changeText(screen.getByLabelText('Email'), 'user-a@example.test');
-    await press('Send sign-in link');
-    expect(mockBackend.state.magicLinksSent).toEqual(['user-a@example.test']);
-    expect(screen.getByText('Check your inbox')).toBeTruthy();
-    await press('Resend sign-in link');
-    expect(mockBackend.state.magicLinksSent).toHaveLength(2);
-    expect(screen.getByText('Sent again.')).toBeTruthy();
-  });
-
-  it('email: password option shows a friendly error, then signs in into onboarding', async () => {
-    await start({ passwords: { 'user-a@example.test': 'correct horse' } });
-    await press('Continue with email');
-    await fireEvent.press(screen.getByRole('link', { name: 'Use a password instead' }));
-    await fireEvent.changeText(screen.getByLabelText('Email'), 'user-a@example.test');
-    await fireEvent.changeText(screen.getByLabelText('Password'), 'wrong');
-    await press('Sign in');
-    expect(screen.getByText(/don’t match/)).toBeTruthy();
-    await fireEvent.changeText(screen.getByLabelText('Password'), 'correct horse');
-    await press('Sign in');
-    expect(await screen.findByTestId('screen-onboarding-consent')).toBeTruthy();
-  });
-
-  it('email: the 6-digit code from the email signs you in on this device', async () => {
-    await start();
-    await press('Continue with email');
-    await fireEvent.changeText(screen.getByLabelText('Email'), 'user-a@example.test');
-    await press('Send sign-in link');
-    const signIn = screen.getByRole('button', { name: 'Sign in with code' });
-    expect(signIn.props.accessibilityState.disabled).toBe(true);
-    await fireEvent.changeText(screen.getByLabelText('6-digit code'), '000000');
-    await press('Sign in with code');
-    expect(screen.getByText(/expired or was already used/)).toBeTruthy();
-    await fireEvent.changeText(screen.getByLabelText('6-digit code'), `${MEMORY_EMAIL_CODE} `);
-    await press('Sign in with code');
-    expect(await screen.findByTestId('screen-onboarding-consent')).toBeTruthy();
-  });
-
-  it('development: "admin" signs in to the seeded local account with its password', async () => {
-    await start({ passwords: { 'admin@example.test': 'lifeos-admin' } });
-    await press('Continue with email');
-    await fireEvent.press(screen.getByRole('link', { name: 'Use a password instead' }));
-    await fireEvent.changeText(screen.getByLabelText('Email'), 'admin');
-    await fireEvent.changeText(screen.getByLabelText('Password'), 'lifeos-admin');
-    await press('Sign in');
-    expect(mockBackend.state.user?.email).toBe('admin@example.test');
-  });
-
-  it('the link in the email (token_hash) signs in without a PKCE code', async () => {
-    await start({}, '/auth/callback?token_hash=fake-hash&type=email');
-    expect(await screen.findByTestId('screen-onboarding-consent')).toBeTruthy();
-  });
-
-  it('a failed Google sign-in shows the error on Welcome', async () => {
-    await start();
-    mockBackend.failNext('signInWithGoogle', new Error('Google is not configured.'));
-    await press('Continue with Google');
-    expect(screen.getByText('Google is not configured.')).toBeTruthy();
-    expect(screen.getByTestId('screen-welcome')).toBeTruthy();
-  });
-
-  it('the magic-link callback signs in', async () => {
-    await start({}, '/auth/callback?code=fake-code');
-    expect(await screen.findByTestId('screen-onboarding-consent')).toBeTruthy();
-  });
-
-  it('a broken magic link explains what to do', async () => {
-    await start({}, '/auth/callback');
-    expect(await screen.findByText('Couldn’t sign you in')).toBeTruthy();
-    expect(screen.getByText(/incomplete/)).toBeTruthy();
   });
 
   it('signed in and set up: goes straight to Today; Sign out returns to Welcome', async () => {
@@ -146,7 +51,7 @@ describe('sign-in', () => {
     expect(screen.getByTestId('screen-today')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('tab-me'));
     await press('Sign out');
-    expect(await screen.findByTestId('screen-welcome')).toBeTruthy();
+    expect(await screen.findByTestId('screen-0a')).toBeTruthy();
   });
 });
 

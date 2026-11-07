@@ -1,0 +1,10 @@
+{
+  "extends": "../apps/mobile/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "paths": { "@/*": ["../apps/mobile/src/*"] }
+  },
+  "include": ["*.ts", "stubs/*.ts"],
+  "exclude": []
+}

@@ -12,23 +12,28 @@ values
   (null, 'open_food_facts', '0000000000055', 'Porridge oats', 'Sample Mills', 375, 11.0, 60.0, 8.0, 9.0, 1.1, 0, now())
 on conflict do nothing;
 
--- To try the app locally, sign up through the app or create a user in Studio
--- (http://127.0.0.1:54323), then grant health consent from Me → Privacy & data. Or use the
--- ready-made local account below.
+-- To try the app locally, create an account in the app (codes arrive in Mailpit,
+-- http://127.0.0.1:54324), or use the ready-made local account below.
 
 -- ---------------------------------------------------------------------------
--- Local development account — LOCAL ONLY.
---   Sign in with username "admin" (development builds) or admin@example.test, password
---   "lifeos-admin". Already onboarded, health-data consent on, targets and a few plan meals set,
---   so you land straight on Today. The seed never runs against the hosted project
---   (`supabase db push` doesn't apply it). Skipped on the plain-Postgres test shim.
+-- Local development account — LOCAL ONLY. Never reuse this password anywhere.
+--   Email admin@example.test, password "lifeos-local-admin-2026" (23 characters, not in the
+--   breach fixture). In development builds (__DEV__) the bare username "admin" also works.
+--   A confirmed PASSWORD account: already onboarded, health-data consent on, targets and a
+--   few plan meals set, so you land straight on Today. The seed never runs against the
+--   hosted project (`supabase db push` doesn't apply it). Skipped on the plain-Postgres shim.
+--
+--   Supabase Auth stores bcrypt(base64url(HMAC-SHA256(pepper, NFKC(password)))) — see
+--   supabase/functions/auth-api/password.ts. The pepper below is the documented LOCAL
+--   default (AUTH_PASSWORD_PEPPER_V1 in supabase/functions/.env.example); the hosted
+--   project uses its own secret, so this hash is useless there.
 -- ---------------------------------------------------------------------------
 do $$
 declare
   v_id constant uuid := '00000000-0000-4000-8000-00000000ad01';
   v_meal uuid;
 begin
-  if to_regclass('auth.identities') is null then
+  if to_regclass('auth.refresh_tokens') is null then
     raise notice 'seed: no Supabase Auth schema here, skipping the local admin account';
     return;
   end if;
@@ -42,7 +47,13 @@ begin
     confirmation_token, email_change, email_change_token_new, recovery_token
   ) values (
     '00000000-0000-0000-0000-000000000000', v_id, 'authenticated', 'authenticated',
-    'admin@example.test', extensions.crypt('lifeos-admin', extensions.gen_salt('bf')), now(),
+    'admin@example.test',
+    extensions.crypt(
+      translate(rtrim(encode(extensions.hmac(
+        convert_to(normalize('lifeos-local-admin-2026', NFKC), 'UTF8'),
+        convert_to('local-dev-pepper-NOT-A-SECRET', 'UTF8'), 'sha256'), 'base64'), '='), '+/', '-_'),
+      extensions.gen_salt('bf', 10)),
+    now(),
     '{"provider":"email","providers":["email"]}', '{"display_name":"Admin"}', now(), now(),
     '', '', '', ''
   );
@@ -52,6 +63,9 @@ begin
     jsonb_build_object('sub', v_id::text, 'email', 'admin@example.test', 'email_verified', true),
     'email', now(), now(), now()
   );
+
+  insert into public.auth_accounts (user_id, email, method, status, confirmed_at, password_changed_at, pepper_version)
+  values (v_id, 'admin@example.test', 'PASSWORD', 'ACTIVE', now(), now(), 1);
 
   -- handle_new_user() created the profile and settings; finish onboarding.
   insert into public.consents (user_id, type, policy_version) values (v_id, 'health_data', '2026-11-06');

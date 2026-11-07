@@ -16,12 +16,8 @@ import {
   type SettingsPatch,
   type UserSettings,
 } from '@/lib/backend/settings';
-import {
-  UserFacingError,
-  type AuthListener,
-  type AuthUser,
-  type Backend,
-} from '@/lib/backend/types';
+import { UserFacingError, type AuthUser, type Backend } from '@/lib/backend/types';
+import { createMemoryAuth, type MemoryAuth, type MemoryAuthState } from './memoryAuth';
 
 export interface MemoryState {
   user: AuthUser | null;
@@ -30,8 +26,6 @@ export interface MemoryState {
   healthConsent: boolean;
   /** Every consent change, as the audit trail would record it. */
   consentLog: ('granted' | 'withdrawn')[];
-  magicLinksSent: string[];
-  passwords: Record<string, string>;
   calls: string[];
   foods: StoredFood[];
   savedMeals: {
@@ -48,26 +42,27 @@ export interface MemoryState {
 
 export type MemoryBackend = Backend & {
   state: MemoryState;
-  /** Make the next call of `method` reject with this error. */
+  /** The fake auth-api (accounts, codes, tickets, sessions). */
+  auth: MemoryAuth;
+  /** Make the next call of `method` reject with this error (data or auth methods). */
   failNext(method: string, error: Error): void;
-  /** Simulate signing in (e.g. after a magic link). */
-  signInAs(user: AuthUser): void;
+  signInAs(user: AuthUser | null): void;
 };
 
-/** The code the fake "email" contains. */
-export const MEMORY_EMAIL_CODE = '123456';
+export { MEMORY_EMAIL_CODE, TEST_PASSWORD, BREACHED_PASSWORD } from './memoryAuth';
 
 export const TEST_USER: AuthUser = { id: 'user-test-0001', email: 'user-a@example.test' };
 
-export function createMemoryBackend(init: Partial<MemoryState> = {}): MemoryBackend {
+export function createMemoryBackend(
+  init: Partial<MemoryState> = {},
+  authInit: Partial<MemoryAuthState> = {},
+): MemoryBackend {
   const state: MemoryState = {
     user: null,
     displayName: null,
     settings: defaultUserSettings(),
     healthConsent: false,
     consentLog: [],
-    magicLinksSent: [],
-    passwords: {},
     calls: [],
     foods: [],
     savedMeals: [],
@@ -78,10 +73,12 @@ export function createMemoryBackend(init: Partial<MemoryState> = {}): MemoryBack
   };
   let seq = 0;
   const newId = (prefix: string) => `${prefix}-${++seq}`;
-  const listeners = new Set<AuthListener>();
   const failures = new Map<string, Error>();
-
-  const emit = () => listeners.forEach((l) => l(state.user));
+  const auth = createMemoryAuth({ ...authInit, user: authInit.user ?? state.user });
+  // One user for both halves: the data fake follows the auth fake.
+  auth.onChange((u) => {
+    state.user = u;
+  });
   const call = async (name: string) => {
     state.calls.push(name);
     const err = failures.get(name);
@@ -129,67 +126,15 @@ export function createMemoryBackend(init: Partial<MemoryState> = {}): MemoryBack
 
   const backend: MemoryBackend = {
     state,
-    failNext: (method, error) => failures.set(method, error),
+    failNext: (method, error) => {
+      failures.set(method, error);
+      auth.failNext(method, error);
+    },
     signInAs(user) {
       state.user = user;
-      emit();
+      auth.signInAs(user);
     },
-    auth: {
-      async currentUser() {
-        return state.user;
-      },
-      onChange(listener) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      async sendMagicLink(email) {
-        await call('sendMagicLink');
-        state.magicLinksSent.push(email);
-      },
-      async verifyEmailCode(email, code) {
-        await call('verifyEmailCode');
-        if (!state.magicLinksSent.includes(email) || code !== MEMORY_EMAIL_CODE) {
-          throw new UserFacingError(
-            'That code or link has expired or was already used. Send a new one.',
-          );
-        }
-        backend.signInAs({ id: TEST_USER.id, email });
-      },
-      async signInWithPassword(email, password) {
-        await call('signInWithPassword');
-        if (state.passwords[email] !== password) {
-          throw new UserFacingError(
-            'That email and password don’t match. Try again or use a sign-in link.',
-          );
-        }
-        backend.signInAs({ id: TEST_USER.id, email });
-      },
-      async signUpWithPassword(email, password) {
-        await call('signUpWithPassword');
-        state.passwords[email] = password;
-        backend.signInAs({ id: TEST_USER.id, email });
-        return { needsEmailConfirmation: false };
-      },
-      async signInWithApple() {
-        await call('signInWithApple');
-        backend.signInAs(TEST_USER);
-      },
-      async signInWithGoogle() {
-        await call('signInWithGoogle');
-        backend.signInAs(TEST_USER);
-      },
-      async completeRedirect(params) {
-        await call('completeRedirect');
-        if (!params.code && !params.token_hash)
-          throw new UserFacingError('That sign-in link is incomplete. Send a new one.');
-        backend.signInAs(TEST_USER);
-      },
-      async signOut() {
-        await call('signOut');
-        state.user = null;
-        emit();
-      },
-    },
+    auth,
     async getProfile() {
       await call('getProfile');
       requireUser();

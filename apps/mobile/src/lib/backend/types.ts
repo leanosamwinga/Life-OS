@@ -30,16 +30,93 @@ export interface RecentFood {
   loggedAt: Instant;
 }
 
+export type SessionScope = 'FULL' | 'PENDING_DELETION';
+
 export interface AuthUser {
   id: string;
   email: string | null;
+  /** PENDING_DELETION sessions can only see S-5h (spec 8.1). */
+  scope?: SessionScope;
 }
 
 export type AuthListener = (user: AuthUser | null) => void;
 
-/** Result of an email + password sign-up. Production projects usually confirm by email first. */
-export interface SignUpResult {
-  needsEmailConfirmation: boolean;
+export type Provider = 'APPLE' | 'GOOGLE';
+export type Intent = 'CREATE' | 'SIGN_IN';
+
+/** A 6-digit code was emailed (0b-4, 0b-5h). */
+export interface CodeChallenge {
+  challengeId: string;
+  codeExpiresAt: string;
+  resendAvailableAt: string;
+}
+
+export interface SignInResult {
+  accountCreated: boolean;
+  scope: SessionScope;
+}
+
+export interface SecurityInfo {
+  method: 'PASSWORD' | Provider;
+  email: string;
+  isPrivateRelay: boolean;
+  passwordChangedAt: string | null;
+  deviceCount: number;
+}
+
+/** One row of S-4. Never an IP address: platform, label and a rough town only. */
+export interface DeviceSession {
+  id: string;
+  label: string;
+  platform: 'ios' | 'android' | 'web';
+  coarseLocation: string | null;
+  lastActiveAt: string;
+  isCurrent: boolean;
+}
+
+/**
+ * Sign-in v3 (docs/sign-in-spec.md). Every call goes to the auth-api edge function; errors are
+ * `AuthError` with the spec's codes (src/lib/auth/errors.ts) and screens show spec copy.
+ */
+export interface AuthApi {
+  currentUser(): Promise<AuthUser | null>;
+  /** Subscribe to sign-in / sign-out. Returns an unsubscribe function. */
+  onChange(listener: AuthListener): () => void;
+
+  // 0b-3 / 0b-4
+  createAccount(email: string, password: string): Promise<CodeChallenge>;
+  confirmEmail(challengeId: string, code: string): Promise<SignInResult>;
+  resendCode(challengeId: string): Promise<CodeChallenge>;
+  // 0b-5 / 0b-5h
+  signInWithPassword(email: string, password: string): Promise<SignInResult>;
+  stepUp(challengeId: string, code: string): Promise<SignInResult>;
+  // 0b-8: runs Apple's or Google's own UI, then auth-api
+  signInWithProvider(provider: Provider, intent: Intent): Promise<SignInResult>;
+  /** 0b-8h / 0b-8i one-tap. */
+  useTicket(ticket: string): Promise<SignInResult>;
+  // 0b-7
+  requestPasswordReset(email: string): Promise<void>;
+  verifyResetLink(token: string): Promise<{ email: string }>;
+  completeReset(token: string, newPassword: string): Promise<void>;
+  /** k-anonymity range for the live breach tick (only 5 hex characters leave the device). */
+  breachRange(prefix: string): Promise<string>;
+
+  signOut(): Promise<void>;
+
+  // Me → Security (row 9)
+  security(): Promise<SecurityInfo>;
+  listSessions(): Promise<DeviceSession[]>;
+  revokeSession(id: string): Promise<void>;
+  /** Signs out every device, this one included. */
+  revokeAllSessions(): Promise<void>;
+  changePassword(currentPassword: string, newPassword: string): Promise<void>;
+  reauthWithPassword(password: string): Promise<string>;
+  reauthWithProvider(provider: Provider): Promise<string>;
+  requestDeletion(reauthToken: string): Promise<{ deletionDueAt: string }>;
+  getDeletion(): Promise<{ deletionDueAt: string } | null>;
+  cancelDeletion(): Promise<void>;
+  /** Downloads (web) or shares (iPhone) a copy of the user's data. */
+  exportData(format: 'json' | 'csv'): Promise<void>;
 }
 
 /**
@@ -47,22 +124,7 @@ export interface SignUpResult {
  * an in-memory fake. The Supabase implementation lives in `./supabase.ts`.
  */
 export interface Backend {
-  auth: {
-    currentUser(): Promise<AuthUser | null>;
-    /** Subscribe to sign-in / sign-out. Returns an unsubscribe function. */
-    onChange(listener: AuthListener): () => void;
-    /** Email a sign-in link and a 6-digit code. */
-    sendMagicLink(email: string): Promise<void>;
-    /** Sign in with the 6-digit code from that email. */
-    verifyEmailCode(email: string, code: string): Promise<void>;
-    signInWithPassword(email: string, password: string): Promise<void>;
-    signUpWithPassword(email: string, password: string): Promise<SignUpResult>;
-    signInWithApple(): Promise<void>;
-    signInWithGoogle(): Promise<void>;
-    /** Finish a magic-link or OAuth redirect (`lifeos://auth/callback?code=…`). */
-    completeRedirect(params: Record<string, string | undefined>): Promise<void>;
-    signOut(): Promise<void>;
-  };
+  auth: AuthApi;
 
   getProfile(): Promise<{ displayName: string | null }>;
   updateProfile(patch: { displayName: string | null }): Promise<void>;
@@ -102,6 +164,17 @@ export interface Backend {
 /** An error whose message is safe and friendly to show to the user. */
 export class UserFacingError extends Error {
   override name = 'UserFacingError';
+}
+
+/**
+ * The Data API turned the session down (SESSION_REVOKED / SESSION_EXPIRED). The session has
+ * already been forgotten on this device and the app is on its way to 0a (spec 3.3: no message).
+ */
+export class SessionEndedError extends UserFacingError {
+  override name = 'SessionEndedError';
+  constructor() {
+    super('You’re signed out. Sign in again to continue.');
+  }
 }
 
 /** Sign-in was cancelled by the user (closed the sheet). Not an error worth showing. */

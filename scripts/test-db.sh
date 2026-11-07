@@ -32,6 +32,7 @@ if [[ -f "$ROOT/supabase/seed.sql" ]]; then
   echo "seed: seed.sql"
   "${PSQL[@]}" -f "$ROOT/supabase/seed.sql"
 fi
+"${PSQL[@]}" -f "$ROOT/supabase/fixtures/breached-passwords.sql"
 
 failed=0
 for test_file in "$ROOT"/supabase/tests/*.test.sql; do

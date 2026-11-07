@@ -1,11 +1,7 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
-import { Platform } from 'react-native';
 import { PRIVACY_POLICY_VERSION, toFood } from '@life-os/core';
+import type { AuthClient } from '../auth/client';
 import type { LifeOsClient } from '../supabase';
-import { canUseNativeGoogle, nativeGoogleIdToken } from './googleNative';
 import {
   escapeLike,
   foodRecordFromRow,
@@ -18,25 +14,19 @@ import {
   type SavedMealRow,
 } from './foods';
 import { rowFromPatch, settingsFromRow } from './settings';
-import { CancelledError, UserFacingError, type AuthUser, type Backend } from './types';
+import { SESSION_ENDED_CODES } from './sessionFetch';
+import { SessionEndedError, UserFacingError, type Backend } from './types';
 import type { StoredFood } from './foods';
 
-/** Where magic links and OAuth providers send the user back: `lifeos://auth/callback` (or the web origin). */
-export const authRedirectUrl = (): string => Linking.createURL('auth/callback');
-
-/** Read `code`, `error_description`, … from both the query string and the hash of a redirect URL. */
-export function redirectParams(url: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  const [beforeHash, hash = ''] = url.split('#');
-  const query = beforeHash?.split('?')[1] ?? '';
-  for (const part of [query, hash]) {
-    for (const [k, v] of new URLSearchParams(part)) out[k] = v;
-  }
-  return out;
-}
+/**
+ * Generated RPC argument types can't say that a SQL parameter accepts NULL (postgres-meta types
+ * every argument as its base type), but save_meal and log_meal take NULL for "new" and "none".
+ */
+const sqlNull = <T>(value: T | null) => value as T;
 
 function friendly(error: { message?: string; code?: string; status?: number } | null): never {
   const msg = error?.message ?? 'Something went wrong. Please try again.';
+  if (error?.code && SESSION_ENDED_CODES.has(error.code)) throw new SessionEndedError();
   if (error?.code === '42501') {
     throw new UserFacingError(
       'Health data is off. Turn on “Use my health data” in Me to log meals and water.',
@@ -46,173 +36,21 @@ function friendly(error: { message?: string; code?: string; status?: number } | 
   if (error?.code === '22023' || error?.code === 'P0002') {
     throw new UserFacingError(msg.charAt(0).toUpperCase() + msg.slice(1) + '.');
   }
-  if (/invalid login credentials/i.test(msg)) {
-    throw new UserFacingError(
-      'That email and password don’t match. Try again or use a sign-in link.',
-    );
-  }
   if (/rate limit|too many/i.test(msg) || error?.status === 429) {
     throw new UserFacingError('Too many attempts. Wait a minute and try again.');
-  }
-  if (/expired|invalid.*(otp|token|code)|verifier/i.test(msg)) {
-    throw new UserFacingError('That code or link has expired or was already used. Send a new one.');
   }
   throw new UserFacingError(msg);
 }
 
-const toUser = (u: { id: string; email?: string | null } | null | undefined): AuthUser | null =>
-  u ? { id: u.id, email: u.email ?? null } : null;
-
-export function supabaseBackend(client: LifeOsClient): Backend {
-  const auth = client.auth;
-
+export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): Backend {
   async function uid(): Promise<string> {
-    const { data } = await auth.getSession();
-    const id = data.session?.user.id;
+    const id = await authClient.userId();
     if (!id) throw new UserFacingError('You’re signed out. Sign in again to continue.');
     return id;
   }
 
-  async function exchange(params: Record<string, string | undefined>): Promise<void> {
-    if (params.error_description || params.error) {
-      friendly({ message: params.error_description ?? params.error });
-    }
-    // Link from our email template: ?token_hash=…&type=email. Works on any device, no PKCE verifier.
-    if (params.token_hash) {
-      const { error } = await auth.verifyOtp({
-        token_hash: params.token_hash,
-        type: params.type === 'signup' ? 'signup' : 'email',
-      });
-      if (error) friendly(error);
-      return;
-    }
-    if (params.code) {
-      const { error } = await auth.exchangeCodeForSession(
-        params.code,
-        params.sb_flow_id ? { flowId: params.sb_flow_id } : undefined,
-      );
-      if (error) friendly(error);
-      return;
-    }
-    // Implicit-flow fallback (tokens in the hash).
-    if (params.access_token && params.refresh_token) {
-      const { error } = await auth.setSession({
-        access_token: params.access_token,
-        refresh_token: params.refresh_token,
-      });
-      if (error) friendly(error);
-      return;
-    }
-    throw new UserFacingError('That sign-in link is incomplete. Send a new one.');
-  }
-
-  /** OAuth via the system browser sheet (iOS/Android) or a full-page redirect (web). */
-  async function oauth(provider: 'google' | 'apple'): Promise<void> {
-    const redirectTo = authRedirectUrl();
-    if (Platform.OS === 'web') {
-      const { error } = await auth.signInWithOAuth({ provider, options: { redirectTo } });
-      if (error) friendly(error);
-      return; // The page navigates away; /auth/callback finishes the sign-in.
-    }
-    const { data, error } = await auth.signInWithOAuth({
-      provider,
-      options: { redirectTo, skipBrowserRedirect: true },
-    });
-    if (error || !data.url) friendly(error);
-    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-    if (result.type !== 'success') throw new CancelledError('Sign-in cancelled');
-    await exchange({ ...redirectParams(result.url), sb_flow_id: data.flowId ?? undefined });
-  }
-
   return {
-    auth: {
-      async currentUser() {
-        const { data } = await auth.getSession();
-        return toUser(data.session?.user);
-      },
-      onChange(listener) {
-        const { data } = auth.onAuthStateChange((_event, session) =>
-          listener(toUser(session?.user)),
-        );
-        return () => data.subscription.unsubscribe();
-      },
-      async sendMagicLink(email) {
-        const { error } = await auth.signInWithOtp({
-          email,
-          options: { emailRedirectTo: authRedirectUrl(), shouldCreateUser: true },
-        });
-        if (error) friendly(error);
-      },
-      async signInWithPassword(email, password) {
-        const { error } = await auth.signInWithPassword({ email, password });
-        if (error) friendly(error);
-      },
-      async signUpWithPassword(email, password) {
-        const { data, error } = await auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: authRedirectUrl() },
-        });
-        if (error) friendly(error);
-        return { needsEmailConfirmation: !data.session };
-      },
-      async signInWithApple() {
-        if (Platform.OS !== 'ios') return oauth('apple');
-        let credential: AppleAuthentication.AppleAuthenticationCredential;
-        try {
-          credential = await AppleAuthentication.signInAsync({
-            requestedScopes: [
-              AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-              AppleAuthentication.AppleAuthenticationScope.EMAIL,
-            ],
-          });
-        } catch (err) {
-          if ((err as { code?: string }).code === 'ERR_REQUEST_CANCELED') {
-            throw new CancelledError('Sign-in cancelled');
-          }
-          throw err;
-        }
-        if (!credential.identityToken)
-          throw new UserFacingError('Apple didn’t return a sign-in token.');
-        const { error } = await auth.signInWithIdToken({
-          provider: 'apple',
-          token: credential.identityToken,
-        });
-        if (error) friendly(error);
-        // Apple only shares the name on the very first sign-in, and not inside the token.
-        const given = credential.fullName?.givenName?.trim();
-        if (given) {
-          await auth.updateUser({
-            data: {
-              given_name: given,
-              full_name: [given, credential.fullName?.familyName].filter(Boolean).join(' '),
-            },
-          });
-          const id = await uid();
-          await client
-            .from('profiles')
-            .update({ display_name: given })
-            .eq('id', id)
-            .is('display_name', null);
-        }
-      },
-      async signInWithGoogle() {
-        // Native account sheet in development/store builds; the browser in Expo Go and on web.
-        if (!canUseNativeGoogle()) return oauth('google');
-        const token = await nativeGoogleIdToken();
-        const { error } = await auth.signInWithIdToken({ provider: 'google', token });
-        if (error) friendly(error);
-      },
-      async verifyEmailCode(email, code) {
-        const { error } = await auth.verifyOtp({ email, token: code, type: 'email' });
-        if (error) friendly(error);
-      },
-      completeRedirect: exchange,
-      async signOut() {
-        const { error } = await auth.signOut();
-        if (error) friendly(error);
-      },
-    },
+    auth: authClient,
 
     async getProfile() {
       const id = await uid();
@@ -287,10 +125,10 @@ export function supabaseBackend(client: LifeOsClient): Backend {
     },
     async saveMeal(input) {
       const { data, error } = await client.rpc('save_meal', {
-        p_id: input.id,
+        p_id: sqlNull(input.id),
         p_name: input.name,
         p_in_daily_plan: input.inDailyPlan,
-        p_usual_time: input.inDailyPlan ? input.usualTime : null,
+        p_usual_time: sqlNull(input.inDailyPlan ? input.usualTime : null),
         p_components: saveMealComponents(input.components),
       });
       if (error) friendly(error);
@@ -315,7 +153,7 @@ export function supabaseBackend(client: LifeOsClient): Backend {
     async logMeal(input) {
       const { data, error } = await client.rpc('log_meal', {
         p_name: input.name,
-        p_saved_meal_id: input.savedMealId,
+        p_saved_meal_id: sqlNull(input.savedMealId),
         p_logged_at: input.loggedAt,
         p_items: logMealItems(input.components),
       });

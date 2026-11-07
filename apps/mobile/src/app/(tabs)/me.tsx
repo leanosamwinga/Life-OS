@@ -96,6 +96,12 @@ export default function MeScreen() {
               muted={!session.displayName}
             />
             <Row
+              label="Security"
+              subtitle="Sign-in method, password and devices"
+              chevron
+              onPress={() => router.push('/security')}
+            />
+            <Row
               label="Sign out"
               onPress={() => void save(() => session.backend!.auth.signOut())}
               accessibilityHint="Signs you out on this device"
@@ -182,8 +188,37 @@ export default function MeScreen() {
           value={appLock}
           onValueChange={setAppLock}
         />
-        <Row label="Export my data" subtitle="CSV and JSON" pill="Later" />
-        <Row label="Delete account" subtitle="Erases everything within 30 days" pill="Later" last />
+        {session.status === 'signedIn' ? (
+          <>
+            <Row
+              label="Export my data (JSON)"
+              subtitle="Everything in one file"
+              onPress={() => void save(() => session.backend!.auth.exportData('json'))}
+            />
+            <Row
+              label="Export my data (CSV)"
+              subtitle="One spreadsheet per table, zipped"
+              onPress={() => void save(() => session.backend!.auth.exportData('csv'))}
+            />
+            <Row
+              label="Delete account"
+              subtitle="30 days to change your mind, then erased"
+              chevron
+              onPress={() => router.push('/security/delete')}
+              last
+            />
+          </>
+        ) : (
+          <>
+            <Row label="Export my data" subtitle="CSV and JSON" muted />
+            <Row
+              label="Delete account"
+              subtitle="30 days to change your mind, then erased"
+              muted
+              last
+            />
+          </>
+        )}
       </Card>
 
       <SectionTitle title="Help & legal" />
