@@ -234,7 +234,7 @@ run('sign-in v3 flows (real Supabase Auth)', () => {
     it('pause: the 5th wrong try pauses this device; another device still signs in; the right password is refused while paused; doubles; resets after 24 h', async () => {
       const email = testEmail('pause');
       await createConfirmed(email);
-      const paused = h.device(undefined, '192.0.2.10');
+      const paused = h.device();
       for (let i = 1; i <= 4; i++) {
         const r = await signIn(email, `wrong password number ${i}`, paused);
         expect(r.body.error.code).toBe('WRONG_PASSWORD');
@@ -247,7 +247,7 @@ run('sign-in v3 flows (real Supabase Auth)', () => {
       expect(fifth.body.error.retry_after_seconds).toBeLessThanOrEqual(15 * 60);
 
       expect((await signIn(email, PASSWORD, paused)).body.error.code).toBe('SIGN_IN_PAUSED');
-      expect((await signIn(email, PASSWORD, h.device(undefined, '192.0.2.99'))).status).toBe(200);
+      expect((await signIn(email, PASSWORD, h.device())).status).toBe(200);
 
       // After the pause, 5 more failures → a 30-minute pause (doubling). (Past the hour, so the
       // ~10-an-hour look-up limit, which is checked first, doesn't answer instead.)
@@ -275,7 +275,7 @@ run('sign-in v3 flows (real Supabase Auth)', () => {
       // 20 wrong passwords spread over 5 devices/IPs (4 each, so none of them is paused), over
       // a few hours (the per-email look-up limit is about 10 an hour).
       for (let dev = 0; dev < 5; dev++) {
-        const d = h.device(undefined, `198.18.${dev}.1`);
+        const d = h.device();
         for (let i = 0; i < 4; i++) await signIn(email, `spread guess ${dev}-${i}`, d);
         h.advance(61 * 60_000);
       }

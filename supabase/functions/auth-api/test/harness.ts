@@ -163,6 +163,9 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
   });
 
   let deviceSeq = 0;
+  // Random per run, so devices from an earlier run (whose rate-limit rows are still in the
+  // database) never share an IP with this one.
+  const runNet = Math.floor(Math.random() * 65536);
   return {
     sql,
     mail,
@@ -177,7 +180,8 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
         'X-Device-Id': id ?? `test-device-${Date.now()}-${n}-abcdef`,
         'X-Device-Platform': 'ios',
         'X-Device-Label': 'iPhone 15',
-        'X-Forwarded-For': ip ?? `10.${(Date.now() >> 8) & 255}.${(n >> 8) & 255}.${n & 255}`,
+        'X-Forwarded-For':
+          ip ?? `10.${runNet >> 8}.${(runNet & 255) ^ ((n >> 8) & 255)}.${n & 255}`,
       };
     },
     async handle(req) {
