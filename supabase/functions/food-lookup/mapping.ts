@@ -12,6 +12,13 @@ export interface OffProductResponse {
     product_name_en_gb?: string;
     generic_name?: string;
     brands?: string;
+    /** Pack size, e.g. "500 g". */
+    quantity?: string;
+    product_quantity?: number | string;
+    product_quantity_unit?: string;
+    serving_size?: string;
+    serving_quantity?: number | string;
+    serving_quantity_unit?: string;
     nutriments?: Record<string, unknown>;
   };
 }
@@ -31,6 +38,8 @@ export interface FoodRow {
   fibre_per_100g: number | null;
   sugar_per_100g: number | null;
   salt_per_100g: number | null;
+  pack_g?: number | null;
+  serving_g?: number | null;
   off_fetched_at?: string | null;
 }
 
@@ -64,6 +73,18 @@ function text(value: unknown, maxLength = 200): string | null {
   if (typeof value !== 'string') return null;
   const t = value.trim().replace(/\s+/g, ' ');
   return t === '' ? null : t.slice(0, maxLength);
+}
+
+/**
+ * Grams from an OFF quantity, only when the unit is grams (default unit is g). Millilitres
+ * are not grams, so liquids get `null` rather than a guess.
+ */
+function grams(value: unknown, unit: unknown, max: number): number | null {
+  const u = typeof unit === 'string' && unit.trim() !== '' ? unit.trim().toLowerCase() : 'g';
+  if (u !== 'g') return null;
+  const n = num(value);
+  if (n == null || n <= 0 || n > max) return null;
+  return Math.round(n * 10) / 10;
 }
 
 /**
@@ -106,6 +127,8 @@ export function mapOffProduct(barcode: string, response: OffProductResponse): Fo
     fibrePer100g: plausible(num(n['fiber_100g']), 100),
     sugarPer100g: plausible(num(n['sugars_100g']), 100),
     saltPer100g: plausible(salt, 100),
+    packGrams: grams(p.product_quantity, p.product_quantity_unit, 100000),
+    servingGrams: grams(p.serving_quantity, p.serving_quantity_unit, 10000),
   };
 }
 
@@ -124,6 +147,8 @@ export function toFoodRow(record: FoodRecord, fetchedAt: Date): FoodRow {
     fibre_per_100g: record.fibrePer100g,
     sugar_per_100g: record.sugarPer100g,
     salt_per_100g: record.saltPer100g,
+    pack_g: record.packGrams ?? null,
+    serving_g: record.servingGrams ?? null,
     off_fetched_at: fetchedAt.toISOString(),
   };
 }
@@ -148,6 +173,8 @@ export function fromFoodRow(row: FoodRow): FoodRecord & { fetchedAt: string | nu
     fibrePer100g: dbNum(row.fibre_per_100g),
     sugarPer100g: dbNum(row.sugar_per_100g),
     saltPer100g: dbNum(row.salt_per_100g),
+    packGrams: dbNum(row.pack_g),
+    servingGrams: dbNum(row.serving_g),
     fetchedAt: row.off_fetched_at ?? null,
   };
 }

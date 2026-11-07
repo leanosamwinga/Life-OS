@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
@@ -17,6 +18,7 @@ import {
 } from './foods';
 import { rowFromPatch, settingsFromRow } from './settings';
 import { CancelledError, UserFacingError, type AuthUser, type Backend } from './types';
+import type { StoredFood } from './foods';
 
 /** Where magic links and OAuth providers send the user back: `lifeos://auth/callback` (or the web origin). */
 export const authRedirectUrl = (): string => Linking.createURL('auth/callback');
@@ -328,6 +330,7 @@ export function supabaseBackend(client: LifeOsClient): Backend {
         .from('foods')
         .select('*')
         .ilike('name', `%${escapeLike(q)}%`)
+        .eq('remembered', true)
         .order('name')
         .limit(25);
       if (error) friendly(error);
@@ -352,11 +355,75 @@ export function supabaseBackend(client: LifeOsClient): Backend {
       return (
         data as unknown as { grams: number; logged_at: string; foods: FoodRow | null }[]
       ).flatMap((r) => {
-        const food = r.foods ? toFood(foodRecordFromRow(r.foods)) : null;
+        const food = r.foods?.remembered ? toFood(foodRecordFromRow(r.foods)) : null;
         return food
           ? [{ food, grams: Number(r.grams), loggedAt: new Date(r.logged_at).toISOString() }]
           : [];
       });
+    },
+    async lookupBarcode(barcode) {
+      const id = await uid();
+      const own = await client
+        .from('foods')
+        .select('*')
+        .eq('user_id', id)
+        .eq('barcode', barcode)
+        .maybeSingle();
+      if (own.error) friendly(own.error);
+      if (own.data) return { status: 'found', food: foodRecordFromRow(own.data), source: 'yours' };
+
+      const { data, error } = await client.functions.invoke<{ food: StoredFood }>('food-lookup', {
+        body: { barcode },
+      });
+      if (error) {
+        const status = error instanceof FunctionsHttpError ? (error.context as Response).status : 0;
+        if (status === 404) return { status: 'not_found' };
+        if (status === 400) {
+          throw new UserFacingError(
+            'That doesn’t look like a food barcode. Try again or type it in.',
+          );
+        }
+        throw new UserFacingError(
+          'Couldn’t look that barcode up right now. Try again, or add it from the label.',
+        );
+      }
+      if (!data?.food?.id) return { status: 'not_found' };
+      return { status: 'found', food: data.food, source: 'open_food_facts' };
+    },
+    async saveUserFood(input) {
+      const id = await uid();
+      const row = {
+        user_id: id,
+        source: 'user' as const,
+        name: input.name.trim().slice(0, 200),
+        brand: input.brand?.trim() || null,
+        barcode: input.barcode || null,
+        kcal_per_100g: input.per100g.kcal,
+        protein_per_100g: input.per100g.protein,
+        carbs_per_100g: input.per100g.carbs,
+        fat_per_100g: input.per100g.fat,
+        pack_g: input.packGrams ?? null,
+        serving_g: input.servingGrams ?? null,
+        remembered: input.remembered,
+      };
+      // One own food per barcode: correcting a scanned product updates your version.
+      let existingId: string | null = null;
+      if (input.barcode) {
+        const { data, error } = await client
+          .from('foods')
+          .select('id')
+          .eq('user_id', id)
+          .eq('barcode', input.barcode)
+          .maybeSingle();
+        if (error) friendly(error);
+        existingId = data?.id ?? null;
+      }
+      const query = existingId
+        ? client.from('foods').update(row).eq('id', existingId)
+        : client.from('foods').insert(row);
+      const { data, error } = await query.select('*').single();
+      if (error) friendly(error);
+      return foodRecordFromRow(data);
     },
   };
 }

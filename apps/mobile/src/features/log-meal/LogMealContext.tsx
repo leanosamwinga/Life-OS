@@ -14,7 +14,7 @@ import {
   type MealLog,
 } from '@life-os/core';
 import { useAsync } from '@/features/data/useAsync';
-import type { RosterMeal } from '@/lib/backend/foods';
+import type { RosterMeal, StoredFood } from '@/lib/backend/foods';
 import { targetsForProgress } from '@/lib/backend/settings';
 import type { RecentFood } from '@/lib/backend/types';
 import { useSession } from '@/lib/session';
@@ -42,6 +42,16 @@ export interface PendingFood {
   grams: number | null;
   /** Set when changing an existing component's amount. */
   componentKey?: string;
+  /** Where the food came from: a scan shows "‹ Scan again" and "Add and scan another". */
+  from?: 'scan' | 'search' | 'suggestion' | 'component' | 'manual';
+}
+
+/** What the manual entry screen (7e) starts from. */
+export interface ManualPrefill {
+  barcode: string | null;
+  /** A scanned product with missing values, or a food whose values the user wants to fix. */
+  record: StoredFood | null;
+  reason: 'new' | 'not_found' | 'incomplete' | 'edit';
 }
 
 const RECENT_DAYS = 14;
@@ -76,6 +86,8 @@ export interface LogMealValue {
 
   pending: PendingFood | null;
   setPending(p: PendingFood | null): void;
+  manual: ManualPrefill | null;
+  setManual(m: ManualPrefill | null): void;
   /** The amount the user had last time for a food, if any. */
   lastGrams(foodId: string): number | null;
 }
@@ -148,6 +160,7 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
 
   const [draft, setDraft] = useState<MealDraft>(blankDraft);
   const [pending, setPending] = useState<PendingFood | null>(null);
+  const [manual, setManual] = useState<ManualPrefill | null>(null);
   const seq = useRef(0);
   const key = () => `c${++seq.current}`;
 
@@ -180,6 +193,8 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
       setDraft((d) => ({ ...d, components: d.components.filter((c) => c.key !== k) })),
     pending,
     setPending,
+    manual,
+    setManual,
     lastGrams: (foodId) => data.recentFoods.find((r) => r.food.id === foodId)?.grams ?? null,
   };
 

@@ -94,6 +94,15 @@ supabase functions serve food-lookup
 
 When creating the hosted project, choose a **UK/EU region (London, `eu-west-2`)** — the Privacy Policy promises UK/EU storage.
 
+### Barcode scanning
+
+Scanning (Log meal → Scan) uses `expo-camera` and the `food-lookup` edge function. Locally run
+`supabase functions serve food-lookup` alongside `supabase start`. The camera needs a real
+device or the web app in a browser with a webcam (the iOS simulator has no camera) — every
+platform also has "Or type the barcode". Seed barcodes are fake (`0000000000017`, …), so try
+a real product to exercise Open Food Facts. Expo Go includes `expo-camera`; Apple sign-in
+still needs a development build.
+
 ### Run the app
 
 ```bash

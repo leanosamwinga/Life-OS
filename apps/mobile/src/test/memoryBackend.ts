@@ -298,7 +298,12 @@ export function createMemoryBackend(init: Partial<MemoryState> = {}): MemoryBack
       await call('searchFoods');
       const q = query.trim().toLowerCase();
       if (!q) return [];
-      return state.foods.filter((f) => (f.name ?? '').toLowerCase().includes(q));
+      return state.foods.filter(
+        (f) =>
+          f.remembered !== false &&
+          (f.userId === null || f.userId === state.user?.id) &&
+          (f.name ?? '').toLowerCase().includes(q),
+      );
     },
     async getFoods(ids) {
       return state.foods.filter((f) => ids.includes(f.id));
@@ -310,9 +315,49 @@ export function createMemoryBackend(init: Partial<MemoryState> = {}): MemoryBack
         .sort((a, b) => Date.parse(b[1].loggedAt) - Date.parse(a[1].loggedAt))
         .flatMap(([id, p]) => {
           const f = food(id);
-          return f ? [{ food: f, grams: p.grams, loggedAt: p.loggedAt }] : [];
+          const remembered = state.foods.find((r) => r.id === id)?.remembered !== false;
+          return f && remembered ? [{ food: f, grams: p.grams, loggedAt: p.loggedAt }] : [];
         })
         .slice(0, limit);
+    },
+    async lookupBarcode(barcode) {
+      await call('lookupBarcode');
+      requireUser();
+      const own = state.foods.find((f) => f.barcode === barcode && f.userId === state.user!.id);
+      if (own) return { status: 'found', food: own, source: 'yours' };
+      const cached = state.foods.find((f) => f.barcode === barcode && f.userId === null);
+      return cached
+        ? { status: 'found', food: cached, source: 'open_food_facts' }
+        : { status: 'not_found' };
+    },
+    async saveUserFood(input) {
+      await call('saveUserFood');
+      requireUser();
+      const existing = input.barcode
+        ? state.foods.find((f) => f.barcode === input.barcode && f.userId === state.user!.id)
+        : undefined;
+      const rec: StoredFood = {
+        id: existing?.id ?? newId('food'),
+        userId: state.user!.id,
+        source: 'user',
+        barcode: input.barcode ?? null,
+        name: input.name.trim(),
+        brand: input.brand ?? null,
+        kcalPer100g: input.per100g.kcal,
+        proteinPer100g: input.per100g.protein,
+        carbsPer100g: input.per100g.carbs,
+        fatPer100g: input.per100g.fat,
+        fibrePer100g: null,
+        sugarPer100g: null,
+        saltPer100g: null,
+        packGrams: input.packGrams ?? null,
+        servingGrams: input.servingGrams ?? null,
+        remembered: input.remembered,
+      };
+      state.foods = existing
+        ? state.foods.map((f) => (f.id === existing.id ? rec : f))
+        : [...state.foods, rec];
+      return rec;
     },
   };
   return backend;

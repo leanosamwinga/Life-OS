@@ -9,8 +9,16 @@ import {
   roundGrams,
   sumMacros,
 } from '@life-os/core';
-import { FormScreen, IconTile, PrimaryButton, TextField, formStyles } from '@/components/forms';
+import {
+  FormScreen,
+  IconTile,
+  LinkButton,
+  PrimaryButton,
+  TextField,
+  formStyles,
+} from '@/components/forms';
 import { useLogMeal } from '@/features/log-meal/LogMealContext';
+import { amountChips } from '@/features/log-meal/amounts';
 import { Chip, MacroTiles, SheetHeader, TodayBar } from '@/features/log-meal/parts';
 import { defaultMealName } from '@/features/log-meal/slots';
 import { parseAmount } from '@/features/targets/parse';
@@ -45,12 +53,39 @@ export default function HowMuchScreen() {
   const last = lm.lastGrams(food.id);
   const p = food.per100g;
 
-  const add = () => {
+  const fromScan = pending.from === 'scan';
+  const add = (scanAnother = false) => {
     if (!grams) return;
     if (editingKey) lm.updateComponent(editingKey, grams);
     else lm.addComponent(food, grams);
     lm.setPending(null);
-    router.dismissTo('/log-meal/build');
+    if (scanAnother) router.back();
+    else router.dismissTo('/log-meal/build');
+  };
+
+  const editValues = () => {
+    lm.setManual({
+      barcode: food.barcode ?? null,
+      reason: 'edit',
+      record: {
+        id: food.id,
+        userId: null,
+        source: food.source,
+        barcode: food.barcode ?? null,
+        name: food.name,
+        brand: food.brand ?? null,
+        kcalPer100g: p.kcal,
+        proteinPer100g: p.protein,
+        carbsPer100g: p.carbs,
+        fatPer100g: p.fat,
+        fibrePer100g: p.fibre ?? null,
+        sugarPer100g: p.sugar ?? null,
+        saltPer100g: p.salt ?? null,
+        packGrams: food.packGrams ?? null,
+        servingGrams: food.servingGrams ?? null,
+      },
+    });
+    router.push('/log-meal/manual');
   };
 
   const mealName = lm.draft.name.trim() || defaultMealName(lm.slot);
@@ -59,18 +94,27 @@ export default function HowMuchScreen() {
     <FormScreen
       testID="screen-how-much"
       header={
-        <SheetHeader left="‹ Back" onLeft={() => router.back()} right={`Adding to ${mealName}`} />
+        <SheetHeader
+          left={fromScan ? '‹ Scan again' : '‹ Back'}
+          onLeft={() => router.back()}
+          right={`Adding to ${mealName}`}
+        />
       }
       footer={
-        <PrimaryButton
-          label={
-            grams
-              ? `${editingKey ? 'Update' : 'Add'} component · ${formatKcal(macros.kcal)} kcal`
-              : 'Enter how much you had'
-          }
-          disabled={!grams}
-          onPress={add}
-        />
+        <>
+          <PrimaryButton
+            label={
+              grams
+                ? `${editingKey ? 'Update' : 'Add'} component · ${formatKcal(macros.kcal)} kcal`
+                : 'Enter how much you had'
+            }
+            disabled={!grams}
+            onPress={() => add()}
+          />
+          {fromScan ? (
+            <LinkButton label="Add and scan another" muted onPress={() => add(true)} />
+          ) : null}
+        </>
       }
     >
       <View style={styles.food}>
@@ -81,7 +125,11 @@ export default function HowMuchScreen() {
           </Text>
           {food.brand || food.barcode ? (
             <Text style={styles.sub}>
-              {[food.brand, food.barcode ? `barcode ${food.barcode}` : null]
+              {[
+                food.brand,
+                food.packGrams ? `${formatGrams(food.packGrams)} pack` : null,
+                food.barcode ? `barcode ${food.barcode}` : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </Text>
@@ -106,19 +154,12 @@ export default function HowMuchScreen() {
         autoFocus={pending.grams == null}
       />
       <View style={styles.chips}>
-        {last != null ? (
+        {amountChips(food, last).map((c) => (
           <Chip
-            label={`Last time · ${formatGrams(last)}`}
-            selected={grams === last}
-            onPress={() => setInput(String(last))}
-          />
-        ) : null}
-        {[50, 100, 150].map((g) => (
-          <Chip
-            key={g}
-            label={formatGrams(g)}
-            selected={grams === g}
-            onPress={() => setInput(String(g))}
+            key={c.label}
+            label={c.label}
+            selected={grams === c.grams}
+            onPress={() => setInput(String(c.grams))}
           />
         ))}
       </View>
@@ -145,7 +186,13 @@ export default function HowMuchScreen() {
         <Text style={styles.sub}>Dark: already logged today · light: this meal so far</Text>
       </View>
       {food.source === 'open_food_facts' ? (
-        <Text style={styles.credit}>{OPEN_FOOD_FACTS_CREDIT}</Text>
+        <View style={styles.offNote}>
+          <Text style={styles.sub}>
+            From Open Food Facts. Wrong values? Edit before adding and we’ll keep your version.
+          </Text>
+          <LinkButton label="Edit values" align="left" onPress={editValues} />
+          <Text style={styles.sub}>{OPEN_FOOD_FACTS_CREDIT}</Text>
+        </View>
       ) : null}
     </FormScreen>
   );
@@ -171,7 +218,7 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: space.md,
   },
-  credit: { ...type.footnote, color: colors.textSecondary, marginTop: space.lg },
+  offNote: { marginTop: space.lg },
   afterRow: { flexDirection: 'row', gap: space.lg },
   afterLabel: { ...type.headline, color: colors.text, width: 90 },
   afterValue: { ...type.callout, color: colors.text, flex: 1 },
