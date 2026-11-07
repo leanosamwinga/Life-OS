@@ -121,6 +121,21 @@ create table public.auth_session_meta (
 );
 create index auth_session_meta_user_idx on public.auth_session_meta (user_id);
 
+-- Every refresh token auth-api has handed out, hashed. Supabase Auth deliberately lets the
+-- previous refresh token be replayed once ("fail-to-save", not configurable), but the spec says
+-- any reuse revokes the session (8.1). auth-api checks here first: a superseded hash → the whole
+-- session is revoked and auth.refresh.reuse is logged.
+create table public.auth_refresh_hashes (
+  token_hash text primary key,
+  session_id uuid not null references auth.sessions (id) on delete cascade,
+  user_id uuid not null references public.auth_accounts (user_id) on delete cascade,
+  issued_at timestamptz not null default now(),
+  superseded_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index auth_refresh_hashes_session_idx on public.auth_refresh_hashes (session_id);
+
 -- ---------------------------------------------------------------------------
 -- Wrong-password pauses and the quiet account-wide check (spec 4.1, 4.2)
 -- ---------------------------------------------------------------------------
@@ -191,17 +206,20 @@ begin
      where email_norm = p_email_norm and key_kind = k.kind and key_hash = k.hash
      for update;
 
+    -- 24 hours without failures on this key resets the ladder.
+    if existing.email_norm is not null and existing.last_failure_at < p_now - interval '24 hours' then
+      delete from public.auth_sign_in_pauses
+       where email_norm = p_email_norm and key_kind = k.kind and key_hash = k.hash;
+      existing := null;
+    end if;
+
     select count(*) into recent from public.auth_sign_in_failures
      where email_norm = p_email_norm and key_kind = k.kind and key_hash = k.hash
        and failed_at > p_now - interval '15 minutes'
        and (existing.paused_until is null or failed_at > existing.paused_until);
 
     if recent >= 5 then
-      if existing.email_norm is null or existing.last_failure_at < p_now - interval '24 hours' then
-        next_level := 1;
-      else
-        next_level := existing.level + 1;
-      end if;
+      next_level := coalesce(existing.level, 0) + 1;
       insert into public.auth_sign_in_pauses (email_norm, key_kind, key_hash, level, paused_until, last_failure_at)
       values (p_email_norm, k.kind, k.hash, next_level, p_now + public.auth_pause_interval(next_level), p_now)
       on conflict (email_norm, key_kind, key_hash) do update
@@ -339,7 +357,7 @@ create table public.auth_reauth_tokens (
 -- comes from anywhere else.
 create table public.auth_permits (
   id uuid primary key default gen_random_uuid(),
-  purpose text not null check (purpose in ('ISSUE_SESSION', 'SET_PASSWORD')),
+  purpose text not null check (purpose in ('ISSUE_SESSION', 'REFRESH_SESSION', 'SET_PASSWORD')),
   user_id uuid not null,
   expires_at timestamptz not null,
   used_at timestamptz,
@@ -447,7 +465,7 @@ begin
     'auth_sign_in_failures', 'auth_sign_in_pauses', 'auth_rate_events', 'auth_one_time_codes',
     'auth_reset_tokens', 'auth_nonces', 'auth_tickets', 'auth_reauth_tokens', 'auth_permits',
     'auth_owner_alerts', 'auth_email_outbox', 'auth_deletion_requests', 'auth_apple_revocations',
-    'auth_apple_events', 'auth_breached_hashes', 'auth_app_attest_keys'
+    'auth_apple_events', 'auth_breached_hashes', 'auth_app_attest_keys', 'auth_refresh_hashes'
   ] loop
     perform public.lock_down_server_table(format('public.%I', t)::regclass);
     if exists (select 1 from information_schema.columns
@@ -513,7 +531,7 @@ end;
 $$;
 
 -- Custom Access Token: a fresh sign-in needs an ISSUE_SESSION permit from auth-api; a refresh
--- needs the account to still exist and the session to be inside its lifetime (spec 8.1:
+-- needs a REFRESH_SESSION permit, the account to still exist and the session to be inside its lifetime (spec 8.1:
 -- phone idle 30 days / absolute 90 days, web idle 7 days / absolute 30 days). Adds
 -- lifeos_scope (FULL / PENDING_DELETION).
 create or replace function public.auth_custom_access_token_hook(event jsonb)
@@ -543,6 +561,11 @@ begin
         'http_code', 403, 'message', 'Sign in through Life OS.'));
     end if;
   else
+    -- Refreshes go through auth-api too (strict reuse detection, see auth_refresh_hashes).
+    if not public.auth_consume_permit('REFRESH_SESSION', v_user) then
+      return jsonb_build_object('error', jsonb_build_object(
+        'http_code', 403, 'message', 'Refresh through Life OS.'));
+    end if;
     select * into v_meta from public.auth_session_meta where session_id = v_session;
     if found then
       v_idle := case when v_meta.platform = 'web' then interval '7 days' else interval '30 days' end;

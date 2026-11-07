@@ -45,6 +45,9 @@ export interface Harness {
   lastLink(email: string): string;
   /** Headers for a fresh device (own device ID and IP), or a given ID/IP. */
   device(id?: string, ip?: string): Record<string, string>;
+  /** Moves auth-api's clock (codes, pauses, links, tickets). Supabase Auth keeps real time. */
+  advance(ms: number): void;
+  resetClock(): void;
   close(): Promise<void>;
   env: Record<string, string>;
 }
@@ -106,7 +109,10 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
   const mail = new MemorySender();
   const logs: string[] = [];
   const pending: Promise<void>[] = [];
+  let offset = 0;
+  const now = () => new Date(Date.now() + offset);
   const app = createApp({
+    now,
     config,
     sql,
     emailSender: mail,
@@ -173,6 +179,12 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
       const link = m?.text.match(/(https:\/\/\S+#t=\S+)/)?.[1];
       if (!link) throw new Error(`no link emailed to ${email}`);
       return link;
+    },
+    advance(ms) {
+      offset += ms;
+    },
+    resetClock() {
+      offset = 0;
     },
     async close() {
       await Promise.all(pending.splice(0));

@@ -226,7 +226,7 @@ export class AuthService {
     });
   }
 
-  private async permit(purpose: 'ISSUE_SESSION' | 'SET_PASSWORD', userId: string) {
+  private async permit(purpose: 'ISSUE_SESSION' | 'REFRESH_SESSION' | 'SET_PASSWORD', userId: string) {
     const [row] = await this.sql<{ id: string }[]>`
       insert into public.auth_permits (purpose, user_id, expires_at)
       values (${purpose}, ${userId}, ${new Date(this.nowMs() + 30_000)}) returning id`;
@@ -274,6 +274,8 @@ export class AuthService {
       insert into public.auth_session_meta (session_id, user_id, device_id_hash, platform, label, coarse_location)
       values (${sessionId}, ${account.user_id}, ${ctx.deviceHash}, ${ctx.platform}, ${ctx.label}, ${town})
       on conflict (session_id) do nothing`;
+    await this.sql`insert into public.auth_refresh_hashes (token_hash, session_id, user_id)
+                   values (${await sha256Hex(session.refresh_token)}, ${sessionId}, ${account.user_id})`;
     await this.rememberDevice(account.user_id, ctx);
     const scope = claims.lifeos_scope === 'PENDING_DELETION' ? 'PENDING_DELETION' : 'FULL';
     this.d.log.event('auth.signin.success', {
@@ -447,7 +449,10 @@ export class AuthService {
       const challenge = await this.sendCode(account, 'NEW_DEVICE', ctx);
       throw err(403, 'STEP_UP_REQUIRED', { challenge_id: challenge.challenge_id });
     }
-    await this.maybeRehash(account, password);
+    if (await this.maybeRehash(account, password)) {
+      // Updating the stored password signed every session out (including this one): mint anew.
+      return this.mint(account, ctx);
+    }
     return this.finishSession(account, session, ctx, false);
   }
 
@@ -494,11 +499,13 @@ export class AuthService {
   }
 
   /** Rehash on sign-in when the pepper version is out of date (spec 5.4). */
-  private async maybeRehash(account: Account, password: string) {
+  private async maybeRehash(account: Account, password: string): Promise<boolean> {
     const current = currentPepper(this.d.config);
-    if (account.pepper_version === current.version) return;
+    if (account.pepper_version === current.version) return false;
     const version = await this.setPassword(account.user_id, password);
     await this.sql`update public.auth_accounts set pepper_version = ${version} where user_id = ${account.user_id}`;
+    account.pepper_version = version;
+    return true;
   }
 
   // ---------------------------------------------------------------- 2.9 new-device check
@@ -669,8 +676,9 @@ export class AuthService {
     const [row] = await this.sql<
       { kind: string; provider: FederatedProvider; subject: string; email: string | null; is_private_relay: boolean; given_name: string | null; apple_refresh_token_enc: string | null; device_id_hash: string; expires_at: Date }[]
     >`update public.auth_tickets set used_at = ${this.d.now()}
-       where ticket_hash = ${await sha256Hex(ticket)} and used_at is null returning *`;
-    if (!row || row.device_id_hash !== ctx.deviceHash || row.expires_at.getTime() <= this.nowMs()) {
+       where ticket_hash = ${await sha256Hex(ticket)} and used_at is null and device_id_hash = ${ctx.deviceHash}
+       returning *`;
+    if (!row || row.expires_at.getTime() <= this.nowMs()) {
       throw err(410, 'TICKET_EXPIRED');
     }
     const token: VerifiedIdToken = { provider: row.provider, subject: row.subject, verifiedEmail: row.email, isPrivateRelay: row.is_private_relay, audience: '' };
@@ -791,26 +799,49 @@ export class AuthService {
   // ---------------------------------------------------------------- tokens and sessions
 
   async refresh(refreshToken: string): Promise<TokensBody> {
+    const hash = await sha256Hex(refreshToken);
+    const [known] = await this.sql<{ session_id: string; user_id: string; superseded_at: Date | null }[]>`
+      select session_id, user_id, superseded_at from public.auth_refresh_hashes where token_hash = ${hash}`;
+    if (!known) throw err(401, 'SESSION_REVOKED');
+    if (known.superseded_at) {
+      // Reuse of an old refresh token: likely theft. Revoke the whole session (spec 8.1).
+      await this.deleteSession(known.session_id);
+      this.d.log.event('auth.refresh.reuse', { account_id: known.user_id });
+      this.d.log.event('auth.session.revoked', { account_id: known.user_id, reason: 'refresh_reuse' });
+      throw err(401, 'SESSION_REVOKED');
+    }
+    const permitId = await this.permit('REFRESH_SESSION', known.user_id);
+    let s: GoTrueSession;
     try {
-      const s = await this.d.gotrue.refresh(refreshToken);
-      const claims = unsafeJwtPayload(s.access_token);
-      const scope = claims.lifeos_scope === 'PENDING_DELETION' ? 'PENDING_DELETION' : 'FULL';
-      return {
-        tokens: { access_token: s.access_token, refresh_token: s.refresh_token, expires_at: s.expires_at ?? Math.floor(this.nowMs() / 1000) + s.expires_in, token_type: 'bearer' },
-        scope,
-        account_created: false,
-      };
+      s = await this.d.gotrue.refresh(refreshToken);
     } catch (e) {
       if (e instanceof GoTrueError) {
         if (e.errorCode === 'refresh_token_already_used') {
-          this.d.log.event('auth.refresh.reuse', { reason: e.errorCode });
+          await this.deleteSession(known.session_id);
+          this.d.log.event('auth.refresh.reuse', { account_id: known.user_id });
           throw err(401, 'SESSION_REVOKED');
         }
-        if (e.status === 401 && /expired/.test(e.errorCode)) throw err(401, 'SESSION_EXPIRED');
-        if (e.status === 400 || e.status === 401 || e.status === 403 || e.status === 404) throw err(401, 'SESSION_REVOKED');
+        if (e.status === 401 && /expired/i.test(e.errorCode)) throw err(401, 'SESSION_EXPIRED');
+        if (e.status === 401) throw err(401, 'SESSION_EXPIRED');
+        if (e.status >= 400 && e.status < 500) throw err(401, 'SESSION_REVOKED');
       }
       throw e;
+    } finally {
+      await this.dropPermit(permitId);
     }
+    await this.sql.begin(async (tx) => {
+      await tx`update public.auth_refresh_hashes set superseded_at = ${this.d.now()} where token_hash = ${hash}`;
+      await tx`insert into public.auth_refresh_hashes (token_hash, session_id, user_id)
+               values (${await sha256Hex(s.refresh_token)}, ${known.session_id}, ${known.user_id})
+               on conflict (token_hash) do nothing`;
+    });
+    const claims = unsafeJwtPayload(s.access_token);
+    const scope = claims.lifeos_scope === 'PENDING_DELETION' ? 'PENDING_DELETION' : 'FULL';
+    return {
+      tokens: { access_token: s.access_token, refresh_token: s.refresh_token, expires_at: s.expires_at ?? Math.floor(this.nowMs() / 1000) + s.expires_in, token_type: 'bearer' },
+      scope,
+      account_created: false,
+    };
   }
 
   /** Authenticates a Bearer token: signature AND live session, via Supabase Auth (spec 8.1). */
@@ -890,12 +921,15 @@ export class AuthService {
     if (check !== 'unconfirmed') await this.deleteSession(String(unsafeJwtPayload(check.access_token).session_id));
     if (normalisePassword(current) === normalisePassword(next)) throw err(422, 'PASSWORD_SAME_AS_CURRENT');
     await this.validateNewPassword(next, a.email);
+    // Supabase Auth signs out EVERY session when a password is updated (models.UpdatePassword),
+    // so other devices are out at once, and this device gets fresh tokens (spec S-2f, 8.3).
+    const n = await this.deleteSessions(a.user_id, caller.sessionId);
     const version = await this.setPassword(a.user_id, next);
     const now = this.d.now();
     await this.sql`update public.auth_accounts set pepper_version = ${version}, password_changed_at = ${now} where user_id = ${a.user_id}`;
-    const n = await this.deleteSessions(a.user_id, caller.sessionId);
     await this.enqueueEmail('password_changed', { userId: a.user_id, email: a.email, deliverable: a.email_deliverable }, { changed_at: now.toISOString() });
     this.d.log.event('auth.session.revoked', { account_id: a.user_id, reason: 'password_changed', count: n });
+    return this.mint({ ...a, pepper_version: version }, ctx);
   }
 
   // ---------------------------------------------------------------- S-5 delete account

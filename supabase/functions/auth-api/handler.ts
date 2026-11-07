@@ -129,8 +129,8 @@ export function createHandler(deps: HandlerDeps) {
 
     'POST /v1/me/password': async (req, ctx, b, _p, key) => {
       const caller = await authed(req, key);
-      await service.changePassword(await ctx(), caller, str(b, 'current_password') ?? '', str(b, 'new_password') ?? '');
-      return json(204, null);
+      // 200 with this device's fresh tokens (spec said 204 + rotated tokens; see SPEC-QUESTIONS Q-PWCHANGE).
+      return tokensOrCookies(await service.changePassword(await ctx(), caller, str(b, 'current_password') ?? '', str(b, 'new_password') ?? ''));
     },
 
     'GET /v1/me/sessions': async (req, _ctx, _b, _p, key) => json(200, await service.listSessions(await authed(req, key))),
