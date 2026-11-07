@@ -144,19 +144,19 @@ npm run mobile            # expo start; press i for the iOS simulator
 
 ## Scripts (from the repo root)
 
-| Command                                | What it does                                                                |
-| -------------------------------------- | --------------------------------------------------------------------------- |
-| `npm run lint`                         | ESLint across the repo                                                      |
-| `npm run format`                       | Prettier write (`format:check` to verify)                                   |
-| `npm run typecheck`                    | `tsc -b` for core + edge functions, `tsc --noEmit` for the app              |
-| `npm test`                             | core (Vitest) + edge functions (Vitest) + mobile (jest-expo)                |
-| `npm run test:core`                    | core unit tests only                                                        |
-| `npm run test:functions`               | edge function mapping/handler tests                                         |
-| `npm run test:mobile`                  | app screen and flow tests (jest-expo)                                       |
-| `npm run test:db`                      | database RLS tests (see below)                                              |
-| `npm run local-auth`                   | start a Docker-free Supabase Auth + Postgres + Mailpit for sign-in tests    |
-| `npm run test:integration`             | sign-in integration tests against that real Supabase Auth                   |
-| `npm run gen:types -w @life-os/mobile` | regenerate `apps/mobile/src/lib/database.types.ts` (needs `supabase start`) |
+| Command                                | What it does                                                                                                                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run lint`                         | ESLint across the repo                                                                                                                                                   |
+| `npm run format`                       | Prettier write (`format:check` to verify)                                                                                                                                |
+| `npm run typecheck`                    | `tsc -b` for core + edge functions, `tsc --noEmit` for the app                                                                                                           |
+| `npm test`                             | core (Vitest) + edge functions (Vitest) + mobile (jest-expo)                                                                                                             |
+| `npm run test:core`                    | core unit tests only                                                                                                                                                     |
+| `npm run test:functions`               | edge function mapping/handler tests                                                                                                                                      |
+| `npm run test:mobile`                  | app screen and flow tests (jest-expo)                                                                                                                                    |
+| `npm run test:db`                      | database RLS tests (see below)                                                                                                                                           |
+| `npm run local-auth`                   | start a Docker-free Supabase Auth + Postgres + Mailpit for sign-in tests                                                                                                 |
+| `npm run test:integration`             | sign-in integration tests against that real Supabase Auth                                                                                                                |
+| `npm run gen:types -w @life-os/mobile` | regenerate `apps/mobile/src/lib/database.types.ts` (needs `supabase start`; without Docker: `npx supabase gen types typescript --db-url <postgres url> --schema public`) |
 
 ### Database tests
 

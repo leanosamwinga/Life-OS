@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "jest --ci",
-    "gen:types": "supabase gen types typescript --local > src/lib/database.types.ts"
+    "gen:types": "supabase gen types typescript --local --schema public > src/lib/database.types.ts"
   },
   "dependencies": {
     "@life-os/core": "0.1.0",

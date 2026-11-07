@@ -17,6 +17,12 @@ import { rowFromPatch, settingsFromRow } from './settings';
 import { UserFacingError, type Backend } from './types';
 import type { StoredFood } from './foods';
 
+/**
+ * Generated RPC argument types can't say that a SQL parameter accepts NULL (postgres-meta types
+ * every argument as its base type), but save_meal and log_meal take NULL for "new" and "none".
+ */
+const sqlNull = <T>(value: T | null) => value as T;
+
 function friendly(error: { message?: string; code?: string; status?: number } | null): never {
   const msg = error?.message ?? 'Something went wrong. Please try again.';
   if (error?.code === '42501') {
@@ -117,10 +123,10 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
     },
     async saveMeal(input) {
       const { data, error } = await client.rpc('save_meal', {
-        p_id: input.id,
+        p_id: sqlNull(input.id),
         p_name: input.name,
         p_in_daily_plan: input.inDailyPlan,
-        p_usual_time: input.inDailyPlan ? input.usualTime : null,
+        p_usual_time: sqlNull(input.inDailyPlan ? input.usualTime : null),
         p_components: saveMealComponents(input.components),
       });
       if (error) friendly(error);
@@ -145,7 +151,7 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
     async logMeal(input) {
       const { data, error } = await client.rpc('log_meal', {
         p_name: input.name,
-        p_saved_meal_id: input.savedMealId,
+        p_saved_meal_id: sqlNull(input.savedMealId),
         p_logged_at: input.loggedAt,
         p_items: logMealItems(input.components),
       });
