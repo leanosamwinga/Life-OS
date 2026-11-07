@@ -525,6 +525,26 @@ run('sign-in v3 flows (real Supabase Auth)', () => {
       expect(back.body.scope).toBe('FULL');
     });
 
+    it('day-30 job: data gone, "deleted" email sent, the email can be used for a new account', async () => {
+      const email = testEmail('day30');
+      const a = await createConfirmed(email);
+      const auth = bearer(a.tokens.access_token);
+      const re = await h.call('POST', '/v1/me/reauth', { password: PASSWORD }, { ...auth, ...h.device() });
+      expect((await h.call('POST', '/v1/me/deletion', { reauth_token: re.body.reauth_token, confirmation: 'DELETE' }, auth)).status).toBe(202);
+      const [acct] = await h.sql<{ user_id: string }[]>`select user_id from public.auth_accounts where email_norm = ${email}`;
+      await h.sql`update public.auth_deletion_requests set due_at = now() - interval '1 minute' where user_id = ${acct!.user_id}`;
+      const [{ n }] = (await h.sql`select public.auth_run_due_deletions(now()) as n`) as unknown as [{ n: number }];
+      expect(n).toBeGreaterThanOrEqual(1);
+      const [u] = await h.sql`select count(*)::int as n from auth.users where id = ${acct!.user_id}`;
+      expect(u!.n).toBe(0);
+      const jobs = await h.call('POST', '/v1/internal/jobs/run', {}, { 'x-job-secret': h.config.jobSecret });
+      expect(jobs.status).toBe(200);
+      expect(h.mail.sent.some((m) => m.to === email && m.subject === 'Your Life OS account has been deleted')).toBe(true);
+      expect((await h.call('POST', '/v1/internal/jobs/run', {}, { 'x-job-secret': 'wrong' })).status).toBe(401);
+      expect((await signIn(email, PASSWORD)).body.error.code).toBe('ACCOUNT_NOT_FOUND');
+      expect((await create(email)).status).toBe(202);
+    });
+
     it('export: JSON and a ZIP of CSVs', async () => {
       const email = testEmail('export');
       const a = await createConfirmed(email);
