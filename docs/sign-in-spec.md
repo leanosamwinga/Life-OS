@@ -1,10 +1,12 @@
 # Life OS — Sign-in spec
 
-Version 1 · 7 November 2026 · Status: ready for build review
+Version 1.1 · 8 November 2026 · Status: built on Supabase (sign-in v3)
+
+> **Built on Supabase.** Decision 1 keeps Supabase Auth. Where Supabase forced a change, this spec was edited and the change is logged in `docs/SPEC-QUESTIONS.md`. `docs/sign-in-supabase-mapping.md` shows how each rule is met. The "auth service" below is the `auth-api` edge function in front of Supabase Auth.
 
 This is the build spec for sign up, sign in and Me → Security. It is written for:
 
-- the **Java backend engineer** building the auth service, and
+- the engineer building the auth service (`supabase/functions/auth-api`, Postgres and Supabase Auth), and
 - the **iOS, web and Android** engineers building the screens.
 
 It follows the agreed decisions in `claude/sign-in-decisions.md`, which are fixed and not reopened here. Screen IDs (0a, 0b-1 … 0b-8i, S-1a … S-5j) refer to the canvas **Life OS — Sign up / Sign in wireframes v3**. Where this spec and a screen disagree, the screen's copy wins for wording and this spec wins for behaviour. Raise a flag if you find one.
@@ -98,7 +100,7 @@ Every step says which screen the person sees. "Tap" means the screen's button; "
    - `ACCOUNT_EXISTS` → 0b-3g. **Sign in instead** opens 0b-5b with the email filled in and the password empty. In the background the owner gets the "someone tried to create an account" email (7.5).
    - `WRONG_METHOD` (`method = GOOGLE`) → 0b-3h · (`method = APPLE`) → 0b-3h Apple variant: the same layout with "This email uses Apple to sign in" and a **Continue with Apple** button. The owner alert email is sent here too.
    - `RATE_LIMITED`, `DEVICE_CHECK_FAILED` → section 3.4.
-6. The server always hashes the submitted password with Argon2id, even when it then returns `ACCOUNT_EXISTS`, so every branch takes the same time (section 6.3).
+6. The server does the same password work on every branch, even when it then returns `ACCOUNT_EXISTS`, and pads to the timing floor, so every branch takes the same time (section 6.3).
 
 ### 2.2 Confirm the email (0b-4)
 
@@ -120,7 +122,7 @@ Every step says which screen the person sees. "Tap" means the screen's button; "
 3. The server checks in this order, so the messages stay consistent:
    1. Device check and look-up rate limits → `DEVICE_CHECK_FAILED` / `RATE_LIMITED`.
    2. Is this device or IP paused for this email? → `SIGN_IN_PAUSED` (0b-5f, `retry_after_seconds`).
-   3. Find the email. None → `ACCOUNT_NOT_FOUND` (0b-5e). A dummy Argon2 verify runs so the timing matches.
+   3. Find the email. None → `ACCOUNT_NOT_FOUND` (0b-5e). A dummy password verify runs so the timing matches.
    4. Method isn't `PASSWORD` → `WRONG_METHOD` with `method` and `is_private_relay` → 0b-6a / 0b-6b / 0b-6c.
    5. Verify the password. Wrong → `WRONG_PASSWORD` (0b-5d), and count it towards the per-device pause and the account-wide check. If that wrong try is the **5th in 15 minutes** on this device or IP, return `SIGN_IN_PAUSED` instead (0b-5f).
    6. Correct but `UNCONFIRMED` → send a new confirm code → `EMAIL_NOT_CONFIRMED` + `challenge_id` (0b-5g → **Enter code** → 0b-4a).
@@ -166,11 +168,11 @@ Notes:
 
 ### 2.7 Apple and Google on iPhone, web and Android
 
-| Platform | Apple                                                                                                                                                                                                                         | Google                                                                                                           | Cancel                         |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| iPhone   | Native `ASAuthorizationAppleIDProvider` sheet with Face ID (0b-8a). Ask for `fullName` and `email` scopes. Pass `SHA256(raw_nonce)` as the request nonce.                                                                     | Google Sign-In SDK: iOS permission alert (0b-8b), then `ASWebAuthenticationSession` sheet (0b-8c). PKCE + nonce. | Back to 0b-1/0b-2, no message. |
-| Web      | Sign in with Apple JS in a pop-up (0b-8d); full-page redirect if pop-ups are blocked. `response_type=code id_token`, `response_mode=form_post` to our backend.                                                                | Google Identity Services in a pop-up (0b-8c), redirect fallback. ID token with nonce.                            | Same.                          |
-| Android  | Chrome Custom Tab to Apple's authorise URL (0b-8d). Apple posts back to our backend (`form_post`). The backend checks it, creates a ticket and returns through an App Link `https://lifeos.app/auth/apple/return#t=<ticket>`. | Credential Manager "Sign in with Google" bottom sheet (0b-8e) returns an ID token with nonce.                    | Same.                          |
+| Platform | Apple                                                                                                                                                                                                                         | Google                                                                                                                                                                                                                            | Cancel                         |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| iPhone   | Native `ASAuthorizationAppleIDProvider` sheet with Face ID (0b-8a). Ask for `fullName` and `email` scopes. Pass `SHA256(raw_nonce)` as the request nonce.                                                                     | Google's browser flow in `ASWebAuthenticationSession`: iOS permission alert (0b-8b), then the sheet (0b-8c). Authorisation code + PKCE + nonce (the Expo Google Sign-In package can't pass a nonce; SPEC-QUESTIONS Q-GOOGLE-IOS). | Back to 0b-1/0b-2, no message. |
+| Web      | Sign in with Apple JS in a pop-up (0b-8d); full-page redirect if pop-ups are blocked. `response_type=code id_token`, `response_mode=form_post` to our backend.                                                                | Google Identity Services in a pop-up (0b-8c), redirect fallback. ID token with nonce.                                                                                                                                             | Same.                          |
+| Android  | Chrome Custom Tab to Apple's authorise URL (0b-8d). Apple posts back to our backend (`form_post`). The backend checks it, creates a ticket and returns through an App Link `https://lifeos.app/auth/apple/return#t=<ticket>`. | Credential Manager "Sign in with Google" bottom sheet (0b-8e) returns an ID token with nonce.                                                                                                                                     | Same.                          |
 
 Steps (all platforms):
 
@@ -267,7 +269,7 @@ Steps (all platforms):
 | `POST /v1/tokens/refresh`                | mobile `{refresh_token}`; web cookie                                        | `200 {tokens}` (rotated)                                                                                      | 401 `SESSION_EXPIRED` → 0a · 401 `SESSION_REVOKED` → 0a                                                                                                                                                                                                                                                                                  |
 | `POST /v1/sessions/current/sign-out`     | —                                                                           | `204` → 0a                                                                                                    | — (always succeeds locally)                                                                                                                                                                                                                                                                                                              |
 | `GET /v1/me/security`                    | —                                                                           | `200 {method, email, is_private_relay, password_changed_at, device_count, coming_later: [...]}` → S-1a / S-3a | 5xx → S-1c                                                                                                                                                                                                                                                                                                                               |
-| `POST /v1/me/password`                   | `{current_password, new_password}`                                          | `204` → S-2f (this session's tokens rotated, all others revoked)                                              | 401 `WRONG_PASSWORD` → S-2d · 422 password errors (`PASSWORD_BREACHED` → S-2e) · 422 `PASSWORD_SAME_AS_CURRENT` · 429 `SIGN_IN_PAUSED` · 409 `NO_PASSWORD` (Apple/Google account)                                                                                                                                                        |
+| `POST /v1/me/password`                   | `{current_password, new_password}`                                          | `200 {tokens}` → S-2f (fresh tokens for this session, all others revoked; SPEC-QUESTIONS Q-PWCHANGE)          | 401 `WRONG_PASSWORD` → S-2d · 422 password errors (`PASSWORD_BREACHED` → S-2e) · 422 `PASSWORD_SAME_AS_CURRENT` · 429 `SIGN_IN_PAUSED` · 409 `NO_PASSWORD` (Apple/Google account)                                                                                                                                                        |
 | `GET /v1/me/sessions`                    | —                                                                           | `200 [{id, label, platform, coarse_location, last_active_at, is_current}]` → S-4a / S-4f                      | 5xx → S-1c layout                                                                                                                                                                                                                                                                                                                        |
 | `DELETE /v1/me/sessions/{id}`            | —                                                                           | `204` → S-4d                                                                                                  | 404 `SESSION_NOT_FOUND` (treat as done) · 5xx → S-4g                                                                                                                                                                                                                                                                                     |
 | `POST /v1/me/sessions/revoke-all`        | `{}`                                                                        | `204` → 0a (includes this device)                                                                             | 5xx → S-4g copy                                                                                                                                                                                                                                                                                                                          |
@@ -351,7 +353,7 @@ These three aren't drawn on the canvas. They reuse the existing alert pattern (t
 
 ### 4.2 How the quiet check works
 
-- Each `WRONG_PASSWORD` adds `(account_id, device_or_ip_key, timestamp)` to a 24-hour sliding window in Redis.
+- Each `WRONG_PASSWORD` adds `(account_id, device_or_ip_key, timestamp)` to a 24-hour sliding window (a Postgres table, `auth_sign_in_failures`).
 - When the count and spread cross the threshold, set `step_up_required = true` and log `auth.stepup.flagged`.
 - No message, email or lock follows. The only effect is 0b-5h on the next sign-in from a new device.
 
@@ -392,14 +394,13 @@ Mobile carriers and offices put many people behind one IP. The pause keys IPs **
 
 ### 5.4 Storage
 
-- **Argon2id**, PHC string format.
-  - Suggested parameters: **m = 64 MiB (65 536 KiB), t = 3, p = 1**, salt 16 bytes, tag 32 bytes. This is the second recommended option in RFC 9106.
-  - Tune `t` so a verify takes **250–500 ms** on production hardware.
-- Java: Spring Security `Argon2PasswordEncoder(16, 32, 1, 65536, 3)` (Bouncy Castle) or Password4j.
-- **Pepper:** HMAC-SHA256 the normalised password with a secret key held in KMS before Argon2. Store the key version beside the hash so it can be rotated.
-- **Rehash on sign-in** when the stored parameters or pepper version are out of date.
-- **Memory guard:** cap concurrent Argon2 operations with a semaphore (64 MiB each) so a flood of sign-ins can't exhaust memory. Over the cap, queue up to 2 s, then return `RATE_LIMITED`.
-- The hash never leaves the auth service, is never logged and is excluded from analytics exports.
+_(Changed for Supabase: SPEC-QUESTIONS Q-HASH. Was Argon2id.)_
+
+- Supabase Auth stores the hash, and it uses **bcrypt**. Decision 1 keeps Supabase Auth, so the password is never given to it directly.
+- **Pepper:** the auth service sends Supabase Auth `base64url(HMAC-SHA256(pepper, NFKC(password)))`. The stored hash is bcrypt over that value, so a database leak can't be cracked without the pepper, and the fixed-length input avoids bcrypt's 72-byte limit (all 128 characters count).
+- The pepper is an edge-function secret, versioned (`AUTH_PASSWORD_PEPPER_V1`, `_V2` …). The version sits beside the account so it can be rotated.
+- **Rehash on sign-in** when the account's pepper version is out of date.
+- The hash never leaves Supabase Auth, is never logged and is excluded from analytics exports.
 
 ---
 
@@ -414,7 +415,7 @@ The messages stay helpful (decision 10). These layers make bulk checking slow, c
    - **Web: Cloudflare Turnstile** (managed mode). Verify the token server-side with `siteverify`. Tokens are single use.
    - If the check fails → `DEVICE_CHECK_FAILED`. If attestation isn't supported (old devices, a temporary outage), allow it with **stricter limits (3 an hour)** rather than block. _(Assumption.)_
 3. **The same response time whether or not an account exists:**
-   - Do the same work on every branch: a real or dummy Argon2 verify or hash.
+   - Do the same work on every branch: a real or dummy password verify or hash.
    - Send every email through an asynchronous outbox, so sending never adds time.
    - Pad every look-up endpoint to a floor of **600 ms ± 50 ms jitter**.
    - Monitor p50/p95 by outcome. They must stay within 30 ms of each other.
@@ -511,19 +512,21 @@ All emails share these rules:
 
 ### 8.1 Tokens
 
-| Token                    | Format                                  | Lifetime                           | Notes                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------ | --------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Access                   | JWT, ES256, `kid` rotated every 90 days | **10 minutes**                     | Claims: `sub`, `sid`, `scope` (`FULL` · `PENDING_DELETION`), `epoch`, `aud = lifeos-api`, `iss`, `iat`, `exp`. The API rejects tokens whose `epoch` is below `account.token_epoch`, or whose `sid` is on the revoked-session list (both cached in Redis), so any sign-out, reset or "sign out everywhere" takes effect immediately, not after 10 minutes. |
-| Refresh (mobile)         | Opaque, 256-bit, stored hashed          | **Idle 30 days, absolute 90 days** | **Rotates on every use.** Reusing an old refresh token revokes the whole family (likely theft) and logs `auth.refresh.reuse` (it pages someone).                                                                                                                                                                                                          |
-| Refresh (web)            | Same, in a cookie                       | **Idle 7 days, absolute 30 days**  | Shorter, because browsers are more often shared.                                                                                                                                                                                                                                                                                                          |
-| `PENDING_DELETION` scope | Same tokens                             | Same                               | Only allows `GET/DELETE /v1/me/deletion`, sign out and data export.                                                                                                                                                                                                                                                                                       |
+| Token                    | Format                                                       | Lifetime                           | Notes                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------ | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Access                   | Supabase Auth JWT (ES256 signing keys on the hosted project) | **10 minutes**                     | Claims: Supabase's standard claims (`sub`, `session_id`, `aud`, `iss`, `iat`, `exp`) plus `lifeos_scope` (`FULL` · `PENDING_DELETION`) from the custom access token hook. Every Data API request checks that the session still exists (`db_pre_request`), so any sign-out, reset or "sign out everywhere" takes effect immediately, not after 10 minutes (SPEC-QUESTIONS Q-PREREQUEST). |
+| Refresh (mobile)         | Supabase Auth refresh token                                  | **Idle 30 days, absolute 90 days** | **Rotates on every use.** Reusing any old refresh token, including the one just replaced, revokes the session (likely theft) and logs `auth.refresh.reuse` (it pages someone). Only the auth service refreshes; it keeps a hash of every token it issued (SPEC-QUESTIONS Q-REFRESH).                                                                                                    |
+| Refresh (web)            | Same, in a cookie                                            | **Idle 7 days, absolute 30 days**  | Shorter, because browsers are more often shared.                                                                                                                                                                                                                                                                                                                                        |
+| `PENDING_DELETION` scope | Same tokens                                                  | Same                               | Only allows `GET/DELETE /v1/me/deletion`, sign out and data export.                                                                                                                                                                                                                                                                                                                     |
 
 ### 8.2 Storage per platform
 
-- **iOS:** refresh token and `device_id` in the **Keychain**, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (never synced to iCloud or restored to another phone). The access token is in memory only.
+- **iOS:** refresh token and `device_id` in the **Keychain**, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` (never synced to iCloud or restored to another phone; stricter than after-first-unlock, SPEC-QUESTIONS Q-KEYCHAIN). The access token is in memory only.
 - **Android:** tokens encrypted with an AES-GCM key held in the **Android Keystore** (StrongBox where available), saved in app-private DataStore. Exclude them from backup with `dataExtractionRules` / `allowBackup=false`. The access token is in memory only.
 - **Web:** a backend-for-frontend holds the tokens, so the browser's JavaScript never sees them. Cookies:
-  - `__Host-lifeos_sid`: `HttpOnly; Secure; SameSite=Lax; Path=/`.
+  - `__Host-lifeos_at` and `__Host-lifeos_rt` (access and refresh tokens) and `__Host-lifeos_device`: `HttpOnly; Secure; SameSite=Strict; Path=/` (SPEC-QUESTIONS Q-WEBCOOKIE).
+  - `__Host-lifeos_csrf`: readable by the page, for the double-submit header.
+  - The backend-for-frontend is Expo Router API routes (`/api/auth`, `/api/supabase`); where it's hosted is open (SPEC-QUESTIONS Q-HOSTING).
   - CSRF: a double-submit `X-CSRF-Token` header, plus an `Origin` check on every state-changing request.
   - Strict CSP and `frame-ancestors 'none'`.
 
@@ -543,7 +546,7 @@ Revoking a session always **unregisters its push token**, so a signed-out phone 
 ### 8.4 Device list (S-4)
 
 - Label: built from the platform and model (for example "iPhone 15", "MacBook · Safari", "Pixel 8 · Life OS app").
-- Location: a town from an on-premise GeoIP database at sign-in time. Store the town only, never the IP.
+- Location: a town from an on-premise GeoIP database at sign-in time. Store the town only, never the IP. _(Not built yet: no GeoIP database chosen. SPEC-QUESTIONS Q-GEOIP.)_
 - "active now" means used in the last 5 minutes; otherwise show relative time.
 
 ---
@@ -562,7 +565,7 @@ Revoking a session always **unregisters its push token**, so a signed-out phone 
 | `nonce`       | Equals the server-issued nonce, which must be unused and is then marked used                          | Native: equals `SHA256(raw nonce)`. Web: equals the raw nonce. Single use either way.          |
 | Email         | `email` + `email_verified == true` before any email match                                             | `email`, `email_verified`, `is_private_email`                                                  |
 
-- Libraries: Nimbus JOSE + JWT, or Google's `GoogleIdTokenVerifier`.
+- Library: `jose` in the `auth-api` edge function (`federated.ts`). Supabase Auth's own `signInWithIdToken` isn't used, because it links accounts by email (section 9.3).
 - Reject anything else with `TOKEN_INVALID`, and log the check that failed (not the token).
 
 ### 9.2 Apple authorisation code
@@ -618,7 +621,7 @@ Passwords (right or wrong), password hashes, codes, reset tokens or links, acces
 
 Enforce this in code, not by habit:
 
-- a Logback masking layout;
+- a masking logger with an allow-list of fields (`auth-api/log.ts`);
 - an allow-list of loggable fields;
 - request-body logging switched off for those paths;
 - crash reporters (iOS, Android, web) set to scrub form fields.
@@ -636,7 +639,7 @@ Enforce this in code, not by habit:
 | Email delivery        | Bounce or failure rate > 2%, or codes taking > 60 s                                                                           | Page   |
 | Apple webhook         | Any signature failure; no events for 30 days (check the registration)                                                         | Ticket |
 | Breach dataset        | Local copy older than 45 days                                                                                                 | Ticket |
-| Auth errors           | 5xx > 1% for 5 minutes; Argon2 p95 > 1 s                                                                                      | Page   |
+| Auth errors           | 5xx > 1% for 5 minutes; password verify p95 > 1 s                                                                             | Page   |
 | Deletion job          | Any account past `deletion_due_at` + 24 h not deleted                                                                         | Page   |
 
 ---
@@ -786,7 +789,7 @@ Run on iOS, Android and web unless marked. ✔ = automate in CI where possible.
 5. **0b-5f wait:** shows "15 minutes" to match decision 2. The screen said 5; Task 1 changed it.
 6. **Unconfirmed accounts:** purged after 7 days, and replaced (not "already exists") if someone creates the same email again.
 7. **Session lifetimes:** access 10 minutes; mobile refresh idle 30 days / absolute 90 days; web idle 7 days / absolute 30 days.
-8. **Argon2id parameters:** m = 64 MiB, t = 3, p = 1, tuned to 250–500 ms, with a KMS-held pepper.
+8. **Password storage:** Supabase Auth's bcrypt over an HMAC-SHA256-peppered password (was Argon2id; SPEC-QUESTIONS Q-HASH).
 9. **Breach check:** a locally hosted copy of Pwned Passwords rather than calling the HIBP API live.
 10. **"Contains the email":** the full email, or the local part when it's 5 characters or longer.
 11. **Devices without attestation:** allowed with stricter limits (3 an hour) rather than blocked.
