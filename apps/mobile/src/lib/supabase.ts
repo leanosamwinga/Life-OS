@@ -40,7 +40,13 @@ export interface Connection {
 export function createConnection(env: SupabaseEnv = readSupabaseEnv()): Connection | null {
   if (!isConfigured(env)) return null;
   const web = Platform.OS === 'web';
-  const origin = web && typeof window !== 'undefined' ? window.location.origin : '';
+  // Static web rendering has no window: a placeholder origin keeps supabase-js happy there (the
+  // client is only used in the browser).
+  const origin = !web
+    ? ''
+    : typeof window !== 'undefined'
+      ? window.location.origin
+      : 'http://localhost';
   const auth = new AuthClient({
     mode: web ? 'web' : 'native',
     baseUrl: web ? `${origin}/api/auth` : `${env.url}/functions/v1/auth-api`,
