@@ -46,6 +46,12 @@ export function sharedAlert(code: AuthCode): AlertCopy | null {
         title: "We couldn't check this device",
         body: 'Update Life OS and try again. On the web, refresh the page.',
       };
+    case 'DEV_BUILD_REQUIRED':
+      // Development only (Expo Go): never seen in a development, TestFlight or App Store build.
+      return {
+        title: 'Google sign-in needs a development build',
+        body: 'Expo Go can’t finish Google sign-in. Use Apple or email here, or run a development build (npx expo run:ios).',
+      };
     case 'SERVER_ERROR':
     case 'NETWORK':
       return {

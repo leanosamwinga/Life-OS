@@ -1,7 +1,10 @@
 import { AUTH_ERROR_CODES, type AuthErrorCode, type SignInMethod } from '@life-os/core';
 
-/** Codes the app can see: the API's (spec 3.2) plus a network failure. */
-export type AuthCode = AuthErrorCode | 'NETWORK';
+/**
+ * Codes the app can see: the API's (spec 3.2), a network failure, and DEV_BUILD_REQUIRED
+ * (development only: Google sign-in tapped in Expo Go, see expoGo.ts).
+ */
+export type AuthCode = AuthErrorCode | 'NETWORK' | 'DEV_BUILD_REQUIRED';
 
 export interface AuthErrorDetails {
   method?: SignInMethod;

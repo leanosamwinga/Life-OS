@@ -3,8 +3,8 @@ import { router, useFocusEffect } from 'expo-router';
 import { breachRangePrefix, checkPassword, rangeContains } from '@life-os/core';
 import type { Rule } from '@/components/auth';
 import { RULES } from '@/lib/auth/copy';
-import type { AuthError } from '@/lib/auth/errors';
-import { toAuthError } from '@/lib/auth/errors';
+import { AuthError, toAuthError } from '@/lib/auth/errors';
+import { googleNeedsDevBuild } from '@/lib/auth/expoGo';
 import type { Intent, Provider } from '@/lib/backend/types';
 import { useBackend } from '@/lib/session';
 
@@ -92,6 +92,11 @@ export function useProviderFlow(intent: Intent) {
   const run = useCallback(
     async (provider: Provider) => {
       setAlert(null);
+      // Expo Go can't receive Google's browser sign-in (lib/auth/expoGo.ts): say so instead of 0b-8g.
+      if (provider === 'GOOGLE' && googleNeedsDevBuild()) {
+        setAlert(new AuthError('DEV_BUILD_REQUIRED'));
+        return;
+      }
       setBusy(provider);
       try {
         await backend.auth.signInWithProvider(provider, intent);

@@ -132,6 +132,7 @@ export default function SignInWithEmailScreen() {
           busy={provider.busy === method}
           onPress={() => void provider.run(method)}
         />
+        <SharedAlert error={provider.alert} />
       </AuthAlert>
     );
   } else if (error?.code === 'SIGN_IN_PAUSED') {

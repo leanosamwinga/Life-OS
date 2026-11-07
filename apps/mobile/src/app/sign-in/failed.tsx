@@ -2,7 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { AuthScreen } from '@/components/auth';
 import { PrimaryButton, SecondaryButton } from '@/components/forms';
 import { useProviderFlow } from '@/features/auth/hooks';
-import { SigningIn } from '@/features/auth/parts';
+import { SharedAlert, SigningIn } from '@/features/auth/parts';
 import { providerName } from '@/lib/auth/copy';
 import type { Intent, Provider } from '@/lib/backend/types';
 
@@ -38,6 +38,7 @@ export default function SignInFailedScreen() {
         </>
       }
     >
+      <SharedAlert error={flow.alert} />
       <SigningIn provider={flow.busy} onCancel={() => undefined} />
     </AuthScreen>
   );
