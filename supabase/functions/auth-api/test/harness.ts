@@ -50,6 +50,8 @@ export interface Harness {
     body?: unknown,
     headers?: Record<string, string>,
   ): Promise<{ status: number; body: LooseBody; headers: Headers }>;
+  /** The raw handler, for callers that build their own Request (the web cookie server test). */
+  handle(req: Request): Promise<Response>;
   google: FakeProvider;
   apple: FakeProvider;
   /** Last 6-digit code emailed to `email`. */
@@ -177,6 +179,11 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
         'X-Device-Label': 'iPhone 15',
         'X-Forwarded-For': ip ?? `10.${(Date.now() >> 8) & 255}.${(n >> 8) & 255}.${n & 255}`,
       };
+    },
+    async handle(req) {
+      const res = await app.handler(req);
+      await Promise.all(pending.splice(0));
+      return res;
     },
     async call(method, path, body, headers = {}) {
       const res = await app.handler(

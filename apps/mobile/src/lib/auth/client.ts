@@ -203,7 +203,7 @@ export class AuthClient implements AuthApi {
       // Double-submit CSRF token: the cookie server checks this matches its cookie.
       const csrf =
         typeof document !== 'undefined'
-          ? /(?:^|; )lifeos_csrf=([^;]+)/.exec(document.cookie)?.[1]
+          ? /(?:^|; )(?:__Host-)?lifeos_csrf=([^;]+)/.exec(document.cookie)?.[1]
           : undefined;
       if (csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
     }
