@@ -3,6 +3,143 @@
 - Run started: Sat 7 Nov 2026, 00:45 (Europe/London). Branch `claude/phase2-sign-in-v3`.
 - Environment: Docker client present but no daemon (`/var/run/docker.sock` missing) → Supabase CLI stack cannot run. Plan: Supabase Auth (GoTrue) release binary + local Postgres 16 + Mailpit binary.
 
+## Phase 2 end to end on the real stack (Sat 7 Nov 2026)
+
+Why: sign-in v3 passed its tests but failed on a phone (Expo Go, `supabase start`): "Couldn't load
+your data — Session revoked" after signing up, earlier "Account pending deletion", and a "Try
+again" that did nothing. The real path — phone → gateway → PostgREST with
+`pgrst.db_pre_request = public.check_request` → Postgres, and → auth-api in Deno — had never run:
+auth-api ran under Node and `check_request` only in pgTAP.
+
+### The stack it ran on
+
+Docker has no daemon in this environment, so `scripts/local-auth` now runs the whole phone path
+from pinned, checksum-checked release binaries (`npm run local-auth`):
+
+| Piece                  | Version                                      | Configured like Supabase                                                                                              |
+| ---------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Postgres               | 16 (system) + pg_cron + pgTAP                | Supabase roles; API roles get `usage on schema auth` (found missing by the e2e test, see below)                       |
+| Supabase Auth (GoTrue) | v2.197.0 — the version the Supabase CLI pins | `config-to-env.sh` mirrors `config.toml`, hooks included (`LOCAL_AUTH_HOOKS=off` leaves them out on purpose)          |
+| PostgREST              | v16.5 — the version the Supabase CLI pins    | `authenticator`, anon role `anon`, Auth's JWT secret, in-database config, so the migration's `db_pre_request` applies |
+| auth-api, food-lookup  | Deno v2.9.6, `index.ts` as deployed          | env = `supabase/functions/.env.example` as copied + the `SUPABASE_*` values the edge runtime injects                  |
+| Gateway                | `scripts/local-auth/gateway.mjs`             | `/auth/v1`, `/rest/v1` (apikey required), `/functions/v1/<name>` (JWT check where `verify_jwt = true`), like Kong     |
+| Mailpit                | v1.33.0                                      | SMTP :54325, API :54324                                                                                               |
+
+`npm run test:e2e` (`e2e/phone.e2e.test.ts`) acts like the phone: it runs the app's **own**
+`AuthClient`, supabase-js client and `supabaseBackend` (`apps/mobile/src/lib`) in Node, with the
+handful of Expo modules they touch replaced by small stand-ins (in-memory Keychain, Node crypto).
+Codes come from Mailpit. 7/7, three runs back to back:
+
+| Step                                                                                                | Result |
+| --------------------------------------------------------------------------------------------------- | ------ |
+| `authenticator` has `pgrst.db_pre_request=public.check_request`; anon passes through it             | ✅     |
+| Sign up → code from Mailpit → token with `lifeos_scope` + `session_id` → profile, settings, consent | ✅     |
+| 0c consent → 0d → 0e → 0f nudges → 0g name + targets → `onboarding_completed_at`                    | ✅     |
+| 7a empty roster · 7c barcode → food-lookup (cache) · search · 7e manual food (yours wins)           | ✅     |
+| 7b build + save to plan + `log_meal` · 7d last-time amounts · one-off meal · "Ate it" · water +250  | ✅     |
+| Today/Health: `dayProgress` over what `useDay` reads = 2 × 386 + 252 kcal, 250 ml                   | ✅     |
+| Refresh rotates; replaying the old refresh token revokes the session; the app → 0a                  | ✅     |
+| Sign out → the old token gets `SESSION_REVOKED` from the Data API                                   | ✅     |
+| A Keychain token whose session is gone (db reset) → `SESSION_REVOKED` → the app → 0a                | ✅     |
+| Delete account → `PENDING_DELETION` from the Data API → cancel → full access again                  | ✅     |
+
+Not covered here: a barcode that isn't in the cache — Open Food Facts isn't reachable from this
+environment (the proxy refuses it), so only the cached path of food-lookup ran.
+
+### Root cause of `SESSION_REVOKED` after signing up
+
+What the message means: it comes from `public.check_request` (PostgREST's pre-request), which
+raises it when the token's `session_id` isn't in `auth.sessions`. So the phone was sending an
+access token whose Supabase Auth session no longer existed.
+
+What I could and couldn't reproduce:
+
+- A **fresh** sign-up works end to end on the stack above (same Supabase Auth and PostgREST
+  versions as `supabase start`), including with the phone's clock 15 minutes off. I couldn't make
+  a just-issued session disappear.
+- **"Account pending deletion"** is reproduced exactly by starting Supabase Auth without
+  `config.toml`'s `[auth.hook.*]` (`LOCAL_AUTH_HOOKS=off`): auth-api happily handed out tokens
+  with no `lifeos_scope`, and `check_request` treats a missing scope as `PENDING_DELETION`. That's
+  what `supabase start` does when the stack was started on another branch: `config.toml` is only
+  read at start (and `supabase start` on a running stack changes nothing).
+- **"Session revoked"** is reproduced by any token that outlives its session: `supabase db reset`
+  or a restart without a backup (every session goes), sign-out elsewhere, refresh-token reuse.
+  The token from the hooks-off attempt is exactly that after the stack is restarted with the right
+  config and reset.
+
+Root cause, in two parts:
+
+1. **App (the bug that made it a dead end):** the app only treated auth-api 401s as the end of a
+   session. When the **Data API** refused the token, `SessionProvider` showed it as a load error
+   with the raw message, and "Try again" re-sent the same dead token from the Keychain forever —
+   no way back to Welcome short of deleting Expo Go's data. Spec 3.3 says SESSION_REVOKED /
+   SESSION_EXPIRED anywhere go to 0a with no message.
+2. **Setup (why the token was dead):** the stack had been started with an older `config.toml`
+   (Auth hooks off). Tokens issued then lacked `lifeos_scope` (→ "Account pending deletion"), and
+   after `supabase stop/start` + `db reset` their sessions were gone (→ "Session revoked"). Nothing
+   said the hooks weren't running.
+
+Fixes:
+
+- `apps/mobile/src/lib/backend/sessionFetch.ts` wraps every Data API and function call: ended
+  session (SESSION_REVOKED, SESSION_EXPIRED, a JWT PostgREST can't verify) → forget it, Keychain
+  too → 0a, no message; "JWT expired" → refresh once and retry; PENDING_DELETION → ask auth-api
+  (`GET /v1/me/deletion`, then refresh) → S-5h. The web cookie server drops its cookies on the
+  same answers. `SessionProvider` shows "Couldn't load your data" only for network/server errors,
+  in plain words, and "Try again" goes back to the spinner and loads again.
+- `auth-api` refuses to issue or refresh a session whose token lacks `lifeos_scope`: it deletes
+  that session, logs "Supabase Auth hooks aren't running — run `supabase stop && supabase start`"
+  and returns `SERVER_ERROR`. It also no longer turns a Supabase Auth outage into
+  SESSION_REVOKED (only a 4xx from Auth ends a session).
+- `npm run doctor` checks the setup (hooks running, migrations, env files, Mailpit, the phone URL)
+  and README "Run it on your phone" says to `supabase stop && supabase start && supabase db reset`
+  when switching branches.
+
+Found on the way: the Docker-free stack lacked `grant usage on schema auth` for the API roles, so
+`save_meal` / `log_meal` (SECURITY INVOKER, call `auth.uid()`) failed there with 42501 —
+Supabase's image has the grant, so this was local-stack only; `expo export -p web` failed with
+`apps/mobile/.env.local` present (no origin during static rendering) — fixed.
+
+### App behaviour tests (jest)
+
+`apps/mobile/src/__tests__/session-errors.test.tsx` (11) runs the real `AuthClient` + supabase-js +
+`sessionAwareFetch` against a scripted fake stack: Data API SESSION_REVOKED / SESSION_EXPIRED /
+bad JWT clear the session; auth-api and refresh SESSION_* clear it; JWT expired refreshes once
+and retries; PENDING_DELETION re-checks and switches scope; network/5xx keep the session; and in
+the rendered app: revoked → 0a with no text, expired refresh → 0a, pending → S-5h, network error →
+"Couldn't load your data" + "Check your connection" → Try again → 0c, server error keeps the
+session. Removing the fetch wrapper makes the app tests fail.
+`expo-go-google.test.tsx` (2): in Expo Go the Google button shows "Google sign-in needs a
+development build" and nothing is called; in a development build it signs in as before.
+`setup.integration.test.ts` (1): a second Supabase Auth with the hooks off → confirm returns
+SERVER_ERROR, the log line is written, no session is left. `scripts/doctor/checks.test.mjs` (5).
+
+### Expo Go and Google (D)
+
+Google's iPhone flow (`ASWebAuthenticationSession`, code + PKCE + nonce) redirects to
+`com.googleusercontent.apps.<id>:/oauth2redirect`; `app.config.ts` registers that scheme in a
+development or store build. Expo Go is prebuilt and can't register it, and Expo's own guidance is
+that Google sign-in on iOS needs a development build (SDK 49+). I couldn't run Expo Go here, so
+the app now says so in Expo Go (`isRunningInExpoGo()`) instead of ending on 0b-8g. Apple works in
+Expo Go with `APPLE_BUNDLE_ID=host.exp.Exponent` (the native sheet is in Expo Go). **Manual:**
+confirm both on the phone.
+
+### Checks after these changes
+
+| Check                             | Result                                                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `npm run lint` / `format:check`   | ✅ clean                                                                                                |
+| `npm run typecheck`               | ✅ core, edge functions, app, e2e                                                                       |
+| `npm test`                        | ✅ core 53 · edge functions 42 · scripts 5 · app 124 (15 suites)                                        |
+| `npm run test:db`                 | ✅ all files (fresh database on the local Postgres 16)                                                  |
+| `npm run test:integration`        | ✅ 42/42 (41 + hooks-off setup test)                                                                    |
+| `npm run test:e2e`                | ✅ 7/7, three runs back to back                                                                         |
+| `deno check` both functions       | ✅                                                                                                      |
+| `npm run doctor`                  | ✅ against the Docker-free stack; ✗ with the right fix for hooks off, 127.0.0.1 on a phone, missing env |
+| `expo export` ios / web / android | ✅ (web with Supabase env set, after the fix above)                                                     |
+| Secret scan before each push      | ✅ no JWTs, private keys or `sb_secret_` values in any diff                                             |
+| On a real phone                   | **Not run here** (no device). Follow README "Run it on your phone" and `npm run doctor`.                |
+
 ## Local Supabase Auth (no Docker)
 
 `bash scripts/local-auth/start.sh` — what it runs, exactly:
@@ -176,10 +313,10 @@ person, not run overnight · **Later** = Android (decision 9).
 
 - **Docker / `supabase start`**: no Docker daemon in this environment, so the Supabase CLI stack and
   `supabase functions serve` weren't run. Everything was run against the Docker-free stack above
-  instead; `auth-api` runs in-process under Vitest (Node) rather than in the Deno edge runtime, and
-  `deno check` covers its Deno entry point.
-- **PostgREST** isn't part of the local stack, so `check_request` is proven by pgTAP calling it with
-  the claims PostgREST would set, not through a live Data API.
+  instead. The integration tests run `auth-api` in-process under Vitest (Node); the e2e test runs it
+  in Deno (not Supabase's edge runtime itself) behind the gateway.
+- **PostgREST** wasn't part of the local stack for the original run; it is now (see "Phase 2 end to
+  end on the real stack"), and `check_request` is exercised through the live Data API by the e2e test.
 - **Real Apple / Google / Turnstile / App Attest**: no credentials (and none may be committed). Fake
   JWKS and ID tokens for the providers; device checks off in the integration run, with unit tests for
   the App Attest and Turnstile verifiers.
