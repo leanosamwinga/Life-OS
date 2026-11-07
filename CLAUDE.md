@@ -37,7 +37,10 @@ supabase/functions     edge functions (food-lookup, auth-api); pure logic in han
 supabase/tests         pgTAP tests (*.test.sql)
 supabase/seed.sql      fake local seed data
 scripts/test-db.sh     runs supabase/tests on plain Postgres via scripts/db/supabase-shim.sql
-scripts/local-auth     Docker-free Supabase Auth (GoTrue) + Postgres 16 + Mailpit for the integration tests
+scripts/local-auth     Docker-free local stack: Postgres 16, Supabase Auth, PostgREST, edge functions in Deno, Mailpit,
+                       and a Kong-like gateway on :54321 (pinned, checksum-checked binaries)
+scripts/doctor         `npm run doctor`: checks the local setup for running on a phone
+e2e                    phone-like end-to-end test (the app's own AuthClient + backend in Node) on the real stack
 docs                   sign-in spec, decisions, Supabase mapping, SPEC-QUESTIONS, TEST-REPORT, PRIVACY-POLICY-CHANGES
 ```
 
@@ -50,6 +53,8 @@ npm run test:db                                 # DATABASE_URL=… (plain Postgr
 npm run mobile                                  # expo start
 supabase start && supabase db reset             # local backend
 npm run local-auth && npm run test:integration   # sign-in tests against a real Supabase Auth (no Docker)
+npm run local-auth && npm run test:e2e           # phone-like end-to-end test of Phase 2 on the real stack
+npm run doctor                                  # local setup check before running on a phone
 npx deno check --config supabase/functions/food-lookup/deno.json supabase/functions/food-lookup/index.ts
 npx deno check --config supabase/functions/auth-api/deno.json supabase/functions/auth-api/index.ts
 ```
@@ -61,7 +66,7 @@ npx deno check --config supabase/functions/auth-api/deno.json supabase/functions
   - Methods: email + password, Apple, Google. **One method per email; never link methods automatically**, even when emails match. Supabase Auth's own sign-up and Apple/Google providers stay **off**; `auth-api` verifies ID tokens itself (proper single-use nonce, never `skip_nonce_check`) and keeps identities in `auth_federated_identities`. Apple is always offered wherever Google is.
   - **Nothing emailed can sign anyone in.** Email sign-in is always email + password. The only emailed codes are "confirm your email" (0b-4) and the new-device check (0b-5h); the only emailed link is the password reset link, which never signs anyone in.
   - Passwords: 15–128 characters (NFKC code points), not breached (own k-anonymity SHA-1 check, `auth_breached_hashes`), not containing the email. Peppered before Supabase Auth's bcrypt. The rules live in `packages/core/src/auth.ts` for both app and server.
-  - Sessions: issued only after `auth-api`'s checks (permit-gated hooks). Access 10 minutes; refresh rotates and any reuse revokes; phone 30/90 days, web 7/30. Tokens: iPhone Keychain (SecureStore, this device only), web httpOnly cookies — browser JS never sees a token. `public.check_request` refuses Data API calls from ended sessions and the `PENDING_DELETION` scope.
+  - Sessions: issued only after `auth-api`'s checks (permit-gated hooks). Access 10 minutes; refresh rotates and any reuse revokes; phone 30/90 days, web 7/30. Tokens: iPhone Keychain (SecureStore, this device only), web httpOnly cookies — browser JS never sees a token. `public.check_request` refuses Data API calls from ended sessions and the `PENDING_DELETION` scope. The app handles those answers in one place (`src/lib/backend/sessionFetch.ts`, spec 3.3): an ended session is forgotten → 0a with no message; `PENDING_DELETION` re-checks with auth-api → S-5h; "Couldn't load your data" is only for network/server errors. `auth-api` refuses any token without `lifeos_scope` (Auth hooks not running).
   - All auth email goes through `EmailSender` (Mailpit locally); Supabase Auth sends none. Device checks: App Attest (iPhone) and Turnstile (web) behind one `DeviceCheck` interface, `AUTH_DEVICE_CHECKS` / `EXPO_PUBLIC_DEVICE_CHECKS` flag, on in production.
   - Me → Security: change password, signed-in devices, delete account (30-day grace; the day-30 pg_cron job erases data, revokes the Apple token and sends the "deleted" email) and export (CSV + JSON).
   - The seeded `admin@example.test` account (password in the README) and the bare-`admin` shortcut (`__DEV__` only) are local development only.
@@ -86,6 +91,7 @@ npx deno check --config supabase/functions/auth-api/deno.json supabase/functions
 - UI: greyscale tokens in `apps/mobile/src/theme.ts`, system font, ≥44 pt touch targets, accessibility role + label on every control.
 - **No secrets in the repo.** Only `*.env.example` files are tracked. `EXPO_PUBLIC_*` values ship in the app bundle — only the anon key goes there. The service role key lives only in the edge runtime.
 - Sample/seed/test data must be obviously fake (example.test emails, 000… barcodes, generic names) — never real personal data.
+- After switching branches: `supabase stop && supabase start && supabase db reset` (config.toml is only read at start), then `npm run doctor`.
 - Workflow: branch from `main` (`claude/<topic>`), small logical commits, push the branch, open a PR. **Never push to or merge into `main`.** Run lint, typecheck and all tests before opening a PR; list anything that couldn't run.
 
 ## Phase plan
