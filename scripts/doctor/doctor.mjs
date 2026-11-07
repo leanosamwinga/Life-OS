@@ -63,7 +63,14 @@ function findStack() {
   }
   if (docker) {
     try {
-      const env = parseEnv(sh('supabase', ['status', '-o', 'env'], 20_000));
+      // The Supabase CLI may be installed, or only used through npx.
+      let out;
+      try {
+        out = sh('supabase', ['status', '-o', 'env'], 20_000);
+      } catch {
+        out = sh('npx', ['--yes', 'supabase', 'status', '-o', 'env'], 60_000);
+      }
+      const env = parseEnv(out);
       const api = env.API_URL;
       if (api) {
         return {
