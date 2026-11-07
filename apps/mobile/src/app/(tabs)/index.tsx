@@ -15,6 +15,9 @@ import {
   type MealLog,
 } from '@life-os/core';
 import { Avatar, Card, OutlineButton, Overline, Row, Screen } from '@/components/ui';
+import { FormMessage, SecondaryButton } from '@/components/forms';
+import { useDay } from '@/features/data/useDay';
+import { useSession } from '@/lib/session';
 import { Ring } from '@/components/Ring';
 import {
   sampleCalendar,
@@ -42,28 +45,54 @@ function useNow(): Date {
 
 const formatSleep = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 
+/** Ring value for a metric with no target yet, or not tracked until a later phase. */
+const DASH = '—';
+
 export default function TodayScreen() {
   const now = useNow();
   const today = toLondonDate(now);
+  const session = useSession();
+  const day = useDay(today);
   const [extraLogs, setExtraLogs] = useState<MealLog[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const live = day.live;
 
-  const mealLogs = useMemo(() => [...sampleMealLogs(today), ...extraLogs], [today, extraLogs]);
-  const progress = dayProgress(
-    { meals: mealLogs, water: sampleWaterLogs(today), steps: sampleSteps },
-    sampleTargets,
-    today,
-  );
+  // Not connected: sample data. Signed in: the user's own data (steps/sleep arrive in phase 3).
+  const sampleLogs = useMemo(() => [...sampleMealLogs(today), ...extraLogs], [today, extraLogs]);
+  const progress = live
+    ? day.progress
+    : dayProgress(
+        { meals: sampleLogs, water: sampleWaterLogs(today), steps: sampleSteps },
+        sampleTargets,
+        today,
+      );
+  const planMeals = live ? day.data.roster.filter((m) => m.inDailyPlan) : samplePlanMeals;
   const timeline = buildTimeline({
     mealLogs: progress.meals,
-    planMeals: samplePlanMeals,
-    calendar: sampleCalendar,
+    planMeals,
+    calendar: live ? [] : sampleCalendar,
   });
   const nowAt = nowIndex(timeline, toLondonTime(now));
   const nextDay = nextSplitDay(sampleRotation, sampleCompletedThisCycle);
 
-  const ateIt = (savedMealId: string) => {
-    const meal = samplePlanMeals.find((m) => m.id === savedMealId);
+  const ateIt = async (savedMealId: string) => {
+    const meal = planMeals.find((m) => m.id === savedMealId);
     if (!meal) return;
+    if (live && session.backend) {
+      setError(null);
+      try {
+        await session.backend.logMeal({
+          name: meal.name,
+          savedMealId: meal.id,
+          loggedAt: new Date().toISOString(),
+          components: meal.components,
+        });
+        session.notifyDataChanged();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Couldn’t log that meal.');
+      }
+      return;
+    }
     setExtraLogs((logs) => [
       ...logs,
       {
@@ -81,8 +110,8 @@ export default function TodayScreen() {
     <Screen
       testID="screen-today"
       title="Today"
-      subtitle={`${formatDateUK(today)} · rest day`}
-      accessory={<Avatar size={60} label="Profile" />}
+      subtitle={live ? formatDateUK(today) : `${formatDateUK(today)} · rest day`}
+      accessory={<Avatar size={60} label={session.displayName ?? 'Profile'} />}
       footer={
         <Pressable
           onPress={() => router.push('/log-meal')}
@@ -97,51 +126,118 @@ export default function TodayScreen() {
       <View style={styles.rings}>
         <Ring
           fraction={progress.kcal.fraction}
-          value={formatKcal(progress.kcal.consumed)}
+          value={day.consentOff ? DASH : formatKcal(progress.kcal.consumed)}
           label="kcal"
-          accessibilityLabel={`Calories: ${formatKcal(progress.kcal.consumed)} of ${formatKcal(progress.kcal.target)}`}
+          accessibilityLabel={
+            day.consentOff
+              ? 'Calories: health data is off'
+              : `Calories: ${formatKcal(progress.kcal.consumed)} of ${progress.kcal.target ? formatKcal(progress.kcal.target) : 'no target set'}`
+          }
         />
         <Ring
           fraction={progress.water.fraction}
-          value={formatMl(progress.water.consumed)}
+          value={day.consentOff ? DASH : formatMl(progress.water.consumed)}
           label="water"
-          accessibilityLabel={`Water: ${formatMl(progress.water.consumed)} of ${formatMl(progress.water.target)}`}
+          accessibilityLabel={
+            day.consentOff
+              ? 'Water: health data is off'
+              : `Water: ${formatMl(progress.water.consumed)} of ${progress.water.target ? formatMl(progress.water.target) : 'no target set'}`
+          }
         />
-        <Ring
-          fraction={progress.steps.fraction}
-          value={formatCount(progress.steps.consumed)}
-          label="steps"
-          accessibilityLabel={`Steps: ${formatCount(progress.steps.consumed)} of ${formatCount(progress.steps.target)}`}
-        />
-        <Ring
-          fraction={sampleSleepMinutes / (8 * 60)}
-          value={formatSleep(sampleSleepMinutes)}
-          label="sleep"
-          accessibilityLabel={`Sleep: ${formatSleep(sampleSleepMinutes)}`}
-        />
+        {live ? (
+          <>
+            <Ring
+              fraction={0}
+              value={DASH}
+              label="steps"
+              accessibilityLabel="Steps: from Apple Health in a later update"
+            />
+            <Ring
+              fraction={0}
+              value={DASH}
+              label="sleep"
+              accessibilityLabel="Sleep: from Apple Health in a later update"
+            />
+          </>
+        ) : (
+          <>
+            <Ring
+              fraction={progress.steps.fraction}
+              value={formatCount(progress.steps.consumed)}
+              label="steps"
+              accessibilityLabel={`Steps: ${formatCount(progress.steps.consumed)} of ${formatCount(progress.steps.target)}`}
+            />
+            <Ring
+              fraction={sampleSleepMinutes / (8 * 60)}
+              value={formatSleep(sampleSleepMinutes)}
+              label="sleep"
+              accessibilityLabel={`Sleep: ${formatSleep(sampleSleepMinutes)}`}
+            />
+          </>
+        )}
       </View>
+
+      {error || day.error ? <FormMessage>{error ?? day.error ?? ''}</FormMessage> : null}
+      {live && !day.targetsSet && !day.consentOff ? (
+        <Row
+          label="Set your daily targets"
+          subtitle="Calories, protein, carbs, fat and water"
+          chevron
+          onPress={() => router.push('/targets')}
+        />
+      ) : null}
 
       <View style={styles.section}>
         <Overline>Your day</Overline>
       </View>
-      <Timeline items={timeline} nowAt={nowAt} nowLabel={toLondonTime(now)} onAteIt={ateIt} />
+      {day.consentOff ? (
+        <View style={styles.consentOff} testID="today-consent-off">
+          <Text style={styles.consentTitle}>Health data is off</Text>
+          <Text style={styles.emptyText}>
+            Meals and water need your permission. Turn on “Use my health data” in Me; the rest of
+            the app keeps working.
+          </Text>
+          <SecondaryButton label="Open Me → Privacy" onPress={() => router.push('/me')} />
+        </View>
+      ) : (
+        <Timeline
+          items={timeline}
+          nowAt={nowAt}
+          nowLabel={toLondonTime(now)}
+          onAteIt={(id) => void ateIt(id)}
+          emptyText={
+            live && day.loading
+              ? 'Loading your day…'
+              : 'Nothing planned yet. Log a meal or add plan meals to your roster.'
+          }
+        />
+      )}
 
-      <Card variant="filled" style={styles.elsewhere}>
-        <Row
-          label="Money"
-          detail={`Last month ${formatPence(3800)} under`}
-          chevron
-          onPress={() => router.push('/money')}
-        />
-        <Row label="Sunday service" detail="Notion · phase 4" chevron muted />
-        <Row
-          label="Training"
-          detail={`${sampleCompletedThisCycle} of ${sampleRotation.targetPerWeek} · Day ${nextDay.day} ${nextDay.name} next`}
-          chevron
-          onPress={() => router.push('/health')}
-        />
-        <Row label="Habits & journal" pill="Later" muted last />
-      </Card>
+      {live ? (
+        <Card variant="filled" style={styles.elsewhere}>
+          <Row label="Money" pill="Later" muted />
+          <Row label="Sunday service" pill="Later" muted />
+          <Row label="Training" pill="Later" muted />
+          <Row label="Habits & journal" pill="Later" muted last />
+        </Card>
+      ) : (
+        <Card variant="filled" style={styles.elsewhere}>
+          <Row
+            label="Money"
+            detail={`Last month ${formatPence(3800)} under`}
+            chevron
+            onPress={() => router.push('/money')}
+          />
+          <Row label="Sunday service" detail="Notion · phase 4" chevron muted />
+          <Row
+            label="Training"
+            detail={`${sampleCompletedThisCycle} of ${sampleRotation.targetPerWeek} · Day ${nextDay.day} ${nextDay.name} next`}
+            chevron
+            onPress={() => router.push('/health')}
+          />
+          <Row label="Habits & journal" pill="Later" muted last />
+        </Card>
+      )}
     </Screen>
   );
 }
@@ -151,11 +247,12 @@ function Timeline(props: {
   nowAt: number;
   nowLabel: string;
   onAteIt: (savedMealId: string) => void;
+  emptyText: string;
 }) {
   if (props.items.length === 0) {
     return (
       <View style={styles.empty} testID="timeline-empty">
-        <Text style={styles.emptyText}>Nothing planned yet. Log a meal or connect a calendar.</Text>
+        <Text style={styles.emptyText}>{props.emptyText}</Text>
       </View>
     );
   }
@@ -276,6 +373,8 @@ const styles = StyleSheet.create({
   empty: { paddingVertical: space.xl },
   emptyText: { ...type.callout, color: colors.textSecondary },
   elsewhere: { marginTop: space.xl },
+  consentOff: { paddingVertical: space.md, gap: space.sm },
+  consentTitle: { ...type.headline, color: colors.text },
   fab: {
     position: 'absolute',
     right: space.xl,

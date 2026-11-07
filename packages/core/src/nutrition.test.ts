@@ -3,6 +3,7 @@ import type { DailyTargets, Food, MealComponent, MealLog } from './types.ts';
 import {
   dayProgress,
   portionMacros,
+  roundGrams,
   roundTo,
   snapshotComponents,
   sumMacros,
@@ -200,5 +201,28 @@ describe('roundTo', () => {
     expect(roundTo(1.005, 2)).toBe(1.01);
     expect(roundTo(-2.5, 0)).toBe(-3);
     expect(Object.is(roundTo(-0.01, 1), 0)).toBe(true);
+  });
+});
+
+describe('parity with the log_meal SQL function', () => {
+  // The same cases as supabase/tests/05_log_meal.test.sql: the server recomputes these with
+  // numeric round() and rejects the log if the client's numbers differ.
+  const chicken = { per100g: { kcal: 106, protein: 24, carbs: 0, fat: 1.2 } };
+  const rice = { per100g: { kcal: 130, protein: 2.7, carbs: 28, fat: 0.3 } };
+  const noodles = { per100g: { kcal: 360, protein: 6, carbs: 80, fat: 1 } };
+  it.each([
+    [chicken, 200, { kcal: 212, protein: 48, carbs: 0, fat: 2.4 }],
+    [chicken, 45, { kcal: 48, protein: 10.8, carbs: 0, fat: 0.5 }],
+    [rice, 150, { kcal: 195, protein: 4.1, carbs: 42, fat: 0.5 }],
+    [rice, 50, { kcal: 65, protein: 1.4, carbs: 14, fat: 0.2 }],
+    [rice, 180, { kcal: 234, protein: 4.9, carbs: 50.4, fat: 0.5 }],
+    [noodles, 70, { kcal: 252, protein: 4.2, carbs: 56, fat: 0.7 }],
+  ])('%#: matches the server', (f, grams, expected) => {
+    expect(portionMacros(f, grams)).toEqual(expected);
+  });
+
+  it('rounds grams to 1 dp like the column', () => {
+    expect(roundGrams(60.25)).toBe(60.3);
+    expect(roundGrams(0.04)).toBe(0);
   });
 });

@@ -542,6 +542,20 @@ export type Database = {
       can_use_food: { Args: { food: string }; Returns: boolean };
       first_name_from_metadata: { Args: { meta: Json }; Returns: string };
       has_active_consent: { Args: { consent_type: string }; Returns: boolean };
+      log_meal: {
+        Args: { p_items: Json; p_logged_at: string; p_name: string; p_saved_meal_id: string | null };
+        Returns: string;
+      };
+      save_meal: {
+        Args: {
+          p_components: Json;
+          p_id: string | null;
+          p_in_daily_plan: boolean;
+          p_name: string;
+          p_usual_time: string | null;
+        };
+        Returns: string;
+      };
     };
     Enums: {
       [_ in never]: never;

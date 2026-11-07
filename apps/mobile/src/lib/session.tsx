@@ -33,6 +33,9 @@ export interface SessionValue {
   updateSettings(patch: SettingsPatch): Promise<void>;
   setDisplayName(name: string | null): Promise<void>;
   setHealthConsent(granted: boolean): Promise<void>;
+  /** Bumped whenever meals, water or the roster change, so screens reload their data. */
+  dataVersion: number;
+  notifyDataChanged(): void;
 }
 
 const noop = async () => {};
@@ -49,6 +52,8 @@ const DISCONNECTED: SessionValue = {
   updateSettings: noop,
   setDisplayName: noop,
   setHealthConsent: noop,
+  dataVersion: 0,
+  notifyDataChanged: () => {},
 };
 
 const SessionContext = createContext<SessionValue>(DISCONNECTED);
@@ -79,6 +84,7 @@ export function SessionProvider({
   const [ready, setReady] = useState(false);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [dataVersion, setDataVersion] = useState(0);
   const userRef = useRef<string | null>(null);
 
   const load = useCallback(
@@ -166,9 +172,12 @@ export function SessionProvider({
         await backend.setHealthConsent(granted);
         const healthConsent = await backend.hasHealthConsent();
         setLoaded((l) => (l ? { ...l, healthConsent } : l));
+        setDataVersion((v) => v + 1);
       },
+      dataVersion,
+      notifyDataChanged: () => setDataVersion((v) => v + 1),
     };
-  }, [backend, ready, user, loaded, loadError, load]);
+  }, [backend, ready, user, loaded, loadError, load, dataVersion]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

@@ -7,6 +7,9 @@ import { getBackend } from '@/lib/backend/current';
 import { SessionProvider, useSession } from '@/lib/session';
 import { colors, space, type } from '@/theme';
 
+// Deep links into modals (e.g. /log-meal) open on top of the tabs.
+export const unstable_settings = { anchor: '(tabs)' };
+
 export default function RootLayout() {
   return (
     <SafeAreaProvider>

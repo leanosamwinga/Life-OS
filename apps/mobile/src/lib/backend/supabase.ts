@@ -2,8 +2,19 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
-import { PRIVACY_POLICY_VERSION } from '@life-os/core';
+import { PRIVACY_POLICY_VERSION, toFood } from '@life-os/core';
 import type { LifeOsClient } from '../supabase';
+import {
+  escapeLike,
+  foodRecordFromRow,
+  logMealItems,
+  mealLogFromRow,
+  saveMealComponents,
+  savedMealFromRow,
+  type FoodRow,
+  type MealLogRow,
+  type SavedMealRow,
+} from './foods';
 import { rowFromPatch, settingsFromRow } from './settings';
 import { CancelledError, UserFacingError, type AuthUser, type Backend } from './types';
 
@@ -23,6 +34,15 @@ export function redirectParams(url: string): Record<string, string> {
 
 function friendly(error: { message?: string; code?: string; status?: number } | null): never {
   const msg = error?.message ?? 'Something went wrong. Please try again.';
+  if (error?.code === '42501') {
+    throw new UserFacingError(
+      'Health data is off. Turn on “Use my health data” in Me to log meals and water.',
+    );
+  }
+  // Raised by log_meal / save_meal with a message written for people.
+  if (error?.code === '22023' || error?.code === 'P0002') {
+    throw new UserFacingError(msg.charAt(0).toUpperCase() + msg.slice(1) + '.');
+  }
   if (/invalid login credentials/i.test(msg)) {
     throw new UserFacingError(
       'That email and password don’t match. Try again or use a sign-in link.',
@@ -232,6 +252,111 @@ export function supabaseBackend(client: LifeOsClient): Backend {
         .eq('type', 'health_data')
         .is('withdrawn_at', null);
       if (error) friendly(error);
+    },
+
+    async listSavedMeals() {
+      const { data, error } = await client
+        .from('saved_meals')
+        .select(
+          'id, user_id, name, in_daily_plan, usual_time, sort_order, saved_meal_components(food_id, grams, position, foods(*))',
+        )
+        .order('sort_order')
+        .order('created_at');
+      if (error) friendly(error);
+      return (data as unknown as SavedMealRow[]).map(savedMealFromRow);
+    },
+    async saveMeal(input) {
+      const { data, error } = await client.rpc('save_meal', {
+        p_id: input.id,
+        p_name: input.name,
+        p_in_daily_plan: input.inDailyPlan,
+        p_usual_time: input.inDailyPlan ? input.usualTime : null,
+        p_components: saveMealComponents(input.components),
+      });
+      if (error) friendly(error);
+      return data as string;
+    },
+    async deleteSavedMeal(id) {
+      const { error } = await client.from('saved_meals').delete().eq('id', id);
+      if (error) friendly(error);
+    },
+    async listMealLogs({ from, to }) {
+      const { data, error } = await client
+        .from('meal_logs')
+        .select(
+          'id, user_id, saved_meal_id, name, logged_at, meal_log_items(food_id, food_name, grams, kcal, protein_g, carbs_g, fat_g, position)',
+        )
+        .gte('logged_at', from)
+        .lt('logged_at', to)
+        .order('logged_at');
+      if (error) friendly(error);
+      return (data as unknown as MealLogRow[]).map(mealLogFromRow);
+    },
+    async logMeal(input) {
+      const { data, error } = await client.rpc('log_meal', {
+        p_name: input.name,
+        p_saved_meal_id: input.savedMealId,
+        p_logged_at: input.loggedAt,
+        p_items: logMealItems(input.components),
+      });
+      if (error) friendly(error);
+      return data as string;
+    },
+    async listWaterLogs({ from, to }) {
+      const { data, error } = await client
+        .from('water_logs')
+        .select('id, user_id, ml, logged_at')
+        .gte('logged_at', from)
+        .lt('logged_at', to)
+        .order('logged_at');
+      if (error) friendly(error);
+      return data.map((w) => ({
+        id: w.id,
+        userId: w.user_id,
+        ml: w.ml,
+        loggedAt: new Date(w.logged_at).toISOString(),
+      }));
+    },
+    async addWater(ml) {
+      const { error } = await client.from('water_logs').insert({ ml });
+      if (error) friendly(error);
+    },
+    async searchFoods(query) {
+      const q = query.trim();
+      if (!q) return [];
+      const { data, error } = await client
+        .from('foods')
+        .select('*')
+        .ilike('name', `%${escapeLike(q)}%`)
+        .order('name')
+        .limit(25);
+      if (error) friendly(error);
+      return data.map(foodRecordFromRow);
+    },
+    async getFoods(ids) {
+      if (ids.length === 0) return [];
+      const { data, error } = await client
+        .from('foods')
+        .select('*')
+        .in('id', [...ids]);
+      if (error) friendly(error);
+      return data.map(foodRecordFromRow);
+    },
+    async listRecentFoods(limit) {
+      const { data, error } = await client
+        .from('food_portions_last')
+        .select('grams, logged_at, foods(*)')
+        .order('logged_at', { ascending: false })
+        .limit(limit);
+      if (error) friendly(error);
+      return (
+        data as unknown as { grams: number; logged_at: string; foods: FoodRow | null }[]
+      ).flatMap((r) => {
+        const food = r.foods ? toFood(foodRecordFromRow(r.foods)) : null;
+        return food
+          ? [{ food, grams: Number(r.grams), loggedAt: new Date(r.logged_at).toISOString() }]
+          : [];
+      });
     },
   };
 }
