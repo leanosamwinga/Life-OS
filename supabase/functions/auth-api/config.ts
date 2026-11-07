@@ -40,7 +40,7 @@ export interface AuthConfig {
   deviceChecks: boolean;
   /** Use the breached-password table (fixture locally, full dataset in production). */
   breachCheck: boolean;
-  appAttest: { appIds: string[]; allowDevelopmentEnvironment: boolean };
+  appAttest: { appIds: string[]; allowDevelopmentEnvironment: boolean; rootCaPem: string };
   turnstile: { secret: string; siteverifyUrl: string };
   google: ProviderConfig;
   apple: ProviderConfig & {
@@ -101,6 +101,9 @@ export function configFromEnv(env: (k: string) => string | undefined): AuthConfi
     appAttest: {
       appIds: list(env('APP_ATTEST_APP_IDS')),
       allowDevelopmentEnvironment: env('APP_ATTEST_ALLOW_DEVELOPMENT') === 'true',
+      // Apple App Attestation Root CA (public), from
+      // https://www.apple.com/certificateauthority/Apple_App_Attestation_Root_CA.pem
+      rootCaPem: env('APP_ATTEST_ROOT_CA_PEM') ?? '',
     },
     turnstile: {
       secret: env('TURNSTILE_SECRET_KEY') ?? '',

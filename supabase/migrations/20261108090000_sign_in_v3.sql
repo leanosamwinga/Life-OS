@@ -315,6 +315,8 @@ create index auth_reset_tokens_user_idx on public.auth_reset_tokens (user_id);
 -- Nonces for Apple and Google ID tokens: single use, 10 minutes, bound to the device.
 create table public.auth_nonces (
   id uuid primary key default gen_random_uuid(),
+  -- ID_TOKEN: Apple/Google sign-in. APP_ATTEST: the one-time challenge for an attestation.
+  purpose text not null default 'ID_TOKEN' check (purpose in ('ID_TOKEN', 'APP_ATTEST')),
   nonce_hash text not null unique,
   device_id_hash text not null,
   expires_at timestamptz not null,

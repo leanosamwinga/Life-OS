@@ -26,6 +26,7 @@ import { GoTrue, GoTrueError, type GoTrueSession } from './gotrue.ts';
 import { err } from './http.ts';
 import type { AuthLogger } from './log.ts';
 import { derivePassword } from './password.ts';
+import { verifyAppAttestation } from './app-attest.ts';
 
 export interface AppleCodeExchange {
   /** Exchanges a first-sign-in authorization code; returns Apple's refresh token, or null if not configured. */
@@ -532,11 +533,11 @@ export class AuthService {
   }
 
   /** Marks the nonce used and returns it; any reuse, expiry or device mismatch → TOKEN_INVALID. */
-  private async takeNonce(nonceId: string, rawNonce: string | null, ctx: RequestContext): Promise<string> {
+  private async takeNonce(nonceId: string, rawNonce: string | null, ctx: RequestContext, purpose: 'ID_TOKEN' | 'APP_ATTEST' = 'ID_TOKEN'): Promise<string> {
     if (!/^[0-9a-f-]{36}$/.test(nonceId)) throw err(401, 'TOKEN_INVALID');
     const [row] = await this.sql<{ nonce_hash: string; device_id_hash: string; expires_at: Date }[]>`
       update public.auth_nonces set used_at = ${this.d.now()}
-       where id = ${nonceId} and used_at is null returning nonce_hash, device_id_hash, expires_at`;
+       where id = ${nonceId} and used_at is null and purpose = ${purpose} returning nonce_hash, device_id_hash, expires_at`;
     if (!row || row.device_id_hash !== ctx.deviceHash || row.expires_at.getTime() <= this.nowMs()) {
       this.d.log.event('auth.federated.failed', { request_id: ctx.requestId, check: 'nonce' });
       throw err(401, 'TOKEN_INVALID');
@@ -547,6 +548,41 @@ export class AuthService {
       throw err(401, 'TOKEN_INVALID');
     }
     return rawNonce;
+  }
+
+  // ---------------------------------------------------------------- 6.2 App Attest
+
+  async attestChallenge(ctx: RequestContext) {
+    await this.limit('attest', ctx.deviceHash, 10, HOUR);
+    const challenge = randomToken();
+    const [row] = await this.sql<{ id: string }[]>`
+      insert into public.auth_nonces (purpose, nonce_hash, device_id_hash, expires_at)
+      values ('APP_ATTEST', ${await sha256Hex(challenge)}, ${ctx.deviceHash}, ${new Date(this.nowMs() + 5 * 60_000)}) returning id`;
+    return { challenge_id: row!.id, challenge };
+  }
+
+  async attest(ctx: RequestContext, input: { keyId: string; attestation: string; challengeId: string; challenge: string }) {
+    const challenge = await this.takeNonce(input.challengeId, input.challenge, ctx, 'APP_ATTEST').catch(() => {
+      throw err(403, 'DEVICE_CHECK_FAILED');
+    });
+    const a = this.d.config.appAttest;
+    try {
+      const { publicKeySpki } = await verifyAppAttestation({
+        keyIdB64: input.keyId,
+        attestationB64: input.attestation,
+        challenge,
+        appIds: a.appIds,
+        rootCaPem: a.rootCaPem,
+        allowDevelopment: a.allowDevelopmentEnvironment,
+        now: this.d.now(),
+      });
+      await this.sql`
+        insert into public.auth_app_attest_keys (key_id, device_id_hash, public_key_spki)
+        values (${input.keyId}, ${ctx.deviceHash}, ${publicKeySpki}) on conflict (key_id) do nothing`;
+    } catch (e) {
+      this.d.log.event('auth.attestation.failed', { request_id: ctx.requestId, check: e instanceof Error ? e.message.slice(0, 20) : 'unknown' });
+      throw err(403, 'DEVICE_CHECK_FAILED');
+    }
   }
 
   private async verifyIdToken(provider: FederatedProvider, idToken: string, nonce: string, ctx: RequestContext) {

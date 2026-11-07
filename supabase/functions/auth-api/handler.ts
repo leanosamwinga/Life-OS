@@ -62,6 +62,18 @@ export function createHandler(deps: HandlerDeps) {
   const routes: Record<string, (req: Request, ctx: () => Promise<RequestContext>, body: Record<string, unknown>, param: string | null, key: string) => Promise<Response>> = {
     'POST /v1/auth/nonce': async (_req, ctx) => json(200, await service.newNonce(await ctx())),
 
+    // App Attest, once per install (spec 6.2). Not behind the device check itself.
+    'POST /v1/device/challenge': async (_req, ctx) => json(200, await service.attestChallenge(await ctx())),
+    'POST /v1/device/attest': async (_req, ctx, b) => {
+      await service.attest(await ctx(), {
+        keyId: str(b, 'key_id') ?? '',
+        attestation: str(b, 'attestation') ?? '',
+        challengeId: str(b, 'challenge_id') ?? '',
+        challenge: str(b, 'challenge') ?? '',
+      });
+      return json(204, null);
+    },
+
     'GET /v1/password/breach-range/:prefix': async (_req, ctx, _b, prefix) =>
       new Response(await service.breachRange(await ctx(), prefix!), {
         status: 200,
@@ -260,6 +272,9 @@ export function createHandler(deps: HandlerDeps) {
       };
       // Device check before anything else on unauthenticated routes (spec 2.3.3.1).
       if (UNAUTHENTICATED.has(key)) await ctx();
+      else if (key.startsWith('POST /v1/device/')) {
+        ctxPromise = buildContext(req, deps.config.keyHashKey, requestId, 'off', startedAt);
+      }
       const res = await route(req, ctx, body, param, key);
       if (padded) await padTo(startedAt, deps.config.timingFloorMs, deps.config.timingJitterMs);
       for (const [h, v] of Object.entries(cors)) res.headers.set(h, v);

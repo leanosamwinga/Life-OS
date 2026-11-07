@@ -85,7 +85,7 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
     timingJitterMs: opts.timingFloorMs ? 50 : 0,
     deviceChecks: false,
     breachCheck: true,
-    appAttest: { appIds: [], allowDevelopmentEnvironment: true },
+    appAttest: { appIds: [], allowDevelopmentEnvironment: true, rootCaPem: '' },
     turnstile: { secret: '', siteverifyUrl: '' },
     google: { issuers: [GOOGLE_ISS], jwksUrl: `http://127.0.0.1:${port}/google/certs`, audiences: [GOOGLE_CLIENT] },
     apple: {

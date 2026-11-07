@@ -56,7 +56,7 @@ export class RealDeviceChecks implements DeviceCheck {
       const ok = await verifyAppAttestAssertion({
         assertionB64: assertion,
         keyId,
-        clientData: bodyText,
+        clientData: assertionClientData(req, bodyText),
         appIds: this.appAttest.appIds,
         keys: this.appAttest.keys,
       });
@@ -64,6 +64,15 @@ export class RealDeviceChecks implements DeviceCheck {
     }
     return 'unsupported';
   }
+}
+
+/**
+ * What an App Attest assertion signs: "<METHOD> <path from /v1>\n<raw body>". The app builds the
+ * same string (apps/mobile/src/lib/backend/deviceCheck.ts).
+ */
+export function assertionClientData(req: Request, bodyText: string): string {
+  const path = new URL(req.url).pathname.replace(/^.*?(\/v1\/)/, '/v1/');
+  return `${req.method} ${path}\n${bodyText}`;
 }
 
 /** First address in X-Forwarded-For (set by the Supabase edge), else null. */
