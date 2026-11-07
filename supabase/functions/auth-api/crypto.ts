@@ -46,13 +46,19 @@ export async function sha256Hex(text: string | Uint8Array): Promise<string> {
 }
 
 async function hmacKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
-    'sign',
-  ]);
+  return crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
 }
 
 export async function hmacBytes(secret: string, message: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(message)));
+  return new Uint8Array(
+    await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(message)),
+  );
 }
 
 export async function hmacHex(secret: string, message: string): Promise<string> {
@@ -76,7 +82,11 @@ async function aesKey(secret: string): Promise<CryptoKey> {
 export async function encryptText(secret: string, plain: string): Promise<string> {
   const iv = randomBytes(12);
   const ct = new Uint8Array(
-    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, await aesKey(secret), enc.encode(plain)),
+    await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv as BufferSource },
+      await aesKey(secret),
+      enc.encode(plain),
+    ),
   );
   return `v1.${bytesToBase64Url(iv)}.${bytesToBase64Url(ct)}`;
 }

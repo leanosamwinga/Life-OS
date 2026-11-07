@@ -8,10 +8,23 @@ import { decryptText } from './crypto.ts';
 import { renderEmail, type EmailSender, type EmailTemplate } from './email.ts';
 import type { AuthLogger } from './log.ts';
 
-export async function drainOutbox(sql: Sql, sender: EmailSender, log: AuthLogger, limit = 50): Promise<number> {
+export async function drainOutbox(
+  sql: Sql,
+  sender: EmailSender,
+  log: AuthLogger,
+  limit = 50,
+): Promise<number> {
   let sent = 0;
   for (;;) {
-    const rows = await sql<{ id: string; to_email: string; template: EmailTemplate; params: Record<string, unknown>; attempts: number }[]>`
+    const rows = await sql<
+      {
+        id: string;
+        to_email: string;
+        template: EmailTemplate;
+        params: Record<string, unknown>;
+        attempts: number;
+      }[]
+    >`
       update public.auth_email_outbox set attempts = attempts + 1, send_after = now() + interval '2 minutes'
        where id in (select id from public.auth_email_outbox
                      where sent_at is null and failed_at is null and send_after <= now()

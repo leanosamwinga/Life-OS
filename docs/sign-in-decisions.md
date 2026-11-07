@@ -3,6 +3,7 @@
 Agreed 6 November 2026, alongside "Life OS — Sign up / Sign in wireframes v3".
 
 ## Fixed in the brief
+
 - Sign up and Sign in are separate, explicit paths from Welcome. Each offers Apple, Google and email. Apple appears wherever Google does.
 - Email method = email + password (no magic links). Create: email, password, confirm. Sign in: email, password, Forgot password?
 - One sign-in method per email. The wrong method shows a message plus a button to the right method.
@@ -11,12 +12,14 @@ Agreed 6 November 2026, alongside "Life OS — Sign up / Sign in wireframes v3".
 - Email accounts confirm with a 6-digit code before onboarding. New accounts → 0c; existing → Today.
 
 ## Security settings
+
 - Password: at least 15 characters (NIST SP 800-63B-4, password as the only factor). No composition rules. Up to 128 characters, paste allowed. Checked against known breached passwords; can't contain the email.
 - Confirmation code: 6 digits, single use, 10 minutes, 5 tries per code. Resend after 30 seconds, at most 5 an hour.
 - Reset link: single use, 30 minutes, 3 requests an hour per email. After a reset: other devices signed out, confirmation email sent, sign in again.
 - Methods are never linked automatically.
 
 ## Decisions from the interview
+
 1. No "tries left" counter.
 2. The wrong-password pause applies per device/IP only: 5 tries in 15 minutes, then a 15-minute pause that grows if it continues. It never locks the whole account.
 3. Guessing spread across many devices: no lock-out. The next sign-in on a new device asks for an email code (screen 0b-5h).
@@ -33,6 +36,7 @@ Agreed 6 November 2026, alongside "Life OS — Sign up / Sign in wireframes v3".
     - An email to the owner when someone tries to create an account with their address.
 
 ## Build decisions (7 November 2026)
+
 - Keep Supabase Auth; Supabase's own password hashing replaces Argon2id.
 - Breach check: our own k-anonymity check (not Supabase's paid feature).
 - Delete account, export (CSV + JSON) and the day-30 deletion job are built with Me → Security now.

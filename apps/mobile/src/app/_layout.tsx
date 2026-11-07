@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/forms';
 import { getBackend } from '@/lib/backend/current';
+import { postSignIn } from '@/features/auth/hooks';
 import { SessionProvider, useSession } from '@/lib/session';
 import { colors, space, type } from '@/theme';
 
@@ -22,11 +23,13 @@ export default function RootLayout() {
 }
 
 /**
- * Route guards:
+ * Route guards (screen IDs → routes: docs/sign-in-supabase-mapping.md):
  * - Not connected (no Supabase env): the tabs with sample data, no sign-in.
- * - Signed out: Welcome (0a) and email sign-in (0b).
- * - Signed in, onboarding not finished: 0c–0g.
- * - Signed in and set up: the app.
+ * - Signed out: 0a Welcome and the sign-up / sign-in screens (rows 1–8). The reset link
+ *   (/reset) works signed in or out: it never signs anyone in.
+ * - Account being deleted (scope PENDING_DELETION): only S-5h (/deletion).
+ * - Signed in, onboarding not finished: 0b-4g, then 0c–0g.
+ * - Signed in and set up: the app, including Me → Security (row 9).
  */
 function RootStack() {
   const session = useSession();
@@ -50,31 +53,51 @@ function RootStack() {
 
   const connected = session.status !== 'disconnected';
   const signedIn = session.status === 'signedIn';
-  const onboarded = signedIn && Boolean(session.settings?.onboardingCompletedAt);
+  const pending = signedIn && session.pendingDeletion;
+  const active = signedIn && !pending;
+  const onboarded = active && Boolean(session.settings?.onboardingCompletedAt);
+  // Where the next redirect lands: 0b-4g for a new email account, S-5i after "Keep my
+  // account". The stack remounts when the session changes, so every guard below uses it.
+  const landing = postSignIn.take();
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected
         guard={!connected || onboarded}
-        redirectTo={signedIn ? '/onboarding/consent' : '/welcome'}
+        redirectTo={
+          pending ? '/deletion' : active ? (landing ?? '/onboarding/consent') : '/welcome'
+        }
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="log-meal" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="security" />
+        <Stack.Screen name="kept" />
       </Stack.Protected>
-      <Stack.Protected guard={connected && !signedIn} redirectTo="/">
+      <Stack.Protected
+        guard={connected && !signedIn}
+        redirectTo={pending ? '/deletion' : (landing ?? '/')}
+      >
         <Stack.Screen name="welcome" />
-        <Stack.Screen name="sign-in/email" />
+        <Stack.Screen name="sign-up" />
+        <Stack.Screen name="sign-in" />
+        <Stack.Screen name="forgot" />
       </Stack.Protected>
-      <Stack.Protected guard={signedIn && !onboarded} redirectTo={signedIn ? '/' : '/welcome'}>
+      <Stack.Protected guard={pending} redirectTo={landing ?? '/'}>
+        <Stack.Screen name="deletion" />
+      </Stack.Protected>
+      <Stack.Protected
+        guard={active && !onboarded}
+        redirectTo={pending ? '/deletion' : active ? '/' : '/welcome'}
+      >
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
-      <Stack.Protected guard={signedIn} redirectTo="/welcome">
+      <Stack.Protected guard={active} redirectTo="/welcome">
         <Stack.Screen
           name="targets"
           options={{ presentation: 'modal', headerShown: true, title: 'Daily targets' }}
         />
       </Stack.Protected>
-      <Stack.Screen name="auth/callback" />
+      <Stack.Screen name="reset" />
     </Stack>
   );
 }

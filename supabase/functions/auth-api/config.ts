@@ -108,7 +108,8 @@ export function configFromEnv(env: (k: string) => string | undefined): AuthConfi
     turnstile: {
       secret: env('TURNSTILE_SECRET_KEY') ?? '',
       siteverifyUrl:
-        env('TURNSTILE_SITEVERIFY_URL') ?? 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+        env('TURNSTILE_SITEVERIFY_URL') ??
+        'https://challenges.cloudflare.com/turnstile/v0/siteverify',
     },
     google: {
       issuers: list(env('GOOGLE_ISSUERS') ?? 'https://accounts.google.com,accounts.google.com'),

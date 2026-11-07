@@ -23,15 +23,30 @@ export interface HandlerDeps {
   newRequestId(): string;
 }
 
-type Route = (req: Request, ctx: () => Promise<RequestContext>, body: Record<string, unknown>, raw: string) => Promise<Response>;
+type Route = (
+  req: Request,
+  ctx: () => Promise<RequestContext>,
+  body: Record<string, unknown>,
+  raw: string,
+) => Promise<Response>;
 
 const PROVIDERS = new Set(['APPLE', 'GOOGLE']);
 
 /** Look-up endpoints padded to the timing floor whatever the outcome (spec 6.3). */
-const PADDED = new Set(['POST /v1/accounts', 'POST /v1/sessions/password', 'POST /v1/password-resets', 'POST /v1/sessions/federated']);
+const PADDED = new Set([
+  'POST /v1/accounts',
+  'POST /v1/sessions/password',
+  'POST /v1/password-resets',
+  'POST /v1/sessions/federated',
+]);
 
 /** The only things a PENDING_DELETION account can do (spec 8.1). */
-const PENDING_ALLOWED = new Set(['GET /v1/me/deletion', 'DELETE /v1/me/deletion', 'POST /v1/sessions/current/sign-out', 'GET /v1/me/export']);
+const PENDING_ALLOWED = new Set([
+  'GET /v1/me/deletion',
+  'DELETE /v1/me/deletion',
+  'POST /v1/sessions/current/sign-out',
+  'GET /v1/me/export',
+]);
 
 function routeKey(method: string, path: string): { key: string; param: string | null } {
   const m = path.match(/^\/v1\/me\/sessions\/([0-9a-f-]{36})$/);
@@ -59,11 +74,21 @@ export function createHandler(deps: HandlerDeps) {
 
   const tokensOrCookies = (body: unknown, status = 200) => json(status, body);
 
-  const routes: Record<string, (req: Request, ctx: () => Promise<RequestContext>, body: Record<string, unknown>, param: string | null, key: string) => Promise<Response>> = {
+  const routes: Record<
+    string,
+    (
+      req: Request,
+      ctx: () => Promise<RequestContext>,
+      body: Record<string, unknown>,
+      param: string | null,
+      key: string,
+    ) => Promise<Response>
+  > = {
     'POST /v1/auth/nonce': async (_req, ctx) => json(200, await service.newNonce(await ctx())),
 
     // App Attest, once per install (spec 6.2). Not behind the device check itself.
-    'POST /v1/device/challenge': async (_req, ctx) => json(200, await service.attestChallenge(await ctx())),
+    'POST /v1/device/challenge': async (_req, ctx) =>
+      json(200, await service.attestChallenge(await ctx())),
     'POST /v1/device/attest': async (_req, ctx, b) => {
       await service.attest(await ctx(), {
         keyId: str(b, 'key_id') ?? '',
@@ -81,23 +106,38 @@ export function createHandler(deps: HandlerDeps) {
       }),
 
     'POST /v1/accounts': async (_req, ctx, b) =>
-      json(202, await service.createAccount(await ctx(), str(b, 'email') ?? '', str(b, 'password') ?? '')),
+      json(
+        202,
+        await service.createAccount(await ctx(), str(b, 'email') ?? '', str(b, 'password') ?? ''),
+      ),
 
     'POST /v1/accounts/confirm': async (_req, ctx, b) =>
-      tokensOrCookies(await service.confirmEmail(await ctx(), str(b, 'challenge_id') ?? '', str(b, 'code') ?? '')),
+      tokensOrCookies(
+        await service.confirmEmail(await ctx(), str(b, 'challenge_id') ?? '', str(b, 'code') ?? ''),
+      ),
 
-    'POST /v1/codes/resend': async (_req, ctx, b) => json(202, await service.resendCode(await ctx(), str(b, 'challenge_id') ?? '')),
+    'POST /v1/codes/resend': async (_req, ctx, b) =>
+      json(202, await service.resendCode(await ctx(), str(b, 'challenge_id') ?? '')),
 
     'POST /v1/sessions/password': async (_req, ctx, b) =>
-      tokensOrCookies(await service.signInWithPassword(await ctx(), str(b, 'email') ?? '', str(b, 'password') ?? '')),
+      tokensOrCookies(
+        await service.signInWithPassword(
+          await ctx(),
+          str(b, 'email') ?? '',
+          str(b, 'password') ?? '',
+        ),
+      ),
 
     'POST /v1/sessions/step-up': async (_req, ctx, b) =>
-      tokensOrCookies(await service.stepUp(await ctx(), str(b, 'challenge_id') ?? '', str(b, 'code') ?? '')),
+      tokensOrCookies(
+        await service.stepUp(await ctx(), str(b, 'challenge_id') ?? '', str(b, 'code') ?? ''),
+      ),
 
     'POST /v1/sessions/federated': async (_req, ctx, b) => {
       const provider = str(b, 'provider');
       const intent = str(b, 'intent');
-      if (!provider || !PROVIDERS.has(provider) || (intent !== 'CREATE' && intent !== 'SIGN_IN')) throw err(401, 'TOKEN_INVALID');
+      if (!provider || !PROVIDERS.has(provider) || (intent !== 'CREATE' && intent !== 'SIGN_IN'))
+        throw err(401, 'TOKEN_INVALID');
       return tokensOrCookies(
         await service.federated(await ctx(), {
           provider: provider as FederatedProvider,
@@ -111,21 +151,24 @@ export function createHandler(deps: HandlerDeps) {
       );
     },
 
-    'POST /v1/sessions/ticket': async (_req, ctx, b) => tokensOrCookies(await service.exchangeTicket(await ctx(), str(b, 'ticket') ?? '')),
+    'POST /v1/sessions/ticket': async (_req, ctx, b) =>
+      tokensOrCookies(await service.exchangeTicket(await ctx(), str(b, 'ticket') ?? '')),
 
     'POST /v1/password-resets': async (_req, ctx, b) => {
       await service.requestReset(await ctx(), str(b, 'email') ?? '');
       return json(202, {});
     },
 
-    'POST /v1/password-resets/verify': async (_req, _ctx, b) => json(200, await service.verifyReset(str(b, 'token') ?? '')),
+    'POST /v1/password-resets/verify': async (_req, _ctx, b) =>
+      json(200, await service.verifyReset(str(b, 'token') ?? '')),
 
     'POST /v1/password-resets/complete': async (_req, ctx, b) => {
       await service.completeReset(await ctx(), str(b, 'token') ?? '', str(b, 'new_password') ?? '');
       return json(204, null);
     },
 
-    'POST /v1/tokens/refresh': async (_req, _ctx, b) => tokensOrCookies(await service.refresh(str(b, 'refresh_token') ?? '')),
+    'POST /v1/tokens/refresh': async (_req, _ctx, b) =>
+      tokensOrCookies(await service.refresh(str(b, 'refresh_token') ?? '')),
 
     'POST /v1/sessions/current/sign-out': async (req, _ctx, _b, _p, key) => {
       try {
@@ -137,15 +180,24 @@ export function createHandler(deps: HandlerDeps) {
       return json(204, null);
     },
 
-    'GET /v1/me/security': async (req, _ctx, _b, _p, key) => json(200, await service.security(await authed(req, key))),
+    'GET /v1/me/security': async (req, _ctx, _b, _p, key) =>
+      json(200, await service.security(await authed(req, key))),
 
     'POST /v1/me/password': async (req, ctx, b, _p, key) => {
       const caller = await authed(req, key);
       // 200 with this device's fresh tokens (spec said 204 + rotated tokens; see SPEC-QUESTIONS Q-PWCHANGE).
-      return tokensOrCookies(await service.changePassword(await ctx(), caller, str(b, 'current_password') ?? '', str(b, 'new_password') ?? ''));
+      return tokensOrCookies(
+        await service.changePassword(
+          await ctx(),
+          caller,
+          str(b, 'current_password') ?? '',
+          str(b, 'new_password') ?? '',
+        ),
+      );
     },
 
-    'GET /v1/me/sessions': async (req, _ctx, _b, _p, key) => json(200, await service.listSessions(await authed(req, key))),
+    'GET /v1/me/sessions': async (req, _ctx, _b, _p, key) =>
+      json(200, await service.listSessions(await authed(req, key))),
 
     'DELETE /v1/me/sessions/:id': async (req, _ctx, _b, id, key) => {
       await service.revokeSession(await authed(req, key), id!);
@@ -173,9 +225,17 @@ export function createHandler(deps: HandlerDeps) {
     },
 
     'POST /v1/me/deletion': async (req, _ctx, b, _p, key) =>
-      json(202, await service.requestDeletion(await authed(req, key), str(b, 'reauth_token'), str(b, 'confirmation'))),
+      json(
+        202,
+        await service.requestDeletion(
+          await authed(req, key),
+          str(b, 'reauth_token'),
+          str(b, 'confirmation'),
+        ),
+      ),
 
-    'GET /v1/me/deletion': async (req, _ctx, _b, _p, key) => json(200, await service.getDeletion(await authed(req, key))),
+    'GET /v1/me/deletion': async (req, _ctx, _b, _p, key) =>
+      json(200, await service.getDeletion(await authed(req, key))),
 
     'DELETE /v1/me/deletion': async (req, _ctx, _b, _p, key) => {
       await service.cancelDeletion(await authed(req, key));
@@ -213,7 +273,9 @@ export function createHandler(deps: HandlerDeps) {
         event = await deps.appleWebhook.verify(payload ?? '');
       } catch {
         deps.log.event('auth.webhook.apple.rejected', { reason: 'signature_or_claims' });
-        return json(400, { error: { code: 'TOKEN_INVALID', retry_after_seconds: null, details: null } });
+        return json(400, {
+          error: { code: 'TOKEN_INVALID', retry_after_seconds: null, details: null },
+        });
       }
       await service.appleEvent(event);
       return json(200, {});
@@ -221,7 +283,8 @@ export function createHandler(deps: HandlerDeps) {
 
     'POST /v1/internal/jobs/run': async (req) => {
       const secret = req.headers.get('x-job-secret') ?? '';
-      if (!deps.config.jobSecret || !timingSafeEqual(secret, deps.config.jobSecret)) throw err(401, 'SESSION_REVOKED');
+      if (!deps.config.jobSecret || !timingSafeEqual(secret, deps.config.jobSecret))
+        throw err(401, 'SESSION_REVOKED');
       return json(200, await deps.runJobs());
     },
   };
@@ -263,7 +326,10 @@ export function createHandler(deps: HandlerDeps) {
         ctxPromise ??= (async () => {
           const result = UNAUTHENTICATED.has(key) ? await deps.deviceCheck.verify(req, raw) : 'off';
           if (result === 'failed') {
-            deps.log.event('auth.attestation.failed', { request_id: requestId, route: key.split(' ')[1] ?? '' });
+            deps.log.event('auth.attestation.failed', {
+              request_id: requestId,
+              route: key.split(' ')[1] ?? '',
+            });
             throw err(403, 'DEVICE_CHECK_FAILED');
           }
           return buildContext(req, deps.config.keyHashKey, requestId, result, startedAt);
@@ -282,7 +348,11 @@ export function createHandler(deps: HandlerDeps) {
     } catch (e) {
       if (padded) await padTo(startedAt, deps.config.timingFloorMs, deps.config.timingJitterMs);
       if (e instanceof ApiError) return errorResponse(e, requestId, cors);
-      deps.log.event('auth.error', { request_id: requestId, route: key.split(' ')[1] ?? '', reason: (e as Error)?.name ?? 'Error' });
+      deps.log.event('auth.error', {
+        request_id: requestId,
+        route: key.split(' ')[1] ?? '',
+        reason: (e as Error)?.name ?? 'Error',
+      });
       return errorResponse(err(500, 'SERVER_ERROR'), requestId, cors);
     }
   };

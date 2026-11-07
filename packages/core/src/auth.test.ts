@@ -41,8 +41,12 @@ describe('checkPassword', () => {
     expect(checkPassword('é'.repeat(15), email).error).toBeNull();
   });
   it('rejects a password containing the email or its local part (5+ chars)', () => {
-    expect(checkPassword('my sam@example.test password', email).error).toBe('PASSWORD_CONTAINS_EMAIL');
-    expect(checkPassword('SAM@EXAMPLE.TEST and more words', email).error).toBe('PASSWORD_CONTAINS_EMAIL');
+    expect(checkPassword('my sam@example.test password', email).error).toBe(
+      'PASSWORD_CONTAINS_EMAIL',
+    );
+    expect(checkPassword('SAM@EXAMPLE.TEST and more words', email).error).toBe(
+      'PASSWORD_CONTAINS_EMAIL',
+    );
     // Local part "sam" is shorter than 5, so it's allowed on its own.
     expect(checkPassword('sam likes long walks', email).error).toBeNull();
     expect(passwordContainsEmail('i am samantha really', 'samantha@example.test')).toBe(true);

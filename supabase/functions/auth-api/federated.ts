@@ -16,15 +16,7 @@ export interface VerifiedIdToken {
 }
 
 export type IdTokenFailure =
-  | 'signature'
-  | 'alg'
-  | 'iss'
-  | 'aud'
-  | 'exp'
-  | 'iat'
-  | 'nonce'
-  | 'claims'
-  | 'provider_off';
+  'signature' | 'alg' | 'iss' | 'aud' | 'exp' | 'iat' | 'nonce' | 'claims' | 'provider_off';
 
 export class IdTokenError extends Error {
   constructor(readonly check: IdTokenFailure) {
@@ -56,7 +48,11 @@ export class JoseIdTokenVerifier implements IdTokenVerifier {
     return set;
   }
 
-  async verify(provider: FederatedProvider, idToken: string, rawNonce: string): Promise<VerifiedIdToken> {
+  async verify(
+    provider: FederatedProvider,
+    idToken: string,
+    rawNonce: string,
+  ): Promise<VerifiedIdToken> {
     const pc: ProviderConfig = provider === 'GOOGLE' ? this.config.google : this.config.apple;
     if (!pc.audiences.length) throw new IdTokenError('provider_off');
     let payload: JWTPayload;
@@ -89,7 +85,9 @@ export class JoseIdTokenVerifier implements IdTokenVerifier {
     // Apple native (bundle ID audience) carries SHA256(raw nonce); web and Google carry the raw
     // nonce (spec 9.1).
     const expectedNonce =
-      provider === 'APPLE' && aud === this.config.apple.bundleId ? await sha256Hex(rawNonce) : rawNonce;
+      provider === 'APPLE' && aud === this.config.apple.bundleId
+        ? await sha256Hex(rawNonce)
+        : rawNonce;
     if (typeof payload.nonce !== 'string' || payload.nonce !== expectedNonce) {
       throw new IdTokenError('nonce');
     }

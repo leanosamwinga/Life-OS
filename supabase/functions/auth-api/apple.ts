@@ -16,7 +16,12 @@ export interface AppleWebhookVerifier {
   verify(payload: string): Promise<AppleEvent>;
 }
 
-const KNOWN_EVENTS = new Set(['consent-revoked', 'account-delete', 'email-disabled', 'email-enabled']);
+const KNOWN_EVENTS = new Set([
+  'consent-revoked',
+  'account-delete',
+  'email-disabled',
+  'email-enabled',
+]);
 
 export class JoseAppleWebhookVerifier implements AppleWebhookVerifier {
   private jwks: JWTVerifyGetKey | null = null;
@@ -33,15 +38,24 @@ export class JoseAppleWebhookVerifier implements AppleWebhookVerifier {
       requiredClaims: ['iat', 'events'],
     });
     const raw = claims.events;
-    const events = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { type?: string; sub?: string; event_time?: number };
-    if (!events?.type || !events.sub || !KNOWN_EVENTS.has(events.type)) throw new Error('unknown event');
+    const events = (typeof raw === 'string' ? JSON.parse(raw) : raw) as {
+      type?: string;
+      sub?: string;
+      event_time?: number;
+    };
+    if (!events?.type || !events.sub || !KNOWN_EVENTS.has(events.type))
+      throw new Error('unknown event');
     const key = `${claims.jti ?? ''}|${events.type}|${events.sub}|${events.event_time ?? claims.iat}`;
     return { type: events.type, sub: events.sub, eventKey: key };
   }
 }
 
 /** Short-lived ES256 client secret signed with our Apple key (Team ID, Key ID). */
-export async function appleClientSecret(config: AuthConfig, clientId: string, now = new Date()): Promise<string> {
+export async function appleClientSecret(
+  config: AuthConfig,
+  clientId: string,
+  now = new Date(),
+): Promise<string> {
   const a = config.apple;
   const key = await importPKCS8(a.privateKey, 'ES256');
   const iat = Math.floor(now.getTime() / 1000);

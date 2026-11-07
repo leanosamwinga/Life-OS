@@ -8,7 +8,12 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { applyPatch, type SettingsPatch, type UserSettings } from './backend/settings';
+import {
+  applyPatch,
+  defaultUserSettings,
+  type SettingsPatch,
+  type UserSettings,
+} from './backend/settings';
 import type { AuthUser, Backend } from './backend/types';
 
 /**
@@ -27,6 +32,8 @@ export interface SessionValue {
   healthConsent: boolean;
   /** Set when loading the signed-in user's data failed (e.g. offline). */
   loadError: string | null;
+  /** The account is being deleted: only S-5h is available (spec 8.1). */
+  pendingDeletion: boolean;
   /** Re-read profile, settings and consent (e.g. after onboarding steps). */
   refresh(): Promise<void>;
   /** Optimistically update settings, then persist. Reverts and rethrows on failure. */
@@ -48,6 +55,7 @@ const DISCONNECTED: SessionValue = {
   settings: null,
   healthConsent: false,
   loadError: null,
+  pendingDeletion: false,
   refresh: noop,
   updateSettings: noop,
   setDisplayName: noop,
@@ -85,12 +93,18 @@ export function SessionProvider({
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
-  const userRef = useRef<string | null>(null);
+  // '\u0000' = nothing seen yet, so the first "signed out" still counts.
+  const userRef = useRef<string | null>('\u0000');
 
   const load = useCallback(
     async (forUser: AuthUser | null) => {
       if (!backend || !forUser) {
         setLoaded(null);
+        return;
+      }
+      if (forUser.scope === 'PENDING_DELETION') {
+        // The Data API refuses this session; don't ask it for anything.
+        setLoaded({ displayName: null, settings: defaultUserSettings(), healthConsent: false });
         return;
       }
       setLoadError(null);
@@ -102,12 +116,12 @@ export function SessionProvider({
           backend.hasHealthConsent(),
         ]);
       } catch (err) {
-        if (userRef.current === forUser.id) {
+        if (userRef.current?.startsWith(forUser.id)) {
           setLoadError(err instanceof Error ? err.message : 'Could not load your data.');
         }
         return;
       }
-      if (userRef.current === forUser.id) {
+      if (userRef.current?.startsWith(forUser.id)) {
         setLoaded({ displayName: profile.displayName, settings, healthConsent });
       }
     },
@@ -119,8 +133,9 @@ export function SessionProvider({
     let alive = true;
     const handle = (next: AuthUser | null) => {
       if (!alive) return;
-      if (next?.id === userRef.current) return;
-      userRef.current = next?.id ?? null;
+      const key = next ? `${next.id}:${next.scope ?? 'FULL'}` : null;
+      if (key === userRef.current) return;
+      userRef.current = key;
       setUser(next);
       setLoaded(null);
       void load(next).finally(() => alive && setReady(true));
@@ -153,6 +168,7 @@ export function SessionProvider({
       settings: loaded?.settings ?? null,
       healthConsent: loaded?.healthConsent ?? false,
       loadError,
+      pendingDeletion: user?.scope === 'PENDING_DELETION',
       refresh: () => load(user),
       async updateSettings(patch) {
         const before = loaded;

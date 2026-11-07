@@ -135,7 +135,10 @@ export function renderEmail(template: EmailTemplate, params: Record<string, unkn
         [
           'Hi, someone asked to reset the password for this Life OS account.',
           'This link works once and expires in 30 minutes.',
-          { text: "Didn't ask for this? Ignore this email. Your password won't change.", bold: "Didn't ask for this?" },
+          {
+            text: "Didn't ask for this? Ignore this email. Your password won't change.",
+            bold: "Didn't ask for this?",
+          },
           "We'll never email you your password.",
         ],
         { label: 'Set a new password', url: p('link') },
@@ -148,7 +151,10 @@ export function renderEmail(template: EmailTemplate, params: Record<string, unkn
           bold: name,
         },
         `Open Life OS, then choose Continue with ${name}.`,
-        { text: "Didn't ask for this? You can ignore this email. Nothing has changed.", bold: "Didn't ask for this?" },
+        {
+          text: "Didn't ask for this? You can ignore this email. Nothing has changed.",
+          bold: "Didn't ask for this?",
+        },
       ]);
     }
     case 'owner_alert': {
@@ -177,7 +183,10 @@ export function renderEmail(template: EmailTemplate, params: Record<string, unkn
       return render("We're deleting your Life OS account", [
         `You asked us to delete your Life OS account on ${longDate(p('requested_at'))}. We'll delete it permanently on ${longDate(p('due_at'))}.`,
         'Changed your mind? Open Life OS, sign in, and tap Keep my account before then.',
-        { text: "Didn't ask for this? Sign in and tap Keep my account, then change your password.", bold: "Didn't ask for this?" },
+        {
+          text: "Didn't ask for this? Sign in and tap Keep my account, then change your password.",
+          bold: "Didn't ask for this?",
+        },
       ]);
     case 'deletion_cancelled':
       return render('Your Life OS account is safe', [
@@ -190,4 +199,3 @@ export function renderEmail(template: EmailTemplate, params: Record<string, unkn
       ]);
   }
 }
-

@@ -57,7 +57,11 @@ export function createApp(o: AppOptions) {
     o.deviceCheck ??
     (o.config.deviceChecks
       ? new RealDeviceChecks(
-          { secret: o.config.turnstile.secret, siteverifyUrl: o.config.turnstile.siteverifyUrl, fetchImpl: o.fetchImpl },
+          {
+            secret: o.config.turnstile.secret,
+            siteverifyUrl: o.config.turnstile.siteverifyUrl,
+            fetchImpl: o.fetchImpl,
+          },
           { appIds: o.config.appAttest.appIds, keys: new SqlAppAttestKeys(o.sql) },
         )
       : new DeviceChecksOff());

@@ -33,14 +33,18 @@ export async function buildContext(
   const p = req.headers.get('x-device-platform');
   const platform: Platform = p === 'ios' || p === 'android' ? p : 'web';
   const ip = clientIp(req);
-  const rawLabel = (req.headers.get('x-device-label') ?? '').replace(/[^\p{L}\p{N} ·.,()'-]/gu, '').slice(0, 60);
+  const rawLabel = (req.headers.get('x-device-label') ?? '')
+    .replace(/[^\p{L}\p{N} ·.,()'-]/gu, '')
+    .slice(0, 60);
   return {
     requestId,
     deviceHash: await sha256Hex(deviceId),
     ipHash: ip ? await hmacHex(keyHashKey, `ip:${ip}`) : null,
     ipPrefix: ipPrefix(ip),
     platform,
-    label: rawLabel || (platform === 'ios' ? 'iPhone' : platform === 'android' ? 'Android phone' : 'Web browser'),
+    label:
+      rawLabel ||
+      (platform === 'ios' ? 'iPhone' : platform === 'android' ? 'Android phone' : 'Web browser'),
     appVersion: (req.headers.get('x-client-info') ?? '').slice(0, 40) || null,
     deviceCheck,
     startedAt,

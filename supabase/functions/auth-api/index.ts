@@ -13,7 +13,8 @@ import { consoleSink } from './log.ts';
 const env = (k: string) => Deno.env.get(k);
 const config = configFromEnv((k) => {
   // The edge runtime injects SUPABASE_URL; Auth lives under /auth/v1.
-  if (k === 'SUPABASE_AUTH_URL') return env(k) ?? (env('SUPABASE_URL') ? `${env('SUPABASE_URL')}/auth/v1` : undefined);
+  if (k === 'SUPABASE_AUTH_URL')
+    return env(k) ?? (env('SUPABASE_URL') ? `${env('SUPABASE_URL')}/auth/v1` : undefined);
   return env(k);
 });
 

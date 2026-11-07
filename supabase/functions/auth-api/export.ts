@@ -23,30 +23,44 @@ export async function collectExport(sql: Sql, userId: string) {
   for (const t of TABLES) {
     const exists = await sql`select to_regclass(${'public.' + t.name}) is not null as ok`;
     if (!exists[0]?.ok) continue;
-    out[t.name] = (await sql.unsafe(`select * from public.${t.name} where ${t.owner} = $1 order by 1`, [userId])) as Record<string, unknown>[];
+    out[t.name] = (await sql.unsafe(
+      `select * from public.${t.name} where ${t.owner} = $1 order by 1`,
+      [userId],
+    )) as Record<string, unknown>[];
   }
   const [account] = await sql`
     select email, method, status, created_at, confirmed_at, password_changed_at from public.auth_accounts where user_id = ${userId}`;
   out.account = account ? [account as Record<string, unknown>] : [];
   out.known_devices = (await sql`
-    select platform, label, coarse_location, first_seen_at, last_seen_at from public.auth_known_devices where user_id = ${userId}`) as unknown as Record<string, unknown>[];
+    select platform, label, coarse_location, first_seen_at, last_seen_at from public.auth_known_devices where user_id = ${userId}`) as unknown as Record<
+    string,
+    unknown
+  >[];
   return out;
 }
 
 export async function exportJson(sql: Sql, userId: string) {
-  return { exported_at: new Date().toISOString(), format: 'life-os-export-v1', tables: await collectExport(sql, userId) };
+  return {
+    exported_at: new Date().toISOString(),
+    format: 'life-os-export-v1',
+    tables: await collectExport(sql, userId),
+  };
 }
 
 function csvCell(v: unknown): string {
   if (v === null || v === undefined) return '';
-  const s = v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  const s =
+    v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export function toCsv(rows: Record<string, unknown>[]): string {
   if (!rows.length) return '';
   const cols = Object.keys(rows[0]!);
-  return [cols.join(','), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\r\n') + '\r\n';
+  return (
+    [cols.join(','), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\r\n') +
+    '\r\n'
+  );
 }
 
 // ---- minimal ZIP writer (stored entries) --------------------------------------------------
@@ -117,5 +131,10 @@ export function zip(files: { name: string; data: Uint8Array }[]): Uint8Array {
 export async function exportZip(sql: Sql, userId: string): Promise<Uint8Array> {
   const tables = await collectExport(sql, userId);
   const enc = new TextEncoder();
-  return zip(Object.entries(tables).map(([name, rows]) => ({ name: `${name}.csv`, data: enc.encode(toCsv(rows)) })));
+  return zip(
+    Object.entries(tables).map(([name, rows]) => ({
+      name: `${name}.csv`,
+      data: enc.encode(toCsv(rows)),
+    })),
+  );
 }

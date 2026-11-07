@@ -37,6 +37,8 @@ export interface LogSink {
 
 export const consoleSink: LogSink = {
   write(line) {
+    // Structured log line for the edge runtime's log drain (fields are allow-listed above).
+    // eslint-disable-next-line no-console
     console.log(line);
   },
 };

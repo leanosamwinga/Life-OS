@@ -19,10 +19,18 @@ import {
 } from '@life-os/core';
 import { currentPepper, type AuthConfig } from './config.ts';
 import type { RequestContext } from './context.ts';
-import { encryptText, hmacHex, randomCode, randomToken, sha256Hex, unsafeJwtPayload } from './crypto.ts';
+import {
+  encryptText,
+  hmacHex,
+  randomCode,
+  randomToken,
+  sha256Hex,
+  unsafeJwtPayload,
+} from './crypto.ts';
 import type { EmailTemplate } from './email.ts';
 import { IdTokenError, type IdTokenVerifier, type VerifiedIdToken } from './federated.ts';
-import { GoTrue, GoTrueError, type GoTrueSession } from './gotrue.ts';
+import type { GoTrue } from './gotrue.ts';
+import { GoTrueError, type GoTrueSession } from './gotrue.ts';
 import { err } from './http.ts';
 import type { AuthLogger } from './log.ts';
 import { derivePassword } from './password.ts';
@@ -98,7 +106,9 @@ export class AuthService {
   }
 
   private async findAccount(userId: string): Promise<Account | null> {
-    const [row] = await this.sql<Account[]>`select * from public.auth_accounts where user_id = ${userId}`;
+    const [row] = await this.sql<
+      Account[]
+    >`select * from public.auth_accounts where user_id = ${userId}`;
     return row ?? null;
   }
 
@@ -107,7 +117,13 @@ export class AuthService {
   }
 
   /** Counts an event and throws RATE_LIMITED if `limit` were already reached in the window. */
-  private async limit(bucket: string, key: string, limit: number, windowSec: number, code: 'RATE_LIMITED' | 'RESEND_LIMIT' = 'RATE_LIMITED') {
+  private async limit(
+    bucket: string,
+    key: string,
+    limit: number,
+    windowSec: number,
+    code: 'RATE_LIMITED' | 'RESEND_LIMIT' = 'RATE_LIMITED',
+  ) {
     const since = new Date(this.nowMs() - windowSec * 1000);
     const [row] = await this.sql<{ n: number; oldest: Date | null }[]>`
       select count(*)::int as n, min(at) as oldest from public.auth_rate_events
@@ -118,7 +134,8 @@ export class AuthService {
         : windowSec;
       throw err(429, code, null, retry);
     }
-    await this.sql`insert into public.auth_rate_events (bucket, key_hash, at) values (${bucket}, ${key}, ${this.d.now()})`;
+    await this
+      .sql`insert into public.auth_rate_events (bucket, key_hash, at) values (${bucket}, ${key}, ${this.d.now()})`;
   }
 
   /** About 10 look-ups an hour per device, per IP and per email (spec 4.1, 6.1). */
@@ -127,9 +144,19 @@ export class AuthService {
     try {
       await this.limit('lookup:device', ctx.deviceHash, n, HOUR);
       if (ctx.ipHash) await this.limit('lookup:ip', ctx.ipHash, n, HOUR);
-      if (email) await this.limit('lookup:email', await this.keyHash('email', normaliseEmail(email)), n, HOUR);
+      if (email)
+        await this.limit(
+          'lookup:email',
+          await this.keyHash('email', normaliseEmail(email)),
+          n,
+          HOUR,
+        );
     } catch (e) {
-      this.d.log.event('auth.lookup.rate_limited', { request_id: ctx.requestId, device_id_hash: ctx.deviceHash, ip_prefix: ctx.ipPrefix });
+      this.d.log.event('auth.lookup.rate_limited', {
+        request_id: ctx.requestId,
+        device_id_hash: ctx.deviceHash,
+        ip_prefix: ctx.ipPrefix,
+      });
       throw e;
     }
   }
@@ -163,7 +190,11 @@ export class AuthService {
     this.d.later(() => this.d.drainOutbox());
   }
 
-  private async newCode(userId: string, purpose: 'CONFIRM_EMAIL' | 'NEW_DEVICE', deviceHash: string) {
+  private async newCode(
+    userId: string,
+    purpose: 'CONFIRM_EMAIL' | 'NEW_DEVICE',
+    deviceHash: string,
+  ) {
     const code = randomCode();
     const now = this.d.now();
     const expires = new Date(now.getTime() + CODE_TTL_SECONDS * 1000);
@@ -186,48 +217,88 @@ export class AuthService {
     };
   }
 
-  private async sendCode(account: Account, purpose: 'CONFIRM_EMAIL' | 'NEW_DEVICE', ctx: RequestContext) {
+  private async sendCode(
+    account: Account,
+    purpose: 'CONFIRM_EMAIL' | 'NEW_DEVICE',
+    ctx: RequestContext,
+  ) {
     const { code, challenge } = await this.newCode(account.user_id, purpose, ctx.deviceHash);
     const town = await this.d.locate(ctx.ipPrefix);
     await this.enqueueEmail(
       purpose === 'CONFIRM_EMAIL' ? 'confirm_code' : 'new_device_code',
       { userId: account.user_id, email: account.email, deliverable: account.email_deliverable },
-      purpose === 'CONFIRM_EMAIL' ? { code } : { code, device: town ? `${ctx.label} · ${town}` : ctx.label },
+      purpose === 'CONFIRM_EMAIL'
+        ? { code }
+        : { code, device: town ? `${ctx.label} · ${town}` : ctx.label },
     );
-    this.d.log.event('auth.code.sent', { request_id: ctx.requestId, account_id: account.user_id, reason: purpose });
+    this.d.log.event('auth.code.sent', {
+      request_id: ctx.requestId,
+      account_id: account.user_id,
+      reason: purpose,
+    });
     return challenge;
   }
 
   /** Checks a 6-digit code: 10 minutes, 5 tries, single use (spec 2.2, 2.9). Returns the account. */
-  private async checkCode(challengeId: string, code: string, purpose: 'CONFIRM_EMAIL' | 'NEW_DEVICE', ctx: RequestContext) {
+  private async checkCode(
+    challengeId: string,
+    code: string,
+    purpose: 'CONFIRM_EMAIL' | 'NEW_DEVICE',
+    ctx: RequestContext,
+  ) {
     if (!/^[0-9a-f-]{36}$/.test(challengeId)) throw err(404, 'CHALLENGE_NOT_FOUND');
-    return this.sql.begin(async (tx) => {
-      const [row] = await tx<
-        { id: string; user_id: string; code_hmac: string; expires_at: Date; attempts: number; consumed_at: Date | null; superseded_at: Date | null; device_id_hash: string }[]
-      >`select * from public.auth_one_time_codes where id = ${challengeId} and purpose = ${purpose} for update`;
-      if (!row) throw err(404, 'CHALLENGE_NOT_FOUND');
-      if (row.consumed_at || row.superseded_at) throw err(410, 'CODE_EXPIRED');
-      if (row.expires_at.getTime() <= this.nowMs()) throw err(410, 'CODE_EXPIRED');
-      if (row.attempts >= CODE_MAX_ATTEMPTS) throw err(423, 'CODE_ATTEMPTS_EXCEEDED');
-      const mac = await hmacHex(this.d.config.codeKey, `${row.id}:${code}`);
-      if (!/^\d{6}$/.test(code) || mac !== row.code_hmac) {
-        const attempts = row.attempts + 1;
-        await tx`update public.auth_one_time_codes set attempts = ${attempts} where id = ${row.id}`;
-        this.d.log.event('auth.code.failed', { request_id: ctx.requestId, account_id: row.user_id, count: attempts });
-        if (attempts >= CODE_MAX_ATTEMPTS) return { failed: 'CODE_ATTEMPTS_EXCEEDED' as const };
-        return { failed: 'CODE_INCORRECT' as const };
-      }
-      await tx`update public.auth_one_time_codes set consumed_at = ${this.d.now()} where id = ${row.id}`;
-      this.d.log.event('auth.code.verified', { request_id: ctx.requestId, account_id: row.user_id, reason: purpose });
-      return { userId: row.user_id };
-    }).then((r) => {
-      // Write the attempt count even when we refuse (the transaction above commits it).
-      if ('failed' in r) throw r.failed === 'CODE_INCORRECT' ? err(422, 'CODE_INCORRECT') : err(423, 'CODE_ATTEMPTS_EXCEEDED');
-      return r.userId;
-    });
+    return this.sql
+      .begin(async (tx) => {
+        const [row] = await tx<
+          {
+            id: string;
+            user_id: string;
+            code_hmac: string;
+            expires_at: Date;
+            attempts: number;
+            consumed_at: Date | null;
+            superseded_at: Date | null;
+            device_id_hash: string;
+          }[]
+        >`select * from public.auth_one_time_codes where id = ${challengeId} and purpose = ${purpose} for update`;
+        if (!row) throw err(404, 'CHALLENGE_NOT_FOUND');
+        if (row.consumed_at || row.superseded_at) throw err(410, 'CODE_EXPIRED');
+        if (row.expires_at.getTime() <= this.nowMs()) throw err(410, 'CODE_EXPIRED');
+        if (row.attempts >= CODE_MAX_ATTEMPTS) throw err(423, 'CODE_ATTEMPTS_EXCEEDED');
+        const mac = await hmacHex(this.d.config.codeKey, `${row.id}:${code}`);
+        if (!/^\d{6}$/.test(code) || mac !== row.code_hmac) {
+          const attempts = row.attempts + 1;
+          await tx`update public.auth_one_time_codes set attempts = ${attempts} where id = ${row.id}`;
+          this.d.log.event('auth.code.failed', {
+            request_id: ctx.requestId,
+            account_id: row.user_id,
+            count: attempts,
+          });
+          if (attempts >= CODE_MAX_ATTEMPTS) return { failed: 'CODE_ATTEMPTS_EXCEEDED' as const };
+          return { failed: 'CODE_INCORRECT' as const };
+        }
+        await tx`update public.auth_one_time_codes set consumed_at = ${this.d.now()} where id = ${row.id}`;
+        this.d.log.event('auth.code.verified', {
+          request_id: ctx.requestId,
+          account_id: row.user_id,
+          reason: purpose,
+        });
+        return { userId: row.user_id };
+      })
+      .then((r) => {
+        // Write the attempt count even when we refuse (the transaction above commits it).
+        if ('failed' in r)
+          throw r.failed === 'CODE_INCORRECT'
+            ? err(422, 'CODE_INCORRECT')
+            : err(423, 'CODE_ATTEMPTS_EXCEEDED');
+        return r.userId;
+      });
   }
 
-  private async permit(purpose: 'ISSUE_SESSION' | 'REFRESH_SESSION' | 'SET_PASSWORD', userId: string) {
+  private async permit(
+    purpose: 'ISSUE_SESSION' | 'REFRESH_SESSION' | 'SET_PASSWORD',
+    userId: string,
+  ) {
     const [row] = await this.sql<{ id: string }[]>`
       insert into public.auth_permits (purpose, user_id, expires_at)
       values (${purpose}, ${userId}, ${new Date(this.nowMs() + 30_000)}) returning id`;
@@ -267,7 +338,12 @@ export class AuthService {
   }
 
   /** Records the session for the device list and returns the spec's token body. */
-  private async finishSession(account: Account, session: GoTrueSession, ctx: RequestContext, created: boolean): Promise<TokensBody> {
+  private async finishSession(
+    account: Account,
+    session: GoTrueSession,
+    ctx: RequestContext,
+    created: boolean,
+  ): Promise<TokensBody> {
     const claims = unsafeJwtPayload(session.access_token);
     const sessionId = String(claims.session_id);
     const town = await this.d.locate(ctx.ipPrefix);
@@ -323,7 +399,12 @@ export class AuthService {
   }
 
   /** Creates a Supabase Auth user, cleaning up an orphan from an interrupted earlier attempt. */
-  private async createAuthUser(input: { email: string; password?: string; emailConfirm: boolean; displayName?: string | null }) {
+  private async createAuthUser(input: {
+    email: string;
+    password?: string;
+    emailConfirm: boolean;
+    displayName?: string | null;
+  }) {
     try {
       return await this.d.gotrue.createUser(input);
     } catch (e) {
@@ -346,7 +427,11 @@ export class AuthService {
         where public.auth_owner_alerts.last_sent_at < ${new Date(this.nowMs() - 24 * HOUR * 1000)}
       returning user_id`;
     if (rows.length) {
-      await this.enqueueEmail('owner_alert', { userId: account.user_id, email: account.email, deliverable: account.email_deliverable }, { method: account.method });
+      await this.enqueueEmail(
+        'owner_alert',
+        { userId: account.user_id, email: account.email, deliverable: account.email_deliverable },
+        { method: account.method },
+      );
     }
   }
 
@@ -362,14 +447,18 @@ export class AuthService {
     if (existing && existing.status !== 'UNCONFIRMED') {
       await this.ownerAlert(existing);
       if (existing.method === 'PASSWORD') throw err(409, 'ACCOUNT_EXISTS');
-      throw err(409, 'WRONG_METHOD', { method: existing.method, is_private_relay: existing.is_private_relay });
+      throw err(409, 'WRONG_METHOD', {
+        method: existing.method,
+        is_private_relay: existing.is_private_relay,
+      });
     }
 
     let account: Account;
     if (existing) {
       // Unconfirmed accounts can't be squatted: replace the pending password (spec 1.2).
       const version = await this.setPassword(existing.user_id, password);
-      await this.sql`update public.auth_accounts set pepper_version = ${version}, email = ${typed} where user_id = ${existing.user_id}`;
+      await this
+        .sql`update public.auth_accounts set pepper_version = ${version}, email = ${typed} where user_id = ${existing.user_id}`;
       account = { ...existing, email: typed, pepper_version: version };
     } else {
       const pepper = currentPepper(this.d.config);
@@ -383,7 +472,11 @@ export class AuthService {
         values (${user.id}, ${typed}, 'PASSWORD', 'UNCONFIRMED', ${pepper.version}, ${isPrivateRelayEmail(typed)})
         returning *`;
       account = row!;
-      this.d.log.event('auth.account.created', { request_id: ctx.requestId, account_id: account.user_id, method: 'PASSWORD' });
+      this.d.log.event('auth.account.created', {
+        request_id: ctx.requestId,
+        account_id: account.user_id,
+        method: 'PASSWORD',
+      });
     }
     return this.sendCode(account, 'CONFIRM_EMAIL', ctx);
   }
@@ -404,7 +497,9 @@ export class AuthService {
 
   async resendCode(ctx: RequestContext, challengeId: string) {
     if (!/^[0-9a-f-]{36}$/.test(challengeId)) throw err(404, 'CHALLENGE_NOT_FOUND');
-    const [row] = await this.sql<{ user_id: string; purpose: 'CONFIRM_EMAIL' | 'NEW_DEVICE'; created_at: Date }[]>`
+    const [row] = await this.sql<
+      { user_id: string; purpose: 'CONFIRM_EMAIL' | 'NEW_DEVICE'; created_at: Date }[]
+    >`
       select c.user_id, c.purpose,
              (select max(c2.created_at) from public.auth_one_time_codes c2
                where c2.user_id = c.user_id and c2.purpose = c.purpose) as created_at
@@ -422,7 +517,11 @@ export class AuthService {
 
   // ---------------------------------------------------------------- 2.3 sign in with email
 
-  async signInWithPassword(ctx: RequestContext, email: string, password: string): Promise<TokensBody> {
+  async signInWithPassword(
+    ctx: RequestContext,
+    email: string,
+    password: string,
+  ): Promise<TokensBody> {
     await this.lookupLimits(ctx, email);
     if (!isValidEmail(email)) throw err(422, 'EMAIL_INVALID');
     const norm = normaliseEmail(email);
@@ -432,11 +531,18 @@ export class AuthService {
 
     const account = await this.findAccountByEmail(norm);
     if (!account) {
-      this.d.log.event('auth.signin.failed', { request_id: ctx.requestId, reason: 'ACCOUNT_NOT_FOUND', device_id_hash: ctx.deviceHash });
+      this.d.log.event('auth.signin.failed', {
+        request_id: ctx.requestId,
+        reason: 'ACCOUNT_NOT_FOUND',
+        device_id_hash: ctx.deviceHash,
+      });
       throw err(404, 'ACCOUNT_NOT_FOUND');
     }
     if (account.method !== 'PASSWORD') {
-      throw err(409, 'WRONG_METHOD', { method: account.method, is_private_relay: account.is_private_relay });
+      throw err(409, 'WRONG_METHOD', {
+        method: account.method,
+        is_private_relay: account.is_private_relay,
+      });
     }
 
     const session = await this.verifyPassword(account, password, ctx);
@@ -464,18 +570,32 @@ export class AuthService {
   }
 
   private pausedError(until: Date) {
-    return err(429, 'SIGN_IN_PAUSED', null, Math.max(1, Math.ceil((until.getTime() - this.nowMs()) / 1000)));
+    return err(
+      429,
+      'SIGN_IN_PAUSED',
+      null,
+      Math.max(1, Math.ceil((until.getTime() - this.nowMs()) / 1000)),
+    );
   }
 
   /**
    * Checks the password with Supabase Auth's password grant. Wrong → counts towards the pause
    * and the quiet check, then WRONG_PASSWORD (or SIGN_IN_PAUSED on the 5th try).
    */
-  private async verifyPassword(account: Account, password: string, ctx: RequestContext): Promise<GoTrueSession | 'unconfirmed'> {
-    const pepper = this.d.config.peppers.find((p) => p.version === account.pepper_version) ?? currentPepper(this.d.config);
+  private async verifyPassword(
+    account: Account,
+    password: string,
+    ctx: RequestContext,
+  ): Promise<GoTrueSession | 'unconfirmed'> {
+    const pepper =
+      this.d.config.peppers.find((p) => p.version === account.pepper_version) ??
+      currentPepper(this.d.config);
     const permitId = await this.permit('ISSUE_SESSION', account.user_id);
     try {
-      return await this.d.gotrue.signInWithPassword(account.email, await derivePassword(password, pepper));
+      return await this.d.gotrue.signInWithPassword(
+        account.email,
+        await derivePassword(password, pepper),
+      );
     } catch (e) {
       if (e instanceof GoTrueError && e.errorCode === 'email_not_confirmed') return 'unconfirmed';
       if (e instanceof GoTrueError && e.errorCode === 'invalid_credentials') {
@@ -486,9 +606,18 @@ export class AuthService {
         if (flag?.step_up_required && !account.step_up_required) {
           this.d.log.event('auth.stepup.flagged', { account_id: account.user_id });
         }
-        this.d.log.event('auth.signin.failed', { request_id: ctx.requestId, account_id: account.user_id, reason: 'WRONG_PASSWORD', device_id_hash: ctx.deviceHash });
+        this.d.log.event('auth.signin.failed', {
+          request_id: ctx.requestId,
+          account_id: account.user_id,
+          reason: 'WRONG_PASSWORD',
+          device_id_hash: ctx.deviceHash,
+        });
         if (row?.until) {
-          this.d.log.event('auth.pause.started', { request_id: ctx.requestId, account_id: account.user_id, device_id_hash: ctx.deviceHash });
+          this.d.log.event('auth.pause.started', {
+            request_id: ctx.requestId,
+            account_id: account.user_id,
+            device_id_hash: ctx.deviceHash,
+          });
           throw this.pausedError(row.until);
         }
         throw err(401, 'WRONG_PASSWORD');
@@ -504,7 +633,8 @@ export class AuthService {
     const current = currentPepper(this.d.config);
     if (account.pepper_version === current.version) return false;
     const version = await this.setPassword(account.user_id, password);
-    await this.sql`update public.auth_accounts set pepper_version = ${version} where user_id = ${account.user_id}`;
+    await this
+      .sql`update public.auth_accounts set pepper_version = ${version} where user_id = ${account.user_id}`;
     account.pepper_version = version;
     return true;
   }
@@ -516,7 +646,8 @@ export class AuthService {
     const userId = await this.checkCode(challengeId, code, 'NEW_DEVICE', ctx);
     const account = await this.findAccount(userId);
     if (!account) throw err(404, 'CHALLENGE_NOT_FOUND');
-    await this.sql`update public.auth_accounts set step_up_required = false, step_up_set_at = null where user_id = ${userId}`;
+    await this
+      .sql`update public.auth_accounts set step_up_required = false, step_up_set_at = null where user_id = ${userId}`;
     this.d.log.event('auth.stepup.passed', { request_id: ctx.requestId, account_id: userId });
     return this.mint({ ...account, step_up_required: false }, ctx);
   }
@@ -533,9 +664,16 @@ export class AuthService {
   }
 
   /** Marks the nonce used and returns it; any reuse, expiry or device mismatch → TOKEN_INVALID. */
-  private async takeNonce(nonceId: string, rawNonce: string | null, ctx: RequestContext, purpose: 'ID_TOKEN' | 'APP_ATTEST' = 'ID_TOKEN'): Promise<string> {
+  private async takeNonce(
+    nonceId: string,
+    rawNonce: string | null,
+    ctx: RequestContext,
+    purpose: 'ID_TOKEN' | 'APP_ATTEST' = 'ID_TOKEN',
+  ): Promise<string> {
     if (!/^[0-9a-f-]{36}$/.test(nonceId)) throw err(401, 'TOKEN_INVALID');
-    const [row] = await this.sql<{ nonce_hash: string; device_id_hash: string; expires_at: Date }[]>`
+    const [row] = await this.sql<
+      { nonce_hash: string; device_id_hash: string; expires_at: Date }[]
+    >`
       update public.auth_nonces set used_at = ${this.d.now()}
        where id = ${nonceId} and used_at is null and purpose = ${purpose} returning nonce_hash, device_id_hash, expires_at`;
     if (!row || row.device_id_hash !== ctx.deviceHash || row.expires_at.getTime() <= this.nowMs()) {
@@ -561,8 +699,16 @@ export class AuthService {
     return { challenge_id: row!.id, challenge };
   }
 
-  async attest(ctx: RequestContext, input: { keyId: string; attestation: string; challengeId: string; challenge: string }) {
-    const challenge = await this.takeNonce(input.challengeId, input.challenge, ctx, 'APP_ATTEST').catch(() => {
+  async attest(
+    ctx: RequestContext,
+    input: { keyId: string; attestation: string; challengeId: string; challenge: string },
+  ) {
+    const challenge = await this.takeNonce(
+      input.challengeId,
+      input.challenge,
+      ctx,
+      'APP_ATTEST',
+    ).catch(() => {
       throw err(403, 'DEVICE_CHECK_FAILED');
     });
     const a = this.d.config.appAttest;
@@ -580,25 +726,46 @@ export class AuthService {
         insert into public.auth_app_attest_keys (key_id, device_id_hash, public_key_spki)
         values (${input.keyId}, ${ctx.deviceHash}, ${publicKeySpki}) on conflict (key_id) do nothing`;
     } catch (e) {
-      this.d.log.event('auth.attestation.failed', { request_id: ctx.requestId, check: e instanceof Error ? e.message.slice(0, 20) : 'unknown' });
+      this.d.log.event('auth.attestation.failed', {
+        request_id: ctx.requestId,
+        check: e instanceof Error ? e.message.slice(0, 20) : 'unknown',
+      });
       throw err(403, 'DEVICE_CHECK_FAILED');
     }
   }
 
-  private async verifyIdToken(provider: FederatedProvider, idToken: string, nonce: string, ctx: RequestContext) {
+  private async verifyIdToken(
+    provider: FederatedProvider,
+    idToken: string,
+    nonce: string,
+    ctx: RequestContext,
+  ) {
     try {
       return await this.d.idTokens.verify(provider, idToken, nonce);
     } catch (e) {
       if (e instanceof IdTokenError) {
-        this.d.log.event('auth.federated.failed', { request_id: ctx.requestId, provider, check: e.check });
+        this.d.log.event('auth.federated.failed', {
+          request_id: ctx.requestId,
+          provider,
+          check: e.check,
+        });
         throw err(401, 'TOKEN_INVALID');
       }
-      this.d.log.event('auth.federated.failed', { request_id: ctx.requestId, provider, check: 'provider_error' });
+      this.d.log.event('auth.federated.failed', {
+        request_id: ctx.requestId,
+        provider,
+        check: 'provider_error',
+      });
       throw err(502, 'PROVIDER_ERROR');
     }
   }
 
-  private async newTicket(kind: 'SIGN_IN_EXISTING' | 'CREATE_FEDERATED', t: VerifiedIdToken, ctx: RequestContext, extra: { givenName?: string | null; appleRefreshEnc?: string | null }) {
+  private async newTicket(
+    kind: 'SIGN_IN_EXISTING' | 'CREATE_FEDERATED',
+    t: VerifiedIdToken,
+    ctx: RequestContext,
+    extra: { givenName?: string | null; appleRefreshEnc?: string | null },
+  ) {
     const ticket = randomToken();
     await this.sql`
       insert into public.auth_tickets (ticket_hash, kind, provider, subject, email, is_private_relay, given_name, apple_refresh_token_enc, device_id_hash, expires_at)
@@ -609,7 +776,15 @@ export class AuthService {
 
   async federated(
     ctx: RequestContext,
-    input: { provider: FederatedProvider; idToken: string; nonceId: string; nonce: string | null; intent: 'CREATE' | 'SIGN_IN'; givenName: string | null; authorizationCode: string | null },
+    input: {
+      provider: FederatedProvider;
+      idToken: string;
+      nonceId: string;
+      nonce: string | null;
+      intent: 'CREATE' | 'SIGN_IN';
+      givenName: string | null;
+      authorizationCode: string | null;
+    },
   ): Promise<TokensBody> {
     const rawNonce = await this.takeNonce(input.nonceId, input.nonce, ctx);
     const token = await this.verifyIdToken(input.provider, input.idToken, rawNonce, ctx);
@@ -636,10 +811,18 @@ export class AuthService {
       if (byEmail) {
         if (byEmail.method === token.provider) {
           // Same email, same provider, different sub: never link or replace (spec 2.4 notes).
-          this.d.log.event('auth.federated.mismatch', { request_id: ctx.requestId, provider: token.provider, account_id: byEmail.user_id });
+          this.d.log.event('auth.federated.mismatch', {
+            request_id: ctx.requestId,
+            provider: token.provider,
+            account_id: byEmail.user_id,
+          });
           throw err(409, 'PROVIDER_ACCOUNT_MISMATCH');
         }
-        throw err(409, 'WRONG_METHOD', { method: byEmail.method, is_private_relay: byEmail.is_private_relay, email: byEmail.email });
+        throw err(409, 'WRONG_METHOD', {
+          method: byEmail.method,
+          is_private_relay: byEmail.is_private_relay,
+          email: byEmail.email,
+        });
       }
     }
 
@@ -648,7 +831,10 @@ export class AuthService {
     const givenName = cleanName(input.givenName);
 
     if (input.intent === 'SIGN_IN') {
-      const ticket = await this.newTicket('CREATE_FEDERATED', token, ctx, { givenName, appleRefreshEnc });
+      const ticket = await this.newTicket('CREATE_FEDERATED', token, ctx, {
+        givenName,
+        appleRefreshEnc,
+      });
       throw err(404, 'ACCOUNT_NOT_FOUND', { ticket, email: token.verifiedEmail });
     }
     return this.createFederated(token, givenName, appleRefreshEnc, ctx);
@@ -666,13 +852,22 @@ export class AuthService {
     }
   }
 
-  private async createFederated(token: VerifiedIdToken, givenName: string | null, appleRefreshEnc: string | null, ctx: RequestContext) {
+  private async createFederated(
+    token: VerifiedIdToken,
+    givenName: string | null,
+    appleRefreshEnc: string | null,
+    ctx: RequestContext,
+  ) {
     if (!token.verifiedEmail) {
       // Supabase Auth needs an email to hold the session; Apple and Google always send one
       // when the email scope is granted.
       throw err(401, 'TOKEN_INVALID');
     }
-    const user = await this.createAuthUser({ email: token.verifiedEmail, emailConfirm: true, displayName: givenName });
+    const user = await this.createAuthUser({
+      email: token.verifiedEmail,
+      emailConfirm: true,
+      displayName: givenName,
+    });
     let account: Account | undefined;
     try {
       [account] = (await this.sql.begin(async (tx) => {
@@ -691,7 +886,11 @@ export class AuthService {
       if ((e as { code?: string }).code === '23505') throw err(409, 'ACCOUNT_EXISTS');
       throw e;
     }
-    this.d.log.event('auth.account.created', { request_id: ctx.requestId, account_id: account!.user_id, method: token.provider });
+    this.d.log.event('auth.account.created', {
+      request_id: ctx.requestId,
+      account_id: account!.user_id,
+      method: token.provider,
+    });
     return this.mint(account!, ctx, true);
   }
 
@@ -700,8 +899,10 @@ export class AuthService {
     if (!token.verifiedEmail || normaliseEmail(token.verifiedEmail) === account.email_norm) return;
     try {
       await this.d.gotrue.updateUser(account.user_id, { email: token.verifiedEmail });
-      await this.sql`update public.auth_accounts set email = ${token.verifiedEmail}, is_private_relay = ${token.isPrivateRelay} where user_id = ${account.user_id}`;
-      await this.sql`update public.auth_federated_identities set email_at_provider = ${token.verifiedEmail} where user_id = ${account.user_id}`;
+      await this
+        .sql`update public.auth_accounts set email = ${token.verifiedEmail}, is_private_relay = ${token.isPrivateRelay} where user_id = ${account.user_id}`;
+      await this
+        .sql`update public.auth_federated_identities set email_at_provider = ${token.verifiedEmail} where user_id = ${account.user_id}`;
       account.email = token.verifiedEmail;
     } catch {
       // The new email belongs to another account (unique index): keep the old one.
@@ -710,14 +911,30 @@ export class AuthService {
 
   async exchangeTicket(ctx: RequestContext, ticket: string): Promise<TokensBody> {
     const [row] = await this.sql<
-      { kind: string; provider: FederatedProvider; subject: string; email: string | null; is_private_relay: boolean; given_name: string | null; apple_refresh_token_enc: string | null; device_id_hash: string; expires_at: Date }[]
+      {
+        kind: string;
+        provider: FederatedProvider;
+        subject: string;
+        email: string | null;
+        is_private_relay: boolean;
+        given_name: string | null;
+        apple_refresh_token_enc: string | null;
+        device_id_hash: string;
+        expires_at: Date;
+      }[]
     >`update public.auth_tickets set used_at = ${this.d.now()}
        where ticket_hash = ${await sha256Hex(ticket)} and used_at is null and device_id_hash = ${ctx.deviceHash}
        returning *`;
     if (!row || row.expires_at.getTime() <= this.nowMs()) {
       throw err(410, 'TICKET_EXPIRED');
     }
-    const token: VerifiedIdToken = { provider: row.provider, subject: row.subject, verifiedEmail: row.email, isPrivateRelay: row.is_private_relay, audience: '' };
+    const token: VerifiedIdToken = {
+      provider: row.provider,
+      subject: row.subject,
+      verifiedEmail: row.email,
+      isPrivateRelay: row.is_private_relay,
+      audience: '',
+    };
     const [identity] = await this.sql<{ user_id: string }[]>`
       select user_id from public.auth_federated_identities where provider = ${row.provider} and subject = ${row.subject}`;
     if (row.kind === 'SIGN_IN_EXISTING') {
@@ -729,7 +946,11 @@ export class AuthService {
     if (identity) throw err(410, 'TICKET_EXPIRED');
     if (row.email) {
       const byEmail = await this.findAccountByEmail(row.email);
-      if (byEmail) throw err(409, 'WRONG_METHOD', { method: byEmail.method, is_private_relay: byEmail.is_private_relay });
+      if (byEmail)
+        throw err(409, 'WRONG_METHOD', {
+          method: byEmail.method,
+          is_private_relay: byEmail.is_private_relay,
+        });
     }
     return this.createFederated(token, row.given_name, row.apple_refresh_token_enc, ctx);
   }
@@ -753,10 +974,26 @@ export class AuthService {
                           where user_id = ${account.user_id} and used_at is null and superseded_at is null`;
           await this.sql`insert into public.auth_reset_tokens (token_hash, user_id, expires_at)
                          values (${await sha256Hex(token)}, ${account.user_id}, ${new Date(now.getTime() + RESET_TTL_SECONDS * 1000)})`;
-          await this.enqueueEmail('reset_link', { userId: account.user_id, email: account.email, deliverable: account.email_deliverable }, { link: `${this.d.config.resetLinkBase}#t=${token}` });
+          await this.enqueueEmail(
+            'reset_link',
+            {
+              userId: account.user_id,
+              email: account.email,
+              deliverable: account.email_deliverable,
+            },
+            { link: `${this.d.config.resetLinkBase}#t=${token}` },
+          );
           outcome = 'sent_link';
         } else {
-          await this.enqueueEmail('reset_uses_provider', { userId: account.user_id, email: account.email, deliverable: account.email_deliverable }, { provider: account.method });
+          await this.enqueueEmail(
+            'reset_uses_provider',
+            {
+              userId: account.user_id,
+              email: account.email,
+              deliverable: account.email_deliverable,
+            },
+            { provider: account.method },
+          );
           outcome = 'sent_method_email';
         }
       } catch (e) {
@@ -764,11 +1001,17 @@ export class AuthService {
         outcome = 'limited';
       }
     }
-    this.d.log.event('auth.reset.requested', { request_id: ctx.requestId, outcome, device_id_hash: ctx.deviceHash });
+    this.d.log.event('auth.reset.requested', {
+      request_id: ctx.requestId,
+      outcome,
+      device_id_hash: ctx.deviceHash,
+    });
   }
 
   private async liveResetToken(token: string) {
-    const [row] = await this.sql<{ user_id: string; expires_at: Date; used_at: Date | null; superseded_at: Date | null }[]>`
+    const [row] = await this.sql<
+      { user_id: string; expires_at: Date; used_at: Date | null; superseded_at: Date | null }[]
+    >`
       select user_id, expires_at, used_at, superseded_at from public.auth_reset_tokens where token_hash = ${await sha256Hex(token)}`;
     if (!row || row.used_at || row.superseded_at || row.expires_at.getTime() <= this.nowMs()) {
       throw err(410, 'RESET_LINK_INVALID');
@@ -792,7 +1035,8 @@ export class AuthService {
        where token_hash = ${await sha256Hex(token)} and used_at is null and superseded_at is null returning user_id`;
     if (!claimed.length) throw err(410, 'RESET_LINK_INVALID');
     const version = await this.setPassword(account.user_id, newPassword);
-    if (account.status === 'UNCONFIRMED') await this.d.gotrue.updateUser(account.user_id, { emailConfirm: true });
+    if (account.status === 'UNCONFIRMED')
+      await this.d.gotrue.updateUser(account.user_id, { emailConfirm: true });
     const now = this.d.now();
     const revoked = await this.sql.begin(async (tx) => {
       await tx`update public.auth_accounts
@@ -805,12 +1049,25 @@ export class AuthService {
                 where user_id = ${account.user_id} and used_at is null and superseded_at is null`;
       await tx`update public.auth_one_time_codes set superseded_at = ${now}
                 where user_id = ${account.user_id} and consumed_at is null and superseded_at is null`;
-      const rows = await tx`delete from auth.sessions where user_id = ${account.user_id} returning id`;
+      const rows =
+        await tx`delete from auth.sessions where user_id = ${account.user_id} returning id`;
       return rows.length;
     });
-    await this.enqueueEmail('password_changed', { userId: account.user_id, email: account.email, deliverable: account.email_deliverable }, { changed_at: now.toISOString() });
-    this.d.log.event('auth.reset.completed', { request_id: ctx.requestId, account_id: account.user_id, count: revoked });
-    this.d.log.event('auth.session.revoked', { account_id: account.user_id, reason: 'password_reset', count: revoked });
+    await this.enqueueEmail(
+      'password_changed',
+      { userId: account.user_id, email: account.email, deliverable: account.email_deliverable },
+      { changed_at: now.toISOString() },
+    );
+    this.d.log.event('auth.reset.completed', {
+      request_id: ctx.requestId,
+      account_id: account.user_id,
+      count: revoked,
+    });
+    this.d.log.event('auth.session.revoked', {
+      account_id: account.user_id,
+      reason: 'password_reset',
+      count: revoked,
+    });
   }
 
   // ---------------------------------------------------------------- 3.2 breach range
@@ -836,14 +1093,19 @@ export class AuthService {
 
   async refresh(refreshToken: string): Promise<TokensBody> {
     const hash = await sha256Hex(refreshToken);
-    const [known] = await this.sql<{ session_id: string; user_id: string; superseded_at: Date | null }[]>`
+    const [known] = await this.sql<
+      { session_id: string; user_id: string; superseded_at: Date | null }[]
+    >`
       select session_id, user_id, superseded_at from public.auth_refresh_hashes where token_hash = ${hash}`;
     if (!known) throw err(401, 'SESSION_REVOKED');
     if (known.superseded_at) {
       // Reuse of an old refresh token: likely theft. Revoke the whole session (spec 8.1).
       await this.deleteSession(known.session_id);
       this.d.log.event('auth.refresh.reuse', { account_id: known.user_id });
-      this.d.log.event('auth.session.revoked', { account_id: known.user_id, reason: 'refresh_reuse' });
+      this.d.log.event('auth.session.revoked', {
+        account_id: known.user_id,
+        reason: 'refresh_reuse',
+      });
       throw err(401, 'SESSION_REVOKED');
     }
     const permitId = await this.permit('REFRESH_SESSION', known.user_id);
@@ -874,7 +1136,12 @@ export class AuthService {
     const claims = unsafeJwtPayload(s.access_token);
     const scope = claims.lifeos_scope === 'PENDING_DELETION' ? 'PENDING_DELETION' : 'FULL';
     return {
-      tokens: { access_token: s.access_token, refresh_token: s.refresh_token, expires_at: s.expires_at ?? Math.floor(this.nowMs() / 1000) + s.expires_in, token_type: 'bearer' },
+      tokens: {
+        access_token: s.access_token,
+        refresh_token: s.refresh_token,
+        expires_at: s.expires_at ?? Math.floor(this.nowMs() / 1000) + s.expires_in,
+        token_type: 'bearer',
+      },
       scope,
       account_created: false,
     };
@@ -918,7 +1185,15 @@ export class AuthService {
   }
 
   async listSessions(caller: Caller) {
-    const rows = await this.sql<{ id: string; label: string; platform: string; coarse_location: string | null; last_active_at: Date }[]>`
+    const rows = await this.sql<
+      {
+        id: string;
+        label: string;
+        platform: string;
+        coarse_location: string | null;
+        last_active_at: Date;
+      }[]
+    >`
       select s.id, m.label, m.platform, m.coarse_location,
              greatest(coalesce(s.refreshed_at, s.created_at), s.updated_at, m.created_at) as last_active_at
         from auth.sessions s join public.auth_session_meta m on m.session_id = s.id
@@ -936,14 +1211,22 @@ export class AuthService {
 
   async revokeSession(caller: Caller, sessionId: string) {
     if (!/^[0-9a-f-]{36}$/.test(sessionId)) throw err(404, 'SESSION_NOT_FOUND');
-    const rows = await this.sql`delete from auth.sessions where id = ${sessionId} and user_id = ${caller.userId} returning id`;
+    const rows = await this
+      .sql`delete from auth.sessions where id = ${sessionId} and user_id = ${caller.userId} returning id`;
     if (!rows.length) throw err(404, 'SESSION_NOT_FOUND');
-    this.d.log.event('auth.session.revoked', { account_id: caller.userId, reason: 'device_removed' });
+    this.d.log.event('auth.session.revoked', {
+      account_id: caller.userId,
+      reason: 'device_removed',
+    });
   }
 
   async revokeAll(caller: Caller) {
     const n = await this.deleteSessions(caller.userId);
-    this.d.log.event('auth.session.revoked', { account_id: caller.userId, reason: 'sign_out_everywhere', count: n });
+    this.d.log.event('auth.session.revoked', {
+      account_id: caller.userId,
+      reason: 'sign_out_everywhere',
+      count: n,
+    });
   }
 
   // ---------------------------------------------------------------- S-2 change password
@@ -954,32 +1237,55 @@ export class AuthService {
     const pausedUntil = await this.activePause(a.email_norm, ctx);
     if (pausedUntil) throw this.pausedError(pausedUntil);
     const check = await this.verifyPassword(a, current, ctx);
-    if (check !== 'unconfirmed') await this.deleteSession(String(unsafeJwtPayload(check.access_token).session_id));
-    if (normalisePassword(current) === normalisePassword(next)) throw err(422, 'PASSWORD_SAME_AS_CURRENT');
+    if (check !== 'unconfirmed')
+      await this.deleteSession(String(unsafeJwtPayload(check.access_token).session_id));
+    if (normalisePassword(current) === normalisePassword(next))
+      throw err(422, 'PASSWORD_SAME_AS_CURRENT');
     await this.validateNewPassword(next, a.email);
     // Supabase Auth signs out EVERY session when a password is updated (models.UpdatePassword),
     // so other devices are out at once, and this device gets fresh tokens (spec S-2f, 8.3).
     const n = await this.deleteSessions(a.user_id, caller.sessionId);
     const version = await this.setPassword(a.user_id, next);
     const now = this.d.now();
-    await this.sql`update public.auth_accounts set pepper_version = ${version}, password_changed_at = ${now} where user_id = ${a.user_id}`;
-    await this.enqueueEmail('password_changed', { userId: a.user_id, email: a.email, deliverable: a.email_deliverable }, { changed_at: now.toISOString() });
-    this.d.log.event('auth.session.revoked', { account_id: a.user_id, reason: 'password_changed', count: n });
+    await this
+      .sql`update public.auth_accounts set pepper_version = ${version}, password_changed_at = ${now} where user_id = ${a.user_id}`;
+    await this.enqueueEmail(
+      'password_changed',
+      { userId: a.user_id, email: a.email, deliverable: a.email_deliverable },
+      { changed_at: now.toISOString() },
+    );
+    this.d.log.event('auth.session.revoked', {
+      account_id: a.user_id,
+      reason: 'password_changed',
+      count: n,
+    });
     return this.mint({ ...a, pepper_version: version }, ctx);
   }
 
   // ---------------------------------------------------------------- S-5 delete account
 
-  async reauth(ctx: RequestContext, caller: Caller, input: { password?: string | null; provider?: FederatedProvider | null; idToken?: string | null; nonceId?: string | null; nonce?: string | null }) {
+  async reauth(
+    ctx: RequestContext,
+    caller: Caller,
+    input: {
+      password?: string | null;
+      provider?: FederatedProvider | null;
+      idToken?: string | null;
+      nonceId?: string | null;
+      nonce?: string | null;
+    },
+  ) {
     const a = caller.account;
     if (a.method === 'PASSWORD') {
       if (!input.password) throw err(401, 'WRONG_PASSWORD');
       const pausedUntil = await this.activePause(a.email_norm, ctx);
       if (pausedUntil) throw this.pausedError(pausedUntil);
       const s = await this.verifyPassword(a, input.password, ctx);
-      if (s !== 'unconfirmed') await this.deleteSession(String(unsafeJwtPayload(s.access_token).session_id));
+      if (s !== 'unconfirmed')
+        await this.deleteSession(String(unsafeJwtPayload(s.access_token).session_id));
     } else {
-      if (!input.idToken || !input.nonceId || input.provider !== a.method) throw err(401, 'TOKEN_INVALID');
+      if (!input.idToken || !input.nonceId || input.provider !== a.method)
+        throw err(401, 'TOKEN_INVALID');
       const raw = await this.takeNonce(input.nonceId, input.nonce ?? null, ctx);
       const t = await this.verifyIdToken(a.method, input.idToken, raw, ctx);
       const [identity] = await this.sql`select 1 from public.auth_federated_identities
@@ -987,7 +1293,8 @@ export class AuthService {
       if (!identity) throw err(401, 'TOKEN_INVALID');
     }
     const token = randomToken();
-    await this.sql`insert into public.auth_reauth_tokens (token_hash, user_id, session_id, scope, expires_at)
+    await this
+      .sql`insert into public.auth_reauth_tokens (token_hash, user_id, session_id, scope, expires_at)
                    values (${await sha256Hex(token)}, ${a.user_id}, ${caller.sessionId}, 'DELETE_ACCOUNT', ${new Date(this.nowMs() + 5 * 60_000)})`;
     return { reauth_token: token };
   }
@@ -1009,9 +1316,15 @@ export class AuthService {
     });
     const n = await this.deleteSessions(caller.userId, caller.sessionId);
     const a = caller.account;
-    await this.enqueueEmail('deletion_requested', { userId: a.user_id, email: a.email, deliverable: a.email_deliverable }, { requested_at: now.toISOString(), due_at: due.toISOString() });
+    await this.enqueueEmail(
+      'deletion_requested',
+      { userId: a.user_id, email: a.email, deliverable: a.email_deliverable },
+      { requested_at: now.toISOString(), due_at: due.toISOString() },
+    );
     this.d.log.event('auth.deletion.requested', { account_id: a.user_id, count: n });
-    return { deletion_due_at: (await this.deletionDue(caller.userId))?.toISOString() ?? due.toISOString() };
+    return {
+      deletion_due_at: (await this.deletionDue(caller.userId))?.toISOString() ?? due.toISOString(),
+    };
   }
 
   private async deletionDue(userId: string): Promise<Date | null> {
@@ -1031,9 +1344,14 @@ export class AuthService {
       update public.auth_deletion_requests set cancelled_at = ${this.d.now()}
        where user_id = ${caller.userId} and cancelled_at is null and completed_at is null returning id`;
     if (!rows.length) throw err(409, 'NOT_PENDING');
-    await this.sql`update public.auth_accounts set status = 'ACTIVE' where user_id = ${caller.userId}`;
+    await this
+      .sql`update public.auth_accounts set status = 'ACTIVE' where user_id = ${caller.userId}`;
     const a = caller.account;
-    await this.enqueueEmail('deletion_cancelled', { userId: a.user_id, email: a.email, deliverable: a.email_deliverable }, {});
+    await this.enqueueEmail(
+      'deletion_cancelled',
+      { userId: a.user_id, email: a.email, deliverable: a.email_deliverable },
+      {},
+    );
     this.d.log.event('auth.deletion.cancelled', { account_id: a.user_id });
   }
 
@@ -1051,28 +1369,42 @@ export class AuthService {
       switch (event.type) {
         case 'consent-revoked':
           await this.deleteSessions(userId);
-          this.d.log.event('auth.session.revoked', { account_id: userId, reason: 'apple_consent_revoked' });
+          this.d.log.event('auth.session.revoked', {
+            account_id: userId,
+            reason: 'apple_consent_revoked',
+          });
           break;
         case 'account-delete': {
           const now = this.d.now();
           await this.deleteSessions(userId);
-          await this.sql`update public.auth_accounts set status = 'PENDING_DELETION' where user_id = ${userId}`;
-          await this.sql`insert into public.auth_deletion_requests (user_id, requested_at, due_at, source)
+          await this
+            .sql`update public.auth_accounts set status = 'PENDING_DELETION' where user_id = ${userId}`;
+          await this
+            .sql`insert into public.auth_deletion_requests (user_id, requested_at, due_at, source)
                          values (${userId}, ${now}, ${new Date(now.getTime() + DELETION_GRACE_DAYS * 24 * HOUR * 1000)}, 'apple_account_delete')
                          on conflict (user_id) where cancelled_at is null and completed_at is null do nothing`;
-          this.d.log.event('auth.deletion.requested', { account_id: userId, reason: 'apple_account_delete' });
+          this.d.log.event('auth.deletion.requested', {
+            account_id: userId,
+            reason: 'apple_account_delete',
+          });
           break;
         }
         case 'email-disabled':
-          await this.sql`update public.auth_accounts set email_deliverable = false where user_id = ${userId}`;
+          await this
+            .sql`update public.auth_accounts set email_deliverable = false where user_id = ${userId}`;
           break;
         case 'email-enabled':
-          await this.sql`update public.auth_accounts set email_deliverable = true where user_id = ${userId}`;
+          await this
+            .sql`update public.auth_accounts set email_deliverable = true where user_id = ${userId}`;
           break;
       }
     }
-    await this.sql`update public.auth_apple_events set processed_at = ${this.d.now()} where event_key = ${event.eventKey}`;
-    this.d.log.event('auth.webhook.apple.processed', { event_type: event.type, outcome: identity ? 'applied' : 'unknown_sub' });
+    await this
+      .sql`update public.auth_apple_events set processed_at = ${this.d.now()} where event_key = ${event.eventKey}`;
+    this.d.log.event('auth.webhook.apple.processed', {
+      event_type: event.type,
+      outcome: identity ? 'applied' : 'unknown_sub',
+    });
     return 'processed';
   }
 }
@@ -1086,5 +1418,8 @@ function cleanName(name: string | null): string | null {
 function randomHex(n: number): string {
   const bytes = new Uint8Array(Math.ceil(n / 2));
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').slice(0, n).toUpperCase();
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, n)
+    .toUpperCase();
 }

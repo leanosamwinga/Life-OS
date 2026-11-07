@@ -34,7 +34,11 @@ export function decodeCbor(data: Uint8Array): Cbor {
       return v;
     }
     if (info === 26) {
-      const v = ((data[pos]! << 24) >>> 0) + (data[pos + 1]! << 16) + (data[pos + 2]! << 8) + data[pos + 3]!;
+      const v =
+        ((data[pos]! << 24) >>> 0) +
+        (data[pos + 1]! << 16) +
+        (data[pos + 2]! << 8) +
+        data[pos + 3]!;
       pos += 4;
       return v;
     }
@@ -139,9 +143,27 @@ function parseTime(el: Der): Date {
   if (el.tag === 0x17) {
     // UTCTime YYMMDDHHMMSSZ
     const yy = Number(s.slice(0, 2));
-    return new Date(Date.UTC(yy < 50 ? 2000 + yy : 1900 + yy, Number(s.slice(2, 4)) - 1, Number(s.slice(4, 6)), Number(s.slice(6, 8)), Number(s.slice(8, 10)), Number(s.slice(10, 12))));
+    return new Date(
+      Date.UTC(
+        yy < 50 ? 2000 + yy : 1900 + yy,
+        Number(s.slice(2, 4)) - 1,
+        Number(s.slice(4, 6)),
+        Number(s.slice(6, 8)),
+        Number(s.slice(8, 10)),
+        Number(s.slice(10, 12)),
+      ),
+    );
   }
-  return new Date(Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)), Number(s.slice(8, 10)), Number(s.slice(10, 12)), Number(s.slice(12, 14))));
+  return new Date(
+    Date.UTC(
+      Number(s.slice(0, 4)),
+      Number(s.slice(4, 6)) - 1,
+      Number(s.slice(6, 8)),
+      Number(s.slice(8, 10)),
+      Number(s.slice(10, 12)),
+      Number(s.slice(12, 14)),
+    ),
+  );
 }
 
 export interface Cert {
@@ -216,13 +238,29 @@ export function derSigToRaw(sig: Uint8Array, size: number): Uint8Array {
 
 async function importEc(spki: Uint8Array): Promise<{ key: CryptoKey; size: number }> {
   const curve = spkiCurve(spki);
-  const key = await crypto.subtle.importKey('spki', spki as BufferSource, { name: 'ECDSA', namedCurve: curve }, false, ['verify']);
+  const key = await crypto.subtle.importKey(
+    'spki',
+    spki as BufferSource,
+    { name: 'ECDSA', namedCurve: curve },
+    false,
+    ['verify'],
+  );
   return { key, size: curve === 'P-256' ? 32 : 48 };
 }
 
-async function verifyEcdsa(spki: Uint8Array, hash: 'SHA-256' | 'SHA-384', derSig: Uint8Array, data: Uint8Array) {
+async function verifyEcdsa(
+  spki: Uint8Array,
+  hash: 'SHA-256' | 'SHA-384',
+  derSig: Uint8Array,
+  data: Uint8Array,
+) {
   const { key, size } = await importEc(spki);
-  return crypto.subtle.verify({ name: 'ECDSA', hash }, key, derSigToRaw(derSig, size) as BufferSource, data as BufferSource);
+  return crypto.subtle.verify(
+    { name: 'ECDSA', hash },
+    key,
+    derSigToRaw(derSig, size) as BufferSource,
+    data as BufferSource,
+  );
 }
 
 const SIG_HASH: Record<string, 'SHA-256' | 'SHA-384'> = {
@@ -251,7 +289,8 @@ async function sha256(...parts: Uint8Array[]): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', all as BufferSource));
 }
 
-const equal = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
+const equal = (a: Uint8Array, b: Uint8Array) =>
+  a.length === b.length && a.every((x, i) => x === b[i]);
 
 const NONCE_OID = '1.2.840.113635.100.8.2';
 const AAGUID_PROD = new TextEncoder().encode('appattest\0\0\0\0\0\0\0');
@@ -279,7 +318,9 @@ export interface AttestationInput {
 }
 
 /** Verifies an App Attest attestation and returns the credential's public key (SPKI, base64url). */
-export async function verifyAppAttestation(input: AttestationInput): Promise<{ publicKeySpki: string }> {
+export async function verifyAppAttestation(
+  input: AttestationInput,
+): Promise<{ publicKeySpki: string }> {
   const now = input.now ?? new Date();
   const obj = decodeCbor(b64(input.attestationB64)) as Map<Cbor, Cbor>;
   if (obj.get('fmt') !== 'apple-appattest') throw new Error('fmt');
@@ -290,8 +331,10 @@ export async function verifyAppAttestation(input: AttestationInput): Promise<{ p
   const leaf = parseCert(x5c[0]!);
   const intermediate = parseCert(x5c[1]!);
   const root = parseCert(pemToDer(input.rootCaPem));
-  for (const c of [leaf, intermediate]) if (now < c.notBefore || now > c.notAfter) throw new Error('validity');
-  if (!(await certSignedBy(leaf, intermediate)) || !(await certSignedBy(intermediate, root))) throw new Error('chain');
+  for (const c of [leaf, intermediate])
+    if (now < c.notBefore || now > c.notAfter) throw new Error('validity');
+  if (!(await certSignedBy(leaf, intermediate)) || !(await certSignedBy(intermediate, root)))
+    throw new Error('chain');
 
   const clientDataHash = await sha256(new TextEncoder().encode(input.challenge));
   const nonce = await sha256(authData, clientDataHash);
@@ -307,12 +350,15 @@ export async function verifyAppAttestation(input: AttestationInput): Promise<{ p
   if (!equal(await sha256(spkiPoint(leaf.spki)), keyId)) throw new Error('key id');
 
   const rpIdHash = authData.slice(0, 32);
-  const appOk = await Promise.all(input.appIds.map(async (id) => equal(await sha256(new TextEncoder().encode(id)), rpIdHash)));
+  const appOk = await Promise.all(
+    input.appIds.map(async (id) => equal(await sha256(new TextEncoder().encode(id)), rpIdHash)),
+  );
   if (!appOk.some(Boolean)) throw new Error('app id');
   const counter = new DataView(authData.buffer, authData.byteOffset).getUint32(33);
   if (counter !== 0) throw new Error('counter');
   const aaguid = authData.slice(37, 53);
-  if (!equal(aaguid, AAGUID_PROD) && !(input.allowDevelopment && equal(aaguid, AAGUID_DEV))) throw new Error('aaguid');
+  if (!equal(aaguid, AAGUID_PROD) && !(input.allowDevelopment && equal(aaguid, AAGUID_DEV)))
+    throw new Error('aaguid');
   const credLen = (authData[53]! << 8) | authData[54]!;
   if (!equal(authData.slice(55, 55 + credLen), keyId)) throw new Error('credential id');
   return { publicKeySpki: bytesToBase64Url(leaf.spki) };
@@ -341,7 +387,9 @@ export async function verifyAppAttestAssertion(input: {
     const spki = b64(stored.publicKeySpki);
     if (!(await verifyEcdsa(spki, 'SHA-256', signature, nonce))) return false;
     const rpIdHash = authData.slice(0, 32);
-    const appOk = await Promise.all(input.appIds.map(async (id) => equal(await sha256(new TextEncoder().encode(id)), rpIdHash)));
+    const appOk = await Promise.all(
+      input.appIds.map(async (id) => equal(await sha256(new TextEncoder().encode(id)), rpIdHash)),
+    );
     if (!appOk.some(Boolean)) return false;
     const counter = new DataView(authData.buffer, authData.byteOffset).getUint32(33);
     if (counter <= stored.counter) return false;

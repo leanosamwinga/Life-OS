@@ -43,7 +43,11 @@ export function json(status: number, body: unknown, extra: Record<string, string
   });
 }
 
-export function errorResponse(e: ApiError, requestId: string, extra: Record<string, string> = {}): Response {
+export function errorResponse(
+  e: ApiError,
+  requestId: string,
+  extra: Record<string, string> = {},
+): Response {
   const headers = { ...extra };
   if (e.retryAfterSeconds != null) headers['Retry-After'] = String(e.retryAfterSeconds);
   return json(
@@ -78,7 +82,12 @@ export function str(body: Record<string, unknown>, key: string): string | null {
  * Waits until at least `floorMs` (± jitter) has passed since `startedAt`, so look-up endpoints
  * take the same time whether or not an account exists (spec 6.3).
  */
-export async function padTo(startedAt: number, floorMs: number, jitterMs: number, now = () => Date.now()) {
+export async function padTo(
+  startedAt: number,
+  floorMs: number,
+  jitterMs: number,
+  now = () => Date.now(),
+) {
   if (floorMs <= 0) return;
   const target = floorMs + (Math.random() * 2 - 1) * jitterMs;
   const wait = startedAt + target - now();

@@ -11,6 +11,10 @@ import type { AuthConfig } from '../config.ts';
 import { sha256Hex } from '../crypto.ts';
 import { MemorySender } from '../email.ts';
 
+// Test responses are inspected loosely (status codes and a few fields).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LooseBody = any;
+
 export function localEnv(): Record<string, string> | null {
   const file = fileURLToPath(new URL('../../../../.local-auth/env', import.meta.url));
   if (!existsSync(file)) return null;
@@ -29,7 +33,10 @@ export const APPLE_BUNDLE = 'test.lifeos.app';
 export const APPLE_SERVICES = 'test.lifeos.web';
 
 export interface FakeProvider {
-  sign(claims: Record<string, unknown>, opts?: { alg?: 'RS256'; key?: 'other'; kid?: string }): Promise<string>;
+  sign(
+    claims: Record<string, unknown>,
+    opts?: { alg?: 'RS256'; key?: 'other'; kid?: string },
+  ): Promise<string>;
 }
 
 export interface Harness {
@@ -37,7 +44,12 @@ export interface Harness {
   mail: MemorySender;
   logs: string[];
   config: AuthConfig;
-  call(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ status: number; body: any; headers: Headers }>;
+  call(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<{ status: number; body: LooseBody; headers: Headers }>;
   google: FakeProvider;
   apple: FakeProvider;
   /** Last 6-digit code emailed to `email`. */
@@ -57,8 +69,17 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
   if (!env) throw new Error('local auth stack not running (bash scripts/local-auth/start.sh)');
 
   // Fake Apple/Google signing keys and JWKS server.
-  const keys = { google: await generateKeyPair('RS256'), apple: await generateKeyPair('RS256'), other: await generateKeyPair('RS256') };
-  const jwk = async (k: JoseKey, kid: string) => ({ ...(await exportJWK(k)), kid, alg: 'RS256', use: 'sig' });
+  const keys = {
+    google: await generateKeyPair('RS256'),
+    apple: await generateKeyPair('RS256'),
+    other: await generateKeyPair('RS256'),
+  };
+  const jwk = async (k: JoseKey, kid: string) => ({
+    ...(await exportJWK(k)),
+    kid,
+    alg: 'RS256',
+    use: 'sig',
+  });
   const jwks: Record<string, unknown> = {
     '/google/certs': { keys: [await jwk(keys.google.publicKey, 'g1')] },
     '/apple/keys': { keys: [await jwk(keys.apple.publicKey, 'a1')] },
@@ -87,7 +108,11 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
     breachCheck: true,
     appAttest: { appIds: [], allowDevelopmentEnvironment: true, rootCaPem: '' },
     turnstile: { secret: '', siteverifyUrl: '' },
-    google: { issuers: [GOOGLE_ISS], jwksUrl: `http://127.0.0.1:${port}/google/certs`, audiences: [GOOGLE_CLIENT] },
+    google: {
+      issuers: [GOOGLE_ISS],
+      jwksUrl: `http://127.0.0.1:${port}/google/certs`,
+      audiences: [GOOGLE_CLIENT],
+    },
     apple: {
       issuers: [APPLE_ISS],
       jwksUrl: `http://127.0.0.1:${port}/apple/keys`,
@@ -127,7 +152,10 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
       const key = o.key === 'other' ? keys.other.privateKey : keys[which].privateKey;
       const now = Math.floor(Date.now() / 1000);
       return new SignJWT({ iat: now, exp: now + 600, iss, ...claims })
-        .setProtectedHeader({ alg: o.alg ?? 'RS256', kid: o.kid ?? (which === 'google' ? 'g1' : 'a1') })
+        .setProtectedHeader({
+          alg: o.alg ?? 'RS256',
+          kid: o.kid ?? (which === 'google' ? 'g1' : 'a1'),
+        })
         .sign(key);
     },
   });
