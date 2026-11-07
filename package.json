@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "npm run build:core && tsc -b packages/core supabase/functions && npm run typecheck -w @life-os/mobile",
+    "typecheck": "npm run build:core && tsc -b packages/core supabase/functions && npm run typecheck -w @life-os/mobile && tsc -p e2e",
     "test": "npm run test:core && npm run test:functions && npm run test:mobile",
     "test:core": "npm run test -w @life-os/core",
     "test:functions": "vitest run --root supabase/functions --exclude '**/*.integration.test.ts'",
@@ -23,7 +23,8 @@
     "test:db": "bash scripts/test-db.sh",
     "mobile": "npm run start -w @life-os/mobile",
     "test:integration": "vitest run --root supabase/functions integration",
-    "local-auth": "bash scripts/local-auth/start.sh"
+    "local-auth": "bash scripts/local-auth/start.sh",
+    "test:e2e": "vitest run --root e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

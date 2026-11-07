@@ -22,3 +22,7 @@ alter database postgres set search_path = "$user", public, extensions;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+
+-- As in Supabase's image (init-scripts/00000000000001-auth-schema.sql): the API roles can use
+-- the auth schema, so SECURITY INVOKER functions like save_meal/log_meal can call auth.uid().
+grant usage on schema auth to anon, authenticated, service_role;
