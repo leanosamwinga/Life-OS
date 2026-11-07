@@ -66,7 +66,9 @@ export interface Harness {
   env: Record<string, string>;
 }
 
-export async function startHarness(opts: { timingFloorMs?: number } = {}): Promise<Harness> {
+export async function startHarness(
+  opts: { timingFloorMs?: number; authUrl?: string } = {},
+): Promise<Harness> {
   const env = localEnv();
   if (!env) throw new Error('local auth stack not running (bash scripts/local-auth/start.sh)');
 
@@ -95,7 +97,7 @@ export async function startHarness(opts: { timingFloorMs?: number } = {}): Promi
   const port = (server.address() as { port: number }).port;
 
   const config: AuthConfig = {
-    authUrl: env.LOCAL_AUTH_URL!,
+    authUrl: opts.authUrl ?? env.LOCAL_AUTH_URL!,
     anonKey: env.LOCAL_ANON_KEY!,
     serviceKey: env.LOCAL_SERVICE_ROLE_KEY!,
     peppers: [{ version: 1, secret: 'local-dev-pepper-NOT-A-SECRET' }],

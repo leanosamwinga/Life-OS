@@ -61,6 +61,15 @@ function clean(field: LogField, value: unknown): string | number | boolean | nul
   return LOOKS_SECRET.some((re) => re.test(value)) ? '[redacted]' : value.slice(0, 64);
 }
 
+/**
+ * Fixed messages for a broken setup, written as plain lines so they stand out in
+ * `supabase functions serve` output. Constants only: never anything from a request.
+ */
+export const SETUP_PROBLEMS = {
+  HOOKS_NOT_RUNNING: "Supabase Auth hooks aren't running — run `supabase stop && supabase start`",
+} as const;
+export type SetupProblem = keyof typeof SETUP_PROBLEMS;
+
 export class AuthLogger {
   constructor(
     private readonly sink: LogSink,
@@ -80,5 +89,11 @@ export class AuthLogger {
       }
     }
     this.sink.write(JSON.stringify(out));
+  }
+
+  /** A local setup problem: one human-readable line plus a structured event. */
+  setupProblem(problem: SetupProblem): void {
+    this.sink.write(SETUP_PROBLEMS[problem]);
+    this.event('auth.setup.error', { reason: problem.toLowerCase() });
   }
 }

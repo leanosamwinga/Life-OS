@@ -346,6 +346,7 @@ export class AuthService {
   ): Promise<TokensBody> {
     const claims = unsafeJwtPayload(session.access_token);
     const sessionId = String(claims.session_id);
+    await this.requireHookClaims(claims, sessionId);
     const town = await this.d.locate(ctx.ipPrefix);
     await this.sql`
       insert into public.auth_session_meta (session_id, user_id, device_id_hash, platform, label, coarse_location)
@@ -374,6 +375,20 @@ export class AuthService {
       scope,
       account_created: created,
     };
+  }
+
+  /**
+   * Every token must have come through the custom access token hook (it adds lifeos_scope and
+   * enforces the permits). A token without it means Supabase Auth was started without
+   * supabase/config.toml's [auth.hook.*] settings — usually a stack started on another branch.
+   * Without this check the app would get a token the Data API refuses (PENDING_DELETION from
+   * check_request) and nobody would know why. Refuse it, drop the session and say what to do.
+   */
+  private async requireHookClaims(claims: Record<string, unknown>, sessionId: string) {
+    if (claims.lifeos_scope === 'FULL' || claims.lifeos_scope === 'PENDING_DELETION') return;
+    if (/^[0-9a-f-]{36}$/i.test(sessionId)) await this.deleteSession(sessionId);
+    this.d.log.setupProblem('HOOKS_NOT_RUNNING');
+    throw err(500, 'SERVER_ERROR');
   }
 
   /** A session for a user auth-api has already authenticated (code, ticket, Apple/Google). */
@@ -1134,6 +1149,7 @@ export class AuthService {
                on conflict (token_hash) do nothing`;
     });
     const claims = unsafeJwtPayload(s.access_token);
+    await this.requireHookClaims(claims, known.session_id);
     const scope = claims.lifeos_scope === 'PENDING_DELETION' ? 'PENDING_DELETION' : 'FULL';
     return {
       tokens: {
@@ -1152,8 +1168,13 @@ export class AuthService {
     if (!accessToken) throw err(401, 'SESSION_REVOKED');
     try {
       await this.d.gotrue.getUser(accessToken);
-    } catch {
-      throw err(401, 'SESSION_REVOKED');
+    } catch (e) {
+      // Only Supabase Auth saying "no" ends the session. A network blip or a 5xx is a server
+      // error: the app keeps its session and offers "Try again" (spec 3.3).
+      if (e instanceof GoTrueError && e.status >= 400 && e.status < 500) {
+        throw err(401, /expired/i.test(e.errorCode) ? 'SESSION_EXPIRED' : 'SESSION_REVOKED');
+      }
+      throw e;
     }
     const claims = unsafeJwtPayload(accessToken);
     const userId = String(claims.sub);
