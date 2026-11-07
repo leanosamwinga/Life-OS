@@ -418,6 +418,7 @@ export type Database = {
       user_settings: {
         Row: {
           app_lock_enabled: boolean;
+          apple_health_choice: string | null;
           created_at: string;
           evening_checkin_enabled: boolean;
           evening_checkin_time: string;
@@ -425,8 +426,11 @@ export type Database = {
           morning_briefing_enabled: boolean;
           morning_briefing_weekday_time: string;
           morning_briefing_weekend_time: string;
+          notifications_prompted_at: string | null;
+          onboarding_completed_at: string | null;
           quiet_hours_end: string;
           quiet_hours_start: string;
+          screen_time_choice: string | null;
           statement_import_day: number;
           statement_import_reminder_enabled: boolean;
           statement_import_time: string;
@@ -444,6 +448,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           app_lock_enabled?: boolean;
+          apple_health_choice?: string | null;
           created_at?: string;
           evening_checkin_enabled?: boolean;
           evening_checkin_time?: string;
@@ -451,8 +456,11 @@ export type Database = {
           morning_briefing_enabled?: boolean;
           morning_briefing_weekday_time?: string;
           morning_briefing_weekend_time?: string;
+          notifications_prompted_at?: string | null;
+          onboarding_completed_at?: string | null;
           quiet_hours_end?: string;
           quiet_hours_start?: string;
+          screen_time_choice?: string | null;
           statement_import_day?: number;
           statement_import_reminder_enabled?: boolean;
           statement_import_time?: string;
@@ -469,6 +477,7 @@ export type Database = {
         };
         Update: {
           app_lock_enabled?: boolean;
+          apple_health_choice?: string | null;
           created_at?: string;
           evening_checkin_enabled?: boolean;
           evening_checkin_time?: string;
@@ -476,8 +485,11 @@ export type Database = {
           morning_briefing_enabled?: boolean;
           morning_briefing_weekday_time?: string;
           morning_briefing_weekend_time?: string;
+          notifications_prompted_at?: string | null;
+          onboarding_completed_at?: string | null;
           quiet_hours_end?: string;
           quiet_hours_start?: string;
+          screen_time_choice?: string | null;
           statement_import_day?: number;
           statement_import_reminder_enabled?: boolean;
           statement_import_time?: string;
@@ -528,6 +540,7 @@ export type Database = {
     };
     Functions: {
       can_use_food: { Args: { food: string }; Returns: boolean };
+      first_name_from_metadata: { Args: { meta: Json }; Returns: string };
       has_active_consent: { Args: { consent_type: string }; Returns: boolean };
     };
     Enums: {

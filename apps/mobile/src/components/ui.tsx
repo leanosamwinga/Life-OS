@@ -10,7 +10,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { isSupabaseConnected } from '@/lib/supabase';
+import { useSession } from '@/lib/session';
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
 
 /** Banner shown when EXPO_PUBLIC_SUPABASE_* are missing. */
@@ -40,10 +40,11 @@ export function Screen(props: {
   footer?: ReactNode;
   testID?: string;
 }) {
+  const { status } = useSession();
   return (
     <SafeAreaView style={styles.safe} edges={['top']} testID={props.testID}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {!isSupabaseConnected && <NotConnectedBanner />}
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        {status === 'disconnected' && <NotConnectedBanner />}
         <View style={styles.header}>
           <View style={styles.headerText}>
             <Text style={styles.largeTitle} accessibilityRole="header">
