@@ -66,6 +66,15 @@ describe.skipIf(!stack)('phone end to end on the real stack', () => {
 
   beforeAll(() => {
     process.env.EXPO_PUBLIC_DEVICE_CHECKS = 'off';
+    // Each run is a different phone on the network (auth-api limits sign-ups per IP; the gateway
+    // appends the real peer address after this, like Kong does).
+    const ip = `10.${(Math.random() * 255) | 0}.${(Math.random() * 255) | 0}.${(Math.random() * 255) | 0}`;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set('X-Forwarded-For', ip);
+      return realFetch(input, { ...init, headers });
+    };
     if (s.dbUrl) sql = postgres(s.dbUrl, { max: 2, onnotice: () => undefined });
   });
   afterAll(async () => {
