@@ -110,6 +110,7 @@ for migration in "$ROOT"/supabase/migrations/*.sql; do
   "${PSQL[@]}" -f "$migration" >/dev/null
 done
 "${PSQL[@]}" -f "$ROOT/supabase/seed.sql" >/dev/null
+"${PSQL[@]}" -f "$ROOT/supabase/fixtures/breached-passwords.sql" >/dev/null
 
 nohup "$BIN/mailpit/mailpit" --smtp "127.0.0.1:$SMTP_PORT" --listen "127.0.0.1:$MAIL_UI_PORT" \
   --smtp-auth-accept-any --smtp-auth-allow-insecure --disable-version-check \

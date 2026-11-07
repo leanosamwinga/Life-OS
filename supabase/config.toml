@@ -69,7 +69,7 @@ schema_paths = []
 enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
-sql_paths = ["./seed.sql"]
+sql_paths = ["./seed.sql", "./fixtures/breached-passwords.sql"]
 
 [db.network_restrictions]
 # Enable management of network restrictions.
@@ -170,7 +170,8 @@ additional_redirect_urls = [
   "exp://**",
 ]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
-jwt_expiry = 3600
+# Access tokens last 10 minutes (spec 8.1).
+jwt_expiry = 600
 # JWT issuer URL. If not set, defaults to auth.external_url.
 # jwt_issuer = ""
 # Path to JWT signing key. DO NOT commit your signing keys file to git.
@@ -179,15 +180,19 @@ jwt_expiry = 3600
 enable_refresh_token_rotation = true
 # Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
 # Requires enable_refresh_token_rotation = true.
-refresh_token_reuse_interval = 10
-# Allow/disallow new user signups to your project. Existing users can still sign in.
-enable_signup = true
+# Reuse detection: an already-used refresh token revokes the whole session (spec 8.1).
+refresh_token_reuse_interval = 0
+# Life OS: public sign-up is OFF. Accounts are created only by the auth-api edge function
+# (admin API), which applies the spec's rules (docs/sign-in-supabase-mapping.md).
+enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
-minimum_password_length = 8
+# Spec 5.1: 15–128 characters after NFKC. auth-api enforces both limits on the server; what
+# Supabase Auth itself receives is a 43-character peppered HMAC of the password (password.ts).
+minimum_password_length = 15
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
 password_requirements = ""
@@ -204,17 +209,20 @@ password_requirements = ""
 
 [auth.rate_limit]
 # Number of emails that can be sent per hour. Requires auth.email.smtp to be enabled.
-email_sent = 2
+# auth-api sends every email itself (outbox); Supabase Auth sends none (send_email hook).
+email_sent = 1000
 # Number of SMS messages that can be sent per hour. Requires auth.sms to be enabled.
 sms_sent = 30
 # Number of anonymous sign-ins that can be made per hour per IP address. Requires enable_anonymous_sign_ins = true.
 anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
-token_refresh = 150
+token_refresh = 1000
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-sign_in_sign_ups = 30
+# All sign-ins arrive from auth-api's IP, which applies the spec's own per-device/IP/email
+# limits, so Supabase Auth's per-IP limit is set high enough not to throttle everyone.
+sign_in_sign_ups = 1000
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
-token_verifications = 30
+token_verifications = 1000
 # Number of Web3 logins that can be made in a 5 minute interval per IP address.
 web3 = 30
 
@@ -232,15 +240,15 @@ enabled = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
-secure_password_change = false
+secure_password_change = true
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
 max_frequency = "1s"
 # Number of characters used in the email OTP.
 otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
-otp_expiry = 3600
+otp_expiry = 600
 
 # Use a production-ready SMTP server
 # [auth.email.smtp]
@@ -252,16 +260,8 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Uncomment to customize email template
-# Sign-in email with a 6-digit code and a link that opens the app directly
-# (lifeos://… or exp://<your Mac>:8081/…), so it works from a phone in local development.
-[auth.email.template.magic_link]
-subject = "Your Life OS sign-in code"
-content_path = "./supabase/templates/sign-in.html"
-
-[auth.email.template.confirmation]
-subject = "Your Life OS sign-in code"
-content_path = "./supabase/templates/sign-in.html"
+# No Supabase Auth email templates: the send_email hook below means Supabase Auth sends no
+# email at all. Every Life OS email comes from auth-api (spec 7 copy, no sign-in links).
 
 # [auth.email.template.invite]
 # subject = "You have been invited"
@@ -296,15 +296,21 @@ max_frequency = "5s"
 # Force log out if the user has been inactive longer than the specified duration.
 # inactivity_timeout = "8h"
 
-# This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
-# [auth.hook.before_user_created]
-# enabled = true
-# uri = "pg-functions://postgres/auth/before-user-created-hook"
+# Life OS auth hooks (supabase/migrations/20261108090000_sign_in_v3.sql).
+# Refuses every public way of creating a user; auth-api uses the admin API instead.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/auth_before_user_created_hook"
 
-# This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
-# [auth.hook.custom_access_token]
-# enabled = true
-# uri = "pg-functions://<database>/<schema>/<hook_name>"
+# A fresh sign-in needs an auth-api permit; refreshes check session lifetimes; adds lifeos_scope.
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/auth_custom_access_token_hook"
+
+# Supabase Auth sends no email (no magic links, no OTP, no recovery links).
+[auth.hook.send_email]
+enabled = true
+uri = "pg-functions://postgres/public/auth_send_email_hook"
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 [auth.sms.twilio]
@@ -340,34 +346,27 @@ max_frequency = "5s"
 # Use an external OAuth provider. The full list of providers are: `apple`, `azure`, `bitbucket`,
 # `discord`, `facebook`, `github`, `gitlab`, `google`, `keycloak`, `linkedin_oidc`, `notion`, `twitch`,
 # `twitter`, `x`, `slack_oidc`, `spotify`, `workos`, `zoom`.
+# Apple and Google are OFF in Supabase Auth on purpose. Supabase Auth links identities that
+# share an email automatically and has no setting to stop it, while Life OS never links methods
+# (spec 0.1). auth-api verifies Apple/Google ID tokens itself (iss, aud, exp/iat, RS256, a
+# single-use nonce — no skipped nonce checks) and keeps them in public.auth_federated_identities.
+# Their client IDs and keys are auth-api secrets (supabase/functions/.env.example).
 [auth.external.apple]
-# Sign in with Apple. Set the Services ID / bundle id via env; never commit the secret.
-enabled = true
-client_id = "env(SUPABASE_AUTH_EXTERNAL_APPLE_CLIENT_ID)"
-# DO NOT commit your OAuth provider secret to git. Use environment variable substitution instead:
-secret = "env(SUPABASE_AUTH_EXTERNAL_APPLE_SECRET)"
-# Overrides the default auth callback URL derived from auth.external_url.
+enabled = false
+client_id = ""
+secret = ""
 redirect_uri = ""
-# Overrides the default auth provider URL. Used to support self-hosted gitlab, single-tenant Azure,
-# or any other third-party OIDC providers.
 url = ""
-# If enabled, the nonce check will be skipped. Required for local sign in with Google auth.
 skip_nonce_check = false
-# If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
 
 [auth.external.google]
-# Sign in with Google. CLIENT_ID is a comma-separated list: the Web client id first (the browser
-# flow uses it), then the iOS and Android client ids whose ID tokens the native sheet produces.
-# Set the client id/secret via env; never commit the secret. See README → "Sign-in providers".
-enabled = true
-client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
-secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+enabled = false
+client_id = ""
+secret = ""
 redirect_uri = ""
 url = ""
-# The native iOS Google sheet puts a nonce in the ID token that the app can't pass on, so
-# Supabase can't check it. Matches the hosted setting "Skip nonce checks" for Google.
-skip_nonce_check = true
+skip_nonce_check = false
 email_optional = false
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS) standard.
@@ -456,6 +455,14 @@ enabled = true
 # ---------------------------------------------------------------------------
 # Life OS edge functions
 # ---------------------------------------------------------------------------
+# Sign-in v3 API (docs/sign-in-spec.md section 3). No JWT check at the gateway: sign-in calls
+# have no user yet, and signed-in calls are checked by auth-api with Supabase Auth itself.
+[functions.auth-api]
+enabled = true
+verify_jwt = false
+import_map = "./functions/auth-api/deno.json"
+entrypoint = "./functions/auth-api/index.ts"
+
 [functions.food-lookup]
 enabled = true
 # Only signed-in users may look up barcodes.
