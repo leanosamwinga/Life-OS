@@ -351,7 +351,18 @@ export class Bff {
     const out = new Headers(res.headers);
     out.delete('set-cookie');
     out.set('Cache-Control', 'no-store');
-    for (const c of t.set) out.append('Set-Cookie', c);
+    // The Data API says the session is over (public.check_request): drop the cookies too, so
+    // the next /api/auth/session says "signed out" (spec 3.3).
+    let ended = false;
+    if (res.status === 401) {
+      const code = await res
+        .clone()
+        .json()
+        .then((b: { code?: string } | null) => b?.code ?? null)
+        .catch(() => null);
+      ended = code === 'SESSION_REVOKED' || code === 'SESSION_EXPIRED';
+    }
+    for (const c of ended ? this.clearCookies() : t.set) out.append('Set-Cookie', c);
     return new Response(res.body, { status: res.status, headers: out });
   }
 }

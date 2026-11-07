@@ -166,6 +166,17 @@ export class UserFacingError extends Error {
   override name = 'UserFacingError';
 }
 
+/**
+ * The Data API turned the session down (SESSION_REVOKED / SESSION_EXPIRED). The session has
+ * already been forgotten on this device and the app is on its way to 0a (spec 3.3: no message).
+ */
+export class SessionEndedError extends UserFacingError {
+  override name = 'SessionEndedError';
+  constructor() {
+    super('You’re signed out. Sign in again to continue.');
+  }
+}
+
 /** Sign-in was cancelled by the user (closed the sheet). Not an error worth showing. */
 export class CancelledError extends Error {
   override name = 'CancelledError';

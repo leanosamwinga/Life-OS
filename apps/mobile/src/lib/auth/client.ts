@@ -169,6 +169,44 @@ export class AuthClient implements AuthApi {
     return this.refreshing;
   }
 
+  // ------------------------------------------------------------ Data API session control
+  // (src/lib/backend/sessionFetch.ts calls these when the Data API turns the session down.)
+
+  /** The session is over (SESSION_REVOKED / SESSION_EXPIRED): forget it → 0a, no message. */
+  async endSession() {
+    await this.load().catch(() => undefined);
+    if (this.user || this.session) await this.clearLocal();
+  }
+
+  /** Native: refresh now (the server says the access token has expired). Null if that failed. */
+  async refreshNow(): Promise<string | null> {
+    await this.load();
+    if (this.o.mode === 'web' || !this.session) return null;
+    try {
+      await this.refresh();
+    } catch {
+      return null;
+    }
+    return this.session?.accessToken ?? null;
+  }
+
+  /**
+   * The Data API said PENDING_DELETION: ask auth-api. Being deleted → scope PENDING_DELETION (the
+   * app shows S-5h). Not → on iPhone, refresh so the token carries the current scope. Throws on
+   * network/server errors; an ended session is cleared (→ 0a) and returns null.
+   */
+  async recheckScope(): Promise<SessionScope | null> {
+    const deletion = await this.getDeletion();
+    if (this.o.mode === 'native') await this.refresh();
+    if (!this.user) return null;
+    const scope: SessionScope = deletion ? 'PENDING_DELETION' : 'FULL';
+    if (this.user.scope !== scope) {
+      this.user = { ...this.user, scope };
+      this.emit();
+    }
+    return scope;
+  }
+
   /** Current user id for data calls. */
   async userId(): Promise<string | null> {
     await this.load();

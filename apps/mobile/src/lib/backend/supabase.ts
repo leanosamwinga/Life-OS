@@ -14,7 +14,8 @@ import {
   type SavedMealRow,
 } from './foods';
 import { rowFromPatch, settingsFromRow } from './settings';
-import { UserFacingError, type Backend } from './types';
+import { SESSION_ENDED_CODES } from './sessionFetch';
+import { SessionEndedError, UserFacingError, type Backend } from './types';
 import type { StoredFood } from './foods';
 
 /**
@@ -25,6 +26,7 @@ const sqlNull = <T>(value: T | null) => value as T;
 
 function friendly(error: { message?: string; code?: string; status?: number } | null): never {
   const msg = error?.message ?? 'Something went wrong. Please try again.';
+  if (error?.code && SESSION_ENDED_CODES.has(error.code)) throw new SessionEndedError();
   if (error?.code === '42501') {
     throw new UserFacingError(
       'Health data is off. Turn on “Use my health data” in Me to log meals and water.',

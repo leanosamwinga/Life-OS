@@ -186,6 +186,31 @@ describe('web cookie server (decision 10)', () => {
     expect(other.status).toBe(404);
   });
 
+  it('clears the session cookies when the Data API says the session is over (spec 3.3)', async () => {
+    const { bff } = setup(() =>
+      json(401, { code: 'SESSION_REVOKED', message: 'Session revoked', details: null }),
+    );
+    const res = await bff.supabase(
+      new Request(`${ORIGIN}/api/supabase/rest/v1/profiles`, {
+        headers: { cookie: `__Host-lifeos_at=${AT}` },
+      }),
+      '/rest/v1/profiles',
+    );
+    expect(res.status).toBe(401);
+    expect(setCookies(res).some((c) => /__Host-lifeos_at=;/.test(c) || /Max-Age=0/.test(c))).toBe(
+      true,
+    );
+    // Any other refusal (e.g. RLS, PENDING_DELETION) keeps the cookies.
+    const kept = setup(() => json(403, { code: 'PENDING_DELETION', message: 'x' }));
+    const res2 = await kept.bff.supabase(
+      new Request(`${ORIGIN}/api/supabase/rest/v1/profiles`, {
+        headers: { cookie: `__Host-lifeos_at=${AT}` },
+      }),
+      '/rest/v1/profiles',
+    );
+    expect(setCookies(res2)).toHaveLength(0);
+  });
+
   it('ignores a browser-supplied X-Forwarded-For and uses the hop our host added', () => {
     const r = (h: Record<string, string>) => new Request(ORIGIN, { headers: h });
     expect(trustedClientIp(r({ 'x-forwarded-for': '1.1.1.1, 203.0.113.9' }))).toBe('203.0.113.9');
