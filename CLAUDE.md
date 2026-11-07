@@ -20,7 +20,7 @@ Read this first in every session. It is the source of truth for product decision
 ## Stack
 
 - App: Expo SDK 58 + TypeScript (strict) + Expo Router (routes in `apps/mobile/src/app`). JS tabs from `expo-router/js-tabs`. Read `apps/mobile/AGENTS.md` — Expo changes every SDK; check versioned docs, use `npx expo install`.
-- Backend: Supabase — Postgres, Auth (Sign in with Apple, Google, email magic link with optional password), Storage, Edge Functions (Deno), scheduled jobs. **RLS on every user table.**
+- Backend: Supabase — Postgres, Auth, Storage, Edge Functions (Deno), scheduled jobs (pg_cron). **RLS on every user table.** Sign-in is **sign-in v3** (`docs/sign-in-spec.md`, built as described in `docs/sign-in-supabase-mapping.md`): Supabase Auth issues and stores sessions and password hashes, but every sign-in goes through the `auth-api` edge function — email + password (15–128 characters), Sign in with Apple and Google, one method per email, never linked automatically. On web the tokens live in httpOnly cookies behind Expo Router API routes (`apps/mobile/src/app/api`, `src/server/bff.ts`).
 - Shared logic: `packages/core` (pure TS, no I/O). App and edge functions import the same types and maths. Relative imports inside core use explicit `.ts` extensions so Deno can load it directly.
 - Apple Health: a maintained Expo-compatible HealthKit module, added in phase 3.
 
@@ -32,10 +32,13 @@ apps/mobile            Expo app (src/app routes, src/components, src/features, s
 packages/core          types.ts, nutrition.ts, format.ts, time.ts, training.ts, defaults.ts (+ *.test.ts)
 supabase/config.toml   local stack config
 supabase/migrations    timestamped SQL migrations
-supabase/functions     edge functions (food-lookup); pure logic in handler.ts/mapping.ts, Deno wiring in index.ts
+supabase/functions     edge functions (food-lookup, auth-api); pure logic in handler.ts/service.ts etc., Deno wiring in index.ts;
+                       auth-api/test/*.integration.test.ts run against a real Supabase Auth
 supabase/tests         pgTAP tests (*.test.sql)
 supabase/seed.sql      fake local seed data
 scripts/test-db.sh     runs supabase/tests on plain Postgres via scripts/db/supabase-shim.sql
+scripts/local-auth     Docker-free Supabase Auth (GoTrue) + Postgres 16 + Mailpit for the integration tests
+docs                   sign-in spec, decisions, Supabase mapping, SPEC-QUESTIONS, TEST-REPORT, PRIVACY-POLICY-CHANGES
 ```
 
 ## Commands
@@ -46,13 +49,23 @@ npm run lint && npm run typecheck && npm test   # what CI runs
 npm run test:db                                 # DATABASE_URL=… (plain Postgres + pgTAP) or Supabase CLI + Docker
 npm run mobile                                  # expo start
 supabase start && supabase db reset             # local backend
+npm run local-auth && npm run test:integration   # sign-in tests against a real Supabase Auth (no Docker)
 npx deno check --config supabase/functions/food-lookup/deno.json supabase/functions/food-lookup/index.ts
+npx deno check --config supabase/functions/auth-api/deno.json supabase/functions/auth-api/index.ts
 ```
 
 ## Domain rules
 
 - **Screen Time** data can never be read, stored or synced. Apple draws the card on-device (DeviceActivityReport extension); Life OS stores only the user's choice to show it (`user_settings.screen_time_choice`). Never add tables, columns, logs or analytics for Screen Time values.
-- **Sign-in & onboarding**: Supabase Auth with PKCE and the `lifeos://auth/callback` redirect. Email sends a 6-digit code and a link (`?token_hash=…`, template `supabase/templates/sign-in.html`). Apple: native sheet on iOS. Google: native sheet in dev/store builds, browser OAuth in Expo Go and on web. Apple is always offered wherever Google is. The seeded `admin` account and the bare-username shortcut are local development only. First run: 0c health-data consent → 0d Apple Health → 0e Screen Time → 0f nudges → 0g name & targets; web and Android skip 0d and 0e, and "Not now" on consent skips 0d. `user_settings.onboarding_completed_at` gates the app.
+- **Sign-in & onboarding** (sign-in v3 — `docs/sign-in-spec.md` is the source of truth; `docs/sign-in-decisions.md` is fixed):
+  - Methods: email + password, Apple, Google. **One method per email; never link methods automatically**, even when emails match. Supabase Auth's own sign-up and Apple/Google providers stay **off**; `auth-api` verifies ID tokens itself (proper single-use nonce, never `skip_nonce_check`) and keeps identities in `auth_federated_identities`. Apple is always offered wherever Google is.
+  - **Nothing emailed can sign anyone in.** Email sign-in is always email + password. The only emailed codes are "confirm your email" (0b-4) and the new-device check (0b-5h); the only emailed link is the password reset link, which never signs anyone in.
+  - Passwords: 15–128 characters (NFKC code points), not breached (own k-anonymity SHA-1 check, `auth_breached_hashes`), not containing the email. Peppered before Supabase Auth's bcrypt. The rules live in `packages/core/src/auth.ts` for both app and server.
+  - Sessions: issued only after `auth-api`'s checks (permit-gated hooks). Access 10 minutes; refresh rotates and any reuse revokes; phone 30/90 days, web 7/30. Tokens: iPhone Keychain (SecureStore, this device only), web httpOnly cookies — browser JS never sees a token. `public.check_request` refuses Data API calls from ended sessions and the `PENDING_DELETION` scope.
+  - All auth email goes through `EmailSender` (Mailpit locally); Supabase Auth sends none. Device checks: App Attest (iPhone) and Turnstile (web) behind one `DeviceCheck` interface, `AUTH_DEVICE_CHECKS` / `EXPO_PUBLIC_DEVICE_CHECKS` flag, on in production.
+  - Me → Security: change password, signed-in devices, delete account (30-day grace; the day-30 pg_cron job erases data, revokes the Apple token and sends the "deleted" email) and export (CSV + JSON).
+  - The seeded `admin@example.test` account (password in the README) and the bare-`admin` shortcut (`__DEV__` only) are local development only.
+  - First run: 0c health-data consent → 0d Apple Health → 0e Screen Time → 0f nudges → 0g name & targets; web and Android skip 0d and 0e, and "Not now" on consent skips 0d. `user_settings.onboarding_completed_at` gates the app.
 
 - **Nutrition**: foods store values **per 100 g** (kcal, protein, carbs, fat; optional fibre/sugar/salt). Portion = grams × per-100g ÷ 100, rounded to **whole kcal** and **1 dp macros** (`portionMacros`). A meal is a list of components (food + grams). A logged meal **snapshots** each component's macros at log time (`snapshotComponents`, `meal_log_items`) so food edits never rewrite history. Suggestions use the amount the user had **last time** (`food_portions_last`). Meals are logged only through the `log_meal` Postgres function (atomic, SECURITY INVOKER so RLS applies): the client sends core-computed macros and the server recomputes them from the food's per-100 g values and rejects any mismatch. Roster meals are saved through `save_meal`. Saved meals form the **roster**; plan meals are saved meals with `in_daily_plan = true` and a `usual_time`.
 - Missing nutrition is `null`, never invented. Pack/serving sizes (`foods.pack_g`, `serving_g`) are grams only — a product sold in ml gets `null`, not a guess. A user's own food for a barcode (one per user, `foods_user_barcode_key`) wins over the global cache; `remembered = false` keeps it out of search and suggestions. A food with unknown kcal/macros is a `FoodRecord`, not a loggable `Food` (`toFood` returns null) — the user completes it (wireframe 7e).
@@ -78,7 +91,7 @@ npx deno check --config supabase/functions/food-lookup/deno.json supabase/functi
 ## Phase plan
 
 1. **Foundations** (done): monorepo, core maths, schema + RLS, food-lookup function, app shell.
-2. **Sign-in, onboarding and log meal flow**: sign-in providers (Apple, Google, email magic link + optional password) and first-run onboarding (wireframes 0a–0g; HealthKit and Screen Time steps record the choice only); wireframes 7a–7e: roster or new, build meal from components, scan barcode → food-lookup, "how much" with last-time amount, manual entry; "Ate it" from plan; water quick add; Today and Health on real data.
+2. **Sign-in, onboarding and log meal flow**: sign-in v3 (`docs/sign-in-spec.md`: email + password, Apple, Google; wireframes v3 0a–0b-8i and Me → Security S-1–S-5; iPhone and web, Android screens later) and first-run onboarding (wireframes 0c–0g; HealthKit and Screen Time steps record the choice only); wireframes 7a–7e: roster or new, build meal from components, scan barcode → food-lookup, "how much" with last-time amount, manual entry; "Ate it" from plan; water quick add; Today and Health on real data.
 3. **Health**: Apple Health (steps, sleep, weight), supplements, Strava workouts + split rotation, "Log workout in Liftoff" deep link; Screen Time card (display-only, via the DeviceActivityReport extension; needs the Family Controls distribution entitlement).
 4. **Week**: device calendars, weekly rhythm, Notion church card with "remind me to chase".
 5. **Money**: monthly CSV import (Starling, NatWest, Amex), categories, budgets, 3-month-average forecast, bill detection, Trading 212 S&S ISA daily sync via read-only API key, manual monthly balances for T212 Cash ISA and Hargreaves Lansdown LISA.

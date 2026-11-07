@@ -28,17 +28,27 @@ npm install
 # App env (optional — without it the app starts with a "Not connected" banner and sample data)
 cp apps/mobile/.env.example apps/mobile/.env.local
 
-# Backend env (optional, for Sign in with Apple / Google locally)
-cp supabase/.env.example supabase/.env
+# auth-api secrets for `supabase functions serve` (local values only)
+cp supabase/functions/.env.example supabase/functions/.env
 ```
 
-### Signing in locally
+### Signing in locally (sign-in v3)
 
-**Quickest:** `supabase db reset` creates a ready-made local account. In a development build, go
-to **Continue with email → Use a password instead** and sign in with username **`admin`** and
-password **`lifeos-admin`** (or the email `admin@example.test`). It's already set up, with
-health data on, targets and a few plan meals, so you land on Today. It exists only in your local
-database: the seed never runs on the hosted project.
+How sign-in works is in `docs/sign-in-spec.md`; how it's built on Supabase is in
+`docs/sign-in-supabase-mapping.md`. Email accounts use a password (15–128 characters). There are
+nothing emailed can sign anyone in: the only codes are the "confirm your email" code
+(0b-4) and the new-device check (0b-5h).
+
+**Quickest:** `supabase db reset` creates a confirmed local password account:
+
+- email **`admin@example.test`**, password **`lifeos-local-admin-2026`**
+- in development builds (`__DEV__` only) you can type just **`admin`** as the email.
+
+It has health data on, targets and a few plan meals, so you land on Today. It exists only in your
+local database — the seed never runs on the hosted project, and this password must never be used
+there. Its hash uses the documented local pepper `local-dev-pepper-NOT-A-SECRET`
+(`AUTH_PASSWORD_PEPPER_V1` in `supabase/functions/.env.example`); the hosted project needs its own
+random pepper.
 
 **On a phone** (Expo Go or a dev build), `127.0.0.1` means the phone itself. In
 `apps/mobile/.env.local`, use your Mac's Wi-Fi address (`ipconfig getifaddr en0`):
@@ -52,83 +62,68 @@ Then `npm run mobile -- --clear`. If the phone still can't connect, open
 `http://<your Mac's IP>:54321` in the phone's browser; if that doesn't load, allow incoming
 connections in macOS System Settings → Network → Firewall.
 
-**Email sign-in:** `supabase start` runs a mail catcher (Mailpit) at port 54324 — on the phone,
-open `http://<your Mac's IP>:54324`. Each email has a **6-digit code** (type it into the app)
-and a link that opens the app directly (`exp://…` in Expo Go, `lifeos://…` in a build), so it
-works from the phone. Creating an account with a password needs no email locally.
+**Emails** (confirm code, new-device code, reset link, security notices) are all sent by `auth-api`
+through `EmailSender`; locally that's Mailpit at `http://127.0.0.1:54324` (on the phone,
+`http://<your Mac's IP>:54324`). Supabase Auth itself sends nothing.
 
-**Apple in Expo Go:** Expo Go asks Apple for a token issued to _Expo Go_ (`host.exp.Exponent`),
-not Life OS, so Supabase rejects it ("Unacceptable audience"). For local testing only, add it
-to `supabase/.env`:
+**Local switches** (`supabase/functions/.env`): `AUTH_DEVICE_CHECKS=off` (App Attest / Turnstile;
+also `EXPO_PUBLIC_DEVICE_CHECKS=off` in the app), `AUTH_BREACH_CHECK=on` (the local breach list is a
+fake fixture — try `correct horse battery staple`), `AUTH_TIMING_FLOOR_MS=600`.
 
-```
-SUPABASE_AUTH_EXTERNAL_APPLE_CLIENT_ID=com.example.lifeos,host.exp.Exponent
-```
-
-then `supabase stop && supabase start`. Never add `host.exp.Exponent` to the hosted project.
-A development build (`npx expo run:ios` or EAS) uses the real bundle id and needs no stopgap.
-
-**Google:** see below. In Expo Go and on web it opens Google in a browser; in a development
-build with the client ids set it shows the native Google account sheet.
+**Web** runs through a small cookie server (Expo Router API routes in `apps/mobile/src/app/api`):
+the browser only ever holds httpOnly cookies, never tokens. `npm run mobile -- --web` serves it.
 
 ### Sign-in providers
 
-None of these are in the repo; set them as env vars locally (`supabase/.env`) and in the
-hosted project (Dashboard → Authentication → Providers).
-
-**Redirect URLs** (Authentication → URL Configuration): Site URL `lifeos://`, plus
-`lifeos://**`, your web origin (`https://<your-domain>/**`) and, for development,
-`exp://127.0.0.1:8081/--/**` and `http://localhost:8081/**`.
+Supabase Auth's own Apple and Google providers stay **off** (they would link accounts by email).
+`auth-api` checks Apple and Google ID tokens itself. Set these as `auth-api` secrets
+(`supabase/functions/.env` locally, `supabase secrets set` on the hosted project) and the public
+ids in `apps/mobile/.env.local`. None of them go in the repo.
 
 **Sign in with Apple** (needs a paid Apple Developer account):
 
 1. Certificates, IDs & Profiles → Identifiers → your App ID (`bundleIdentifier` in
-   `apps/mobile/app.json`; replace `com.example.lifeos`) → enable _Sign in with Apple_.
-2. Create a **Services ID** (e.g. `com.yourname.lifeos.web`) for web/Android, enable Sign in
-   with Apple, and add `https://<project-ref>.supabase.co/auth/v1/callback` as the return URL.
-3. Create a **Sign in with Apple key** (.p8), then generate the client secret JWT (Supabase
-   docs → Login with Apple has a generator). It expires after 6 months — put a reminder in.
-4. Set `SUPABASE_AUTH_EXTERNAL_APPLE_CLIENT_ID=<bundle id>,<services id>` and
-   `SUPABASE_AUTH_EXTERNAL_APPLE_SECRET=<jwt>`.
+   `apps/mobile/app.json`; replace `com.example.lifeos`) → enable _Sign in with Apple_ and
+   _App Attest_.
+2. Create a **Services ID** for web, enable Sign in with Apple, and add your web origin and its
+   return URL.
+3. Create a **Sign in with Apple key** (.p8). Set `APPLE_TEAM_ID`, `APPLE_KEY_ID`,
+   `APPLE_PRIVATE_KEY` (the .p8 contents — a secret), `APPLE_BUNDLE_ID`, `APPLE_SERVICES_ID`, and
+   `EXPO_PUBLIC_APPLE_SERVICES_ID` / `EXPO_PUBLIC_APPLE_WEB_REDIRECT_URI` in the app.
+4. Register `https://<project-ref>.supabase.co/functions/v1/auth-api/v1/webhooks/apple` as the
+   server-to-server notification endpoint, and register the email domain with Apple's Private
+   Email Relay.
 
-iOS uses the native Apple sheet (`expo-apple-authentication` → `signInWithIdToken`), so it
-needs a development build (`npx expo run:ios` or EAS), not Expo Go. Web and Android use
-the browser OAuth flow.
+iOS uses the native Apple sheet (`expo-apple-authentication`), so it needs a development build
+(`npx expo run:ios` or EAS), not Expo Go.
 
 **Sign in with Google:**
 
-1. Google Cloud Console → APIs & Services → OAuth consent screen (External; app name Life OS;
-   scopes `email`, `profile`, `openid`).
-2. Credentials → Create OAuth client ID → **Web application**. Authorised redirect URI:
-   `https://<project-ref>.supabase.co/auth/v1/callback` (locally
-   `http://127.0.0.1:54321/auth/v1/callback`).
-3. Set `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` / `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`.
+1. Google Cloud Console → OAuth consent screen (External; scopes `email`, `profile`, `openid`).
+2. Create a **Web** client (for the web app) and an **iOS** client (bundle id from `app.json`).
+3. Set `GOOGLE_CLIENT_IDS=<web id>,<ios id>` for `auth-api`, and
+   `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` / `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` in the app (public ids).
+   `app.config.ts` adds the iOS redirect scheme.
 
-4. **Native sheet (development/store builds):** also create an **iOS** OAuth client (bundle id
-   from `app.json`) and an **Android** OAuth client (package name + your signing SHA-1). Put
-   `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` and `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` in
-   `apps/mobile/.env.local` (public ids, not secrets) and rebuild — `app.config.ts` adds the iOS
-   URL scheme. List all three client ids in `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` (web
-   first), and turn on **Skip nonce checks** for Google in the hosted project (the iOS SDK's
-   nonce can't be passed through).
-
-Without those ids (and always in Expo Go and on web) the app opens Google in an in-app browser
-(`expo-web-browser`) and returns via `lifeos://auth/callback`.
-
-**Email (hosted):** configure custom SMTP (Authentication → Emails) — Supabase's built-in
-sender is rate-limited. Paste `supabase/templates/sign-in.html` into both the **Magic link**
-and **Confirm signup** templates so emails carry the 6-digit code and the app link.
+On iPhone Google opens in `ASWebAuthenticationSession` (code + PKCE + nonce); on web it uses
+Google Identity Services with a nonce. Android sign-in screens are a follow-up (decision 9).
 
 ### Run the backend locally
 
 ```bash
 supabase start            # Postgres, Auth, Storage, Edge runtime in Docker
-supabase db reset         # apply migrations + seed.sql
-supabase functions serve food-lookup
+supabase db reset         # apply migrations + seed.sql + the fake breach fixture
+supabase functions serve --env-file supabase/functions/.env   # auth-api + food-lookup
 ```
 
 `supabase start` prints the API URL and anon key — put them in `apps/mobile/.env.local` as
 `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+
+**Without Docker** (what the sign-in integration tests use): `npm run local-auth` downloads pinned
+Supabase Auth (GoTrue) and Mailpit binaries, starts them against a local Postgres 16 with pg_cron
+and pgTAP, applies the migrations and writes `.local-auth/env` (git-ignored, local-only keys).
+Then `npm run test:integration` runs the linking gate and every sign-in flow against it.
+`bash scripts/local-auth/stop.sh` stops it.
 
 When creating the hosted project, choose a **UK/EU region (London, `eu-west-2`)** — the Privacy Policy promises UK/EU storage.
 
@@ -159,11 +154,13 @@ npm run mobile            # expo start; press i for the iOS simulator
 | `npm run test:functions`               | edge function mapping/handler tests                                         |
 | `npm run test:mobile`                  | app screen and flow tests (jest-expo)                                       |
 | `npm run test:db`                      | database RLS tests (see below)                                              |
+| `npm run local-auth`                   | start a Docker-free Supabase Auth + Postgres + Mailpit for sign-in tests    |
+| `npm run test:integration`             | sign-in integration tests against that real Supabase Auth                   |
 | `npm run gen:types -w @life-os/mobile` | regenerate `apps/mobile/src/lib/database.types.ts` (needs `supabase start`) |
 
 ### Database tests
 
-`supabase/tests/*.test.sql` are pgTAP tests proving owner-only access, the global food cache rules and health-data consent.
+`supabase/tests/*.test.sql` are pgTAP tests proving owner-only access, the global food cache rules, health-data consent and the sign-in tables, hooks, guards and deletion job.
 
 - With Docker: `supabase start && supabase test db`
 - Without Docker: point `DATABASE_URL` at an empty Postgres 15+ database with pgTAP installed and run `npm run test:db`. It loads `scripts/db/supabase-shim.sql` (roles, `auth.users`, `auth.uid()`), applies the migrations, then runs every test file. CI uses this path.
