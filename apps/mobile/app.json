@@ -33,7 +33,16 @@
       "expo-router",
       "expo-web-browser",
       "expo-apple-authentication",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Life OS uses the camera to scan food barcodes.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

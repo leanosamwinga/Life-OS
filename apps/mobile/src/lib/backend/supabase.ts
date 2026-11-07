@@ -1,11 +1,25 @@
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
-import { PRIVACY_POLICY_VERSION } from '@life-os/core';
+import { PRIVACY_POLICY_VERSION, toFood } from '@life-os/core';
 import type { LifeOsClient } from '../supabase';
+import { canUseNativeGoogle, nativeGoogleIdToken } from './googleNative';
+import {
+  escapeLike,
+  foodRecordFromRow,
+  logMealItems,
+  mealLogFromRow,
+  saveMealComponents,
+  savedMealFromRow,
+  type FoodRow,
+  type MealLogRow,
+  type SavedMealRow,
+} from './foods';
 import { rowFromPatch, settingsFromRow } from './settings';
 import { CancelledError, UserFacingError, type AuthUser, type Backend } from './types';
+import type { StoredFood } from './foods';
 
 /** Where magic links and OAuth providers send the user back: `lifeos://auth/callback` (or the web origin). */
 export const authRedirectUrl = (): string => Linking.createURL('auth/callback');
@@ -23,6 +37,15 @@ export function redirectParams(url: string): Record<string, string> {
 
 function friendly(error: { message?: string; code?: string; status?: number } | null): never {
   const msg = error?.message ?? 'Something went wrong. Please try again.';
+  if (error?.code === '42501') {
+    throw new UserFacingError(
+      'Health data is off. Turn on “Use my health data” in Me to log meals and water.',
+    );
+  }
+  // Raised by log_meal / save_meal with a message written for people.
+  if (error?.code === '22023' || error?.code === 'P0002') {
+    throw new UserFacingError(msg.charAt(0).toUpperCase() + msg.slice(1) + '.');
+  }
   if (/invalid login credentials/i.test(msg)) {
     throw new UserFacingError(
       'That email and password don’t match. Try again or use a sign-in link.',
@@ -32,9 +55,7 @@ function friendly(error: { message?: string; code?: string; status?: number } | 
     throw new UserFacingError('Too many attempts. Wait a minute and try again.');
   }
   if (/expired|invalid.*(otp|token|code)|verifier/i.test(msg)) {
-    throw new UserFacingError(
-      'That link has expired or was opened on another device. Send a new one.',
-    );
+    throw new UserFacingError('That code or link has expired or was already used. Send a new one.');
   }
   throw new UserFacingError(msg);
 }
@@ -55,6 +76,15 @@ export function supabaseBackend(client: LifeOsClient): Backend {
   async function exchange(params: Record<string, string | undefined>): Promise<void> {
     if (params.error_description || params.error) {
       friendly({ message: params.error_description ?? params.error });
+    }
+    // Link from our email template: ?token_hash=…&type=email. Works on any device, no PKCE verifier.
+    if (params.token_hash) {
+      const { error } = await auth.verifyOtp({
+        token_hash: params.token_hash,
+        type: params.type === 'signup' ? 'signup' : 'email',
+      });
+      if (error) friendly(error);
+      return;
     }
     if (params.code) {
       const { error } = await auth.exchangeCodeForSession(
@@ -166,7 +196,17 @@ export function supabaseBackend(client: LifeOsClient): Backend {
             .is('display_name', null);
         }
       },
-      signInWithGoogle: () => oauth('google'),
+      async signInWithGoogle() {
+        // Native account sheet in development/store builds; the browser in Expo Go and on web.
+        if (!canUseNativeGoogle()) return oauth('google');
+        const token = await nativeGoogleIdToken();
+        const { error } = await auth.signInWithIdToken({ provider: 'google', token });
+        if (error) friendly(error);
+      },
+      async verifyEmailCode(email, code) {
+        const { error } = await auth.verifyOtp({ email, token: code, type: 'email' });
+        if (error) friendly(error);
+      },
       completeRedirect: exchange,
       async signOut() {
         const { error } = await auth.signOut();
@@ -232,6 +272,176 @@ export function supabaseBackend(client: LifeOsClient): Backend {
         .eq('type', 'health_data')
         .is('withdrawn_at', null);
       if (error) friendly(error);
+    },
+
+    async listSavedMeals() {
+      const { data, error } = await client
+        .from('saved_meals')
+        .select(
+          'id, user_id, name, in_daily_plan, usual_time, sort_order, saved_meal_components(food_id, grams, position, foods(*))',
+        )
+        .order('sort_order')
+        .order('created_at');
+      if (error) friendly(error);
+      return (data as unknown as SavedMealRow[]).map(savedMealFromRow);
+    },
+    async saveMeal(input) {
+      const { data, error } = await client.rpc('save_meal', {
+        p_id: input.id,
+        p_name: input.name,
+        p_in_daily_plan: input.inDailyPlan,
+        p_usual_time: input.inDailyPlan ? input.usualTime : null,
+        p_components: saveMealComponents(input.components),
+      });
+      if (error) friendly(error);
+      return data as string;
+    },
+    async deleteSavedMeal(id) {
+      const { error } = await client.from('saved_meals').delete().eq('id', id);
+      if (error) friendly(error);
+    },
+    async listMealLogs({ from, to }) {
+      const { data, error } = await client
+        .from('meal_logs')
+        .select(
+          'id, user_id, saved_meal_id, name, logged_at, meal_log_items(food_id, food_name, grams, kcal, protein_g, carbs_g, fat_g, position)',
+        )
+        .gte('logged_at', from)
+        .lt('logged_at', to)
+        .order('logged_at');
+      if (error) friendly(error);
+      return (data as unknown as MealLogRow[]).map(mealLogFromRow);
+    },
+    async logMeal(input) {
+      const { data, error } = await client.rpc('log_meal', {
+        p_name: input.name,
+        p_saved_meal_id: input.savedMealId,
+        p_logged_at: input.loggedAt,
+        p_items: logMealItems(input.components),
+      });
+      if (error) friendly(error);
+      return data as string;
+    },
+    async listWaterLogs({ from, to }) {
+      const { data, error } = await client
+        .from('water_logs')
+        .select('id, user_id, ml, logged_at')
+        .gte('logged_at', from)
+        .lt('logged_at', to)
+        .order('logged_at');
+      if (error) friendly(error);
+      return data.map((w) => ({
+        id: w.id,
+        userId: w.user_id,
+        ml: w.ml,
+        loggedAt: new Date(w.logged_at).toISOString(),
+      }));
+    },
+    async addWater(ml) {
+      const { error } = await client.from('water_logs').insert({ ml });
+      if (error) friendly(error);
+    },
+    async searchFoods(query) {
+      const q = query.trim();
+      if (!q) return [];
+      const { data, error } = await client
+        .from('foods')
+        .select('*')
+        .ilike('name', `%${escapeLike(q)}%`)
+        .eq('remembered', true)
+        .order('name')
+        .limit(25);
+      if (error) friendly(error);
+      return data.map(foodRecordFromRow);
+    },
+    async getFoods(ids) {
+      if (ids.length === 0) return [];
+      const { data, error } = await client
+        .from('foods')
+        .select('*')
+        .in('id', [...ids]);
+      if (error) friendly(error);
+      return data.map(foodRecordFromRow);
+    },
+    async listRecentFoods(limit) {
+      const { data, error } = await client
+        .from('food_portions_last')
+        .select('grams, logged_at, foods(*)')
+        .order('logged_at', { ascending: false })
+        .limit(limit);
+      if (error) friendly(error);
+      return (
+        data as unknown as { grams: number; logged_at: string; foods: FoodRow | null }[]
+      ).flatMap((r) => {
+        const food = r.foods?.remembered ? toFood(foodRecordFromRow(r.foods)) : null;
+        return food
+          ? [{ food, grams: Number(r.grams), loggedAt: new Date(r.logged_at).toISOString() }]
+          : [];
+      });
+    },
+    async lookupBarcode(barcode) {
+      const id = await uid();
+      const own = await client
+        .from('foods')
+        .select('*')
+        .eq('user_id', id)
+        .eq('barcode', barcode)
+        .maybeSingle();
+      if (own.error) friendly(own.error);
+      if (own.data) return { status: 'found', food: foodRecordFromRow(own.data), source: 'yours' };
+
+      const { data, error } = await client.functions.invoke<{ food: StoredFood }>('food-lookup', {
+        body: { barcode },
+      });
+      if (error) {
+        const status = error instanceof FunctionsHttpError ? (error.context as Response).status : 0;
+        if (status === 404) return { status: 'not_found' };
+        if (status === 400) {
+          throw new UserFacingError(
+            'That doesn’t look like a food barcode. Try again or type it in.',
+          );
+        }
+        throw new UserFacingError(
+          'Couldn’t look that barcode up right now. Try again, or add it from the label.',
+        );
+      }
+      if (!data?.food?.id) return { status: 'not_found' };
+      return { status: 'found', food: data.food, source: 'open_food_facts' };
+    },
+    async saveUserFood(input) {
+      const id = await uid();
+      const row = {
+        user_id: id,
+        source: 'user' as const,
+        name: input.name.trim().slice(0, 200),
+        brand: input.brand?.trim() || null,
+        barcode: input.barcode || null,
+        kcal_per_100g: input.per100g.kcal,
+        protein_per_100g: input.per100g.protein,
+        carbs_per_100g: input.per100g.carbs,
+        fat_per_100g: input.per100g.fat,
+        pack_g: input.packGrams ?? null,
+        serving_g: input.servingGrams ?? null,
+        remembered: input.remembered,
+      };
+      // One own food per barcode: correcting a scanned product updates your version.
+      let existingId: string | null = null;
+      if (input.barcode) {
+        const { data, error } = await client
+          .from('foods')
+          .select('id')
+          .eq('user_id', id)
+          .eq('barcode', input.barcode)
+          .maybeSingle();
+        if (error) friendly(error);
+        existingId = data?.id ?? null;
+      }
+      const query = existingId
+        ? client.from('foods').update(row).eq('id', existingId)
+        : client.from('foods').insert(row);
+      const { data, error } = await query.select('*').single();
+      if (error) friendly(error);
+      return foodRecordFromRow(data);
     },
   };
 }

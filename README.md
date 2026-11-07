@@ -34,13 +34,42 @@ cp supabase/.env.example supabase/.env
 
 ### Signing in locally
 
-Email works out of the box: `supabase start` runs a local mail catcher (Mailpit). Request a
-sign-in link in the app, open **http://127.0.0.1:54324**, and tap the link on the same device
-(simulator: open Mailpit in the simulator's Safari). The link opens `lifeos://auth/callback`
-(or `http://localhost:8081/auth/callback` on web), which finishes the sign-in. The password
-option needs no email at all locally (`enable_confirmations = false`).
+**Quickest:** `supabase db reset` creates a ready-made local account. In a development build, go
+to **Continue with email → Use a password instead** and sign in with username **`admin`** and
+password **`lifeos-admin`** (or the email `admin@example.test`). It's already set up, with
+health data on, targets and a few plan meals, so you land on Today. It exists only in your local
+database: the seed never runs on the hosted project.
 
-Apple and Google need real credentials — see [Sign-in providers](#sign-in-providers).
+**On a phone** (Expo Go or a dev build), `127.0.0.1` means the phone itself. In
+`apps/mobile/.env.local`, use your Mac's Wi-Fi address (`ipconfig getifaddr en0`):
+
+```
+EXPO_PUBLIC_SUPABASE_URL=http://192.168.1.128:54321
+EXPO_PUBLIC_SUPABASE_ANON_KEY=<the "Publishable" key from `supabase status`>
+```
+
+Then `npm run mobile -- --clear`. If the phone still can't connect, open
+`http://<your Mac's IP>:54321` in the phone's browser; if that doesn't load, allow incoming
+connections in macOS System Settings → Network → Firewall.
+
+**Email sign-in:** `supabase start` runs a mail catcher (Mailpit) at port 54324 — on the phone,
+open `http://<your Mac's IP>:54324`. Each email has a **6-digit code** (type it into the app)
+and a link that opens the app directly (`exp://…` in Expo Go, `lifeos://…` in a build), so it
+works from the phone. Creating an account with a password needs no email locally.
+
+**Apple in Expo Go:** Expo Go asks Apple for a token issued to _Expo Go_ (`host.exp.Exponent`),
+not Life OS, so Supabase rejects it ("Unacceptable audience"). For local testing only, add it
+to `supabase/.env`:
+
+```
+SUPABASE_AUTH_EXTERNAL_APPLE_CLIENT_ID=com.example.lifeos,host.exp.Exponent
+```
+
+then `supabase stop && supabase start`. Never add `host.exp.Exponent` to the hosted project.
+A development build (`npx expo run:ios` or EAS) uses the real bundle id and needs no stopgap.
+
+**Google:** see below. In Expo Go and on web it opens Google in a browser; in a development
+build with the client ids set it shows the native Google account sheet.
 
 ### Sign-in providers
 
@@ -75,11 +104,20 @@ the browser OAuth flow.
    `http://127.0.0.1:54321/auth/v1/callback`).
 3. Set `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` / `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`.
 
-The app opens Google in an in-app browser (`expo-web-browser`) and returns via
-`lifeos://auth/callback`; no native Google SDK is needed.
+4. **Native sheet (development/store builds):** also create an **iOS** OAuth client (bundle id
+   from `app.json`) and an **Android** OAuth client (package name + your signing SHA-1). Put
+   `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` and `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` in
+   `apps/mobile/.env.local` (public ids, not secrets) and rebuild — `app.config.ts` adds the iOS
+   URL scheme. List all three client ids in `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` (web
+   first), and turn on **Skip nonce checks** for Google in the hosted project (the iOS SDK's
+   nonce can't be passed through).
+
+Without those ids (and always in Expo Go and on web) the app opens Google in an in-app browser
+(`expo-web-browser`) and returns via `lifeos://auth/callback`.
 
 **Email (hosted):** configure custom SMTP (Authentication → Emails) — Supabase's built-in
-sender is rate-limited. Keep the magic-link template's `{{ .ConfirmationURL }}`.
+sender is rate-limited. Paste `supabase/templates/sign-in.html` into both the **Magic link**
+and **Confirm signup** templates so emails carry the 6-digit code and the app link.
 
 ### Run the backend locally
 
@@ -93,6 +131,15 @@ supabase functions serve food-lookup
 `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
 
 When creating the hosted project, choose a **UK/EU region (London, `eu-west-2`)** — the Privacy Policy promises UK/EU storage.
+
+### Barcode scanning
+
+Scanning (Log meal → Scan) uses `expo-camera` and the `food-lookup` edge function. Locally run
+`supabase functions serve food-lookup` alongside `supabase start`. The camera needs a real
+device or the web app in a browser with a webcam (the iOS simulator has no camera) — every
+platform also has "Or type the barcode". Seed barcodes are fake (`0000000000017`, …), so try
+a real product to exercise Open Food Facts. Expo Go includes `expo-camera`; Apple sign-in
+still needs a development build.
 
 ### Run the app
 

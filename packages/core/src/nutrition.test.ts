@@ -3,6 +3,9 @@ import type { DailyTargets, Food, MealComponent, MealLog } from './types.ts';
 import {
   dayProgress,
   portionMacros,
+  checkPer100g,
+  per100gFromServing,
+  roundGrams,
   roundTo,
   snapshotComponents,
   sumMacros,
@@ -200,5 +203,76 @@ describe('roundTo', () => {
     expect(roundTo(1.005, 2)).toBe(1.01);
     expect(roundTo(-2.5, 0)).toBe(-3);
     expect(Object.is(roundTo(-0.01, 1), 0)).toBe(true);
+  });
+});
+
+describe('parity with the log_meal SQL function', () => {
+  // The same cases as supabase/tests/05_log_meal.test.sql: the server recomputes these with
+  // numeric round() and rejects the log if the client's numbers differ.
+  const chicken = { per100g: { kcal: 106, protein: 24, carbs: 0, fat: 1.2 } };
+  const rice = { per100g: { kcal: 130, protein: 2.7, carbs: 28, fat: 0.3 } };
+  const noodles = { per100g: { kcal: 360, protein: 6, carbs: 80, fat: 1 } };
+  it.each([
+    [chicken, 200, { kcal: 212, protein: 48, carbs: 0, fat: 2.4 }],
+    [chicken, 45, { kcal: 48, protein: 10.8, carbs: 0, fat: 0.5 }],
+    [rice, 150, { kcal: 195, protein: 4.1, carbs: 42, fat: 0.5 }],
+    [rice, 50, { kcal: 65, protein: 1.4, carbs: 14, fat: 0.2 }],
+    [rice, 180, { kcal: 234, protein: 4.9, carbs: 50.4, fat: 0.5 }],
+    [noodles, 70, { kcal: 252, protein: 4.2, carbs: 56, fat: 0.7 }],
+  ])('%#: matches the server', (f, grams, expected) => {
+    expect(portionMacros(f, grams)).toEqual(expected);
+  });
+
+  it('rounds grams to 1 dp like the column', () => {
+    expect(roundGrams(60.25)).toBe(60.3);
+    expect(roundGrams(0.04)).toBe(0);
+  });
+});
+
+describe('label entry (7e)', () => {
+  it('converts per-serving values to per 100 g, keeping unknowns null', () => {
+    expect(per100gFromServing({ kcal: 108, protein: 1.8, carbs: 24, fat: null }, 30)).toEqual({
+      kcal: 360,
+      protein: 6,
+      carbs: 80,
+      fat: null,
+    });
+    expect(per100gFromServing({ kcal: 50 }, 3)).toEqual({ kcal: 1666.67 });
+    expect(() => per100gFromServing({ kcal: 1 }, 0)).toThrow(RangeError);
+  });
+
+  it('requires every headline value and rejects impossible ones', () => {
+    expect(checkPer100g({ kcal: 360, protein: 6, carbs: 80, fat: 1 })).toEqual({});
+    expect(checkPer100g({ kcal: null, protein: 6, carbs: 80 })).toEqual({
+      kcal: 'missing',
+      fat: 'missing',
+    });
+    expect(checkPer100g({ kcal: 950, protein: -1, carbs: 80, fat: 1 })).toEqual({
+      kcal: 'too_high',
+      protein: 'negative',
+    });
+    expect(checkPer100g({ kcal: 500, protein: 40, carbs: 50, fat: 20 })).toEqual({
+      total: 'macros_over_100g',
+    });
+  });
+
+  it('passes pack and serving sizes through toFood', () => {
+    const f = toFood({
+      id: 'x',
+      userId: null,
+      source: 'open_food_facts',
+      barcode: '0000000000017',
+      name: 'Pouch',
+      brand: null,
+      kcalPer100g: 120,
+      proteinPer100g: 0.8,
+      carbsPer100g: 28,
+      fatPer100g: 0.5,
+      fibrePer100g: null,
+      sugarPer100g: null,
+      saltPer100g: null,
+      packGrams: 120,
+    });
+    expect([f?.packGrams, f?.servingGrams]).toEqual([120, null]);
   });
 });

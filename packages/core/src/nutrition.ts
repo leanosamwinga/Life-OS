@@ -122,6 +122,8 @@ export function toFood(record: FoodRecord & { id: string }): Food | null {
       sugar: record.sugarPer100g,
       salt: record.saltPer100g,
     },
+    packGrams: record.packGrams ?? null,
+    servingGrams: record.servingGrams ?? null,
   };
 }
 
@@ -190,4 +192,51 @@ export function dayProgress(logs: DayLogs, targets: DailyTargets, date: LocalDat
     steps: metric(logs.steps ?? 0, targets.steps, 0),
     meals,
   };
+}
+
+/** Grams are stored to 1 decimal place (numeric(7,1)); round before computing a portion. */
+export function roundGrams(grams: number): number {
+  return roundTo(grams, 1);
+}
+
+/**
+ * Convert label values given per serving into per-100 g values, e.g. a 30 g serving with
+ * 108 kcal → 360 kcal per 100 g. Unknown values stay `null`. Rounded to 2 dp (the column scale).
+ */
+export function per100gFromServing<T extends Record<string, number | null>>(
+  perServing: T,
+  servingGrams: number,
+): { [K in keyof T]: number | null } {
+  if (!Number.isFinite(servingGrams) || servingGrams <= 0) {
+    throw new RangeError(`servingGrams must be positive (got ${servingGrams})`);
+  }
+  const out = {} as { [K in keyof T]: number | null };
+  for (const key of Object.keys(perServing) as (keyof T)[]) {
+    const v = perServing[key];
+    out[key] = v == null ? null : roundTo((v * 100) / servingGrams, 2);
+  }
+  return out;
+}
+
+export type NutritionIssue = 'missing' | 'negative' | 'too_high' | 'macros_over_100g';
+
+/**
+ * Check per-100 g label values a person typed in (wireframe 7e). Every headline value is
+ * required — we never fill gaps — and must be physically plausible.
+ */
+export function checkPer100g(
+  v: Partial<Record<'kcal' | 'protein' | 'carbs' | 'fat', number | null>>,
+): Partial<Record<'kcal' | 'protein' | 'carbs' | 'fat' | 'total', NutritionIssue>> {
+  const issues: Partial<Record<'kcal' | 'protein' | 'carbs' | 'fat' | 'total', NutritionIssue>> =
+    {};
+  for (const k of ['kcal', 'protein', 'carbs', 'fat'] as const) {
+    const n = v[k];
+    if (n == null || !Number.isFinite(n)) issues[k] = 'missing';
+    else if (n < 0) issues[k] = 'negative';
+    else if (n > (k === 'kcal' ? 900 : 100)) issues[k] = 'too_high';
+  }
+  const sum = (v.protein ?? 0) + (v.carbs ?? 0) + (v.fat ?? 0);
+  if (!issues.protein && !issues.carbs && !issues.fat && sum > 100.5)
+    issues.total = 'macros_over_100g';
+  return issues;
 }

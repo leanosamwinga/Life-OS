@@ -1,4 +1,34 @@
+import type { Food, Instant, LocalTime, MealComponent, MealLog, WaterLog } from '@life-os/core';
+import type { BarcodeLookup, RosterMeal, StoredFood, UserFoodInput } from './foods';
 import type { SettingsPatch, UserSettings } from './settings';
+
+export interface TimeRange {
+  from: Instant;
+  to: Instant;
+}
+
+export interface LogMealInput {
+  name: string;
+  savedMealId: string | null;
+  loggedAt: Instant;
+  components: readonly MealComponent[];
+}
+
+export interface SaveMealInput {
+  /** `null` to create a new roster meal. */
+  id: string | null;
+  name: string;
+  inDailyPlan: boolean;
+  usualTime: LocalTime | null;
+  components: readonly MealComponent[];
+}
+
+/** A food the user has logged before, with the amount they had last time. */
+export interface RecentFood {
+  food: Food;
+  grams: number;
+  loggedAt: Instant;
+}
 
 export interface AuthUser {
   id: string;
@@ -21,7 +51,10 @@ export interface Backend {
     currentUser(): Promise<AuthUser | null>;
     /** Subscribe to sign-in / sign-out. Returns an unsubscribe function. */
     onChange(listener: AuthListener): () => void;
+    /** Email a sign-in link and a 6-digit code. */
     sendMagicLink(email: string): Promise<void>;
+    /** Sign in with the 6-digit code from that email. */
+    verifyEmailCode(email: string, code: string): Promise<void>;
     signInWithPassword(email: string, password: string): Promise<void>;
     signUpWithPassword(email: string, password: string): Promise<SignUpResult>;
     signInWithApple(): Promise<void>;
@@ -41,6 +74,29 @@ export interface Backend {
   hasHealthConsent(): Promise<boolean>;
   /** Grant (insert a consent row) or withdraw (set `withdrawn_at`) health-data consent. */
   setHealthConsent(granted: boolean): Promise<void>;
+
+  // Nutrition and water (health data: every call needs an active consent, enforced by RLS).
+  listSavedMeals(): Promise<RosterMeal[]>;
+  /** Create or update a roster meal and its components in one transaction (`save_meal`). */
+  saveMeal(input: SaveMealInput): Promise<string>;
+  deleteSavedMeal(id: string): Promise<void>;
+  listMealLogs(range: TimeRange): Promise<MealLog[]>;
+  /** Log a meal atomically (`log_meal`): log + snapshotted items + last portions. */
+  logMeal(input: LogMealInput): Promise<string>;
+  listWaterLogs(range: TimeRange): Promise<WaterLog[]>;
+  addWater(ml: number): Promise<void>;
+  /** Global cache and the user's own foods whose name matches. */
+  searchFoods(query: string): Promise<StoredFood[]>;
+  getFoods(ids: readonly string[]): Promise<StoredFood[]>;
+  /** Most recently logged foods with the amount last time, newest first. */
+  listRecentFoods(limit: number): Promise<RecentFood[]>;
+  /**
+   * Your own food for this barcode if you have one, else the food-lookup edge function
+   * (global Open Food Facts cache, fetched and cached on a miss).
+   */
+  lookupBarcode(barcode: string): Promise<BarcodeLookup>;
+  /** Create your own food, or update your existing one with the same barcode. */
+  saveUserFood(input: UserFoodInput): Promise<StoredFood>;
 }
 
 /** An error whose message is safe and friendly to show to the user. */

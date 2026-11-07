@@ -37,6 +37,8 @@ describe('mapOffProduct', () => {
       fibrePer100g: 0,
       sugarPer100g: 3.6,
       saltPer100g: 0.1,
+      packGrams: 500,
+      servingGrams: 150,
     });
   });
 
@@ -55,6 +57,8 @@ describe('mapOffProduct', () => {
       fibrePer100g: null, // absent
       sugarPer100g: null, // absent
       saltPer100g: 1.9, // sodium 0.76 × 2.5
+      packGrams: null, // 250 ml is not grams — no guess
+      servingGrams: null, // absent
     });
   });
 
@@ -78,6 +82,32 @@ describe('mapOffProduct', () => {
       proteinPer100g: null,
       fatPer100g: null,
     });
+  });
+});
+
+describe('pack and serving sizes', () => {
+  const withQty = (product: Record<string, unknown>): OffProductResponse => ({
+    status: 1,
+    product: { product_name: 'Sample pouch', nutriments: {}, ...product },
+  });
+  it('keeps grams, drops other units and implausible sizes', () => {
+    const r = (p: Record<string, unknown>) => mapOffProduct('0000000000031', withQty(p));
+    expect(r({ product_quantity: 120, serving_quantity: '60' })).toMatchObject({
+      packGrams: 120,
+      servingGrams: 60,
+    });
+    expect(r({ product_quantity: '1', product_quantity_unit: 'kg' })?.packGrams).toBeNull();
+    expect(r({ product_quantity: 0, serving_quantity: -5 })).toMatchObject({
+      packGrams: null,
+      servingGrams: null,
+    });
+    expect(r({ serving_quantity: '30.25', serving_quantity_unit: 'G' })?.servingGrams).toBe(30.3);
+  });
+
+  it('round-trips pack and serving through the row', () => {
+    const rec = mapOffProduct('0000000000017', fixture('off-product-full'))!;
+    const back = fromFoodRow({ ...toFoodRow(rec, new Date(0)), pack_g: '500.0' as never });
+    expect([back.packGrams, back.servingGrams]).toEqual([500, 150]);
   });
 });
 
