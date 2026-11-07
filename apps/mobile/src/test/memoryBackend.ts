@@ -54,6 +54,9 @@ export type MemoryBackend = Backend & {
   signInAs(user: AuthUser): void;
 };
 
+/** The code the fake "email" contains. */
+export const MEMORY_EMAIL_CODE = '123456';
+
 export const TEST_USER: AuthUser = { id: 'user-test-0001', email: 'user-a@example.test' };
 
 export function createMemoryBackend(init: Partial<MemoryState> = {}): MemoryBackend {
@@ -143,6 +146,15 @@ export function createMemoryBackend(init: Partial<MemoryState> = {}): MemoryBack
         await call('sendMagicLink');
         state.magicLinksSent.push(email);
       },
+      async verifyEmailCode(email, code) {
+        await call('verifyEmailCode');
+        if (!state.magicLinksSent.includes(email) || code !== MEMORY_EMAIL_CODE) {
+          throw new UserFacingError(
+            'That code or link has expired or was already used. Send a new one.',
+          );
+        }
+        backend.signInAs({ id: TEST_USER.id, email });
+      },
       async signInWithPassword(email, password) {
         await call('signInWithPassword');
         if (state.passwords[email] !== password) {
@@ -168,7 +180,7 @@ export function createMemoryBackend(init: Partial<MemoryState> = {}): MemoryBack
       },
       async completeRedirect(params) {
         await call('completeRedirect');
-        if (!params.code)
+        if (!params.code && !params.token_hash)
           throw new UserFacingError('That sign-in link is incomplete. Send a new one.');
         backend.signInAs(TEST_USER);
       },

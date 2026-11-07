@@ -11,7 +11,7 @@ import {
   formStyles,
 } from '@/components/forms';
 import { OutlineButton, Overline } from '@/components/ui';
-import { isPlausibleEmail, MIN_PASSWORD_LENGTH } from '@/features/auth/email';
+import { MIN_PASSWORD_LENGTH, resolveSignInEmail } from '@/features/auth/email';
 import { useBackend } from '@/lib/session';
 import { colors, space, type } from '@/theme';
 
@@ -27,8 +27,12 @@ export default function EmailSignInScreen() {
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [code, setCode] = useState('');
 
-  const emailOk = isPlausibleEmail(email);
+  // In development builds a bare username (e.g. "admin") means the seeded local account.
+  const address = resolveSignInEmail(email, __DEV__ && mode === 'password');
+  const emailOk = address !== null;
+  const codeOk = /^\d{6}$/.test(code.trim());
 
   async function attempt(fn: () => Promise<void>) {
     setError(null);
@@ -45,25 +49,24 @@ export default function EmailSignInScreen() {
 
   const sendLink = () =>
     attempt(async () => {
-      const to = email.trim();
+      const to = address!;
       await backend.auth.sendMagicLink(to);
       if (sentTo === to) setInfo('Sent again.');
       setSentTo(to);
     });
 
-  const signIn = () => attempt(() => backend.auth.signInWithPassword(email.trim(), password));
+  const signIn = () => attempt(() => backend.auth.signInWithPassword(address!, password));
+
+  const signInWithCode = () => attempt(() => backend.auth.verifyEmailCode(sentTo!, code.trim()));
 
   const createAccount = () =>
     attempt(async () => {
       if (password.length < MIN_PASSWORD_LENGTH) {
         throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters.`);
       }
-      const { needsEmailConfirmation } = await backend.auth.signUpWithPassword(
-        email.trim(),
-        password,
-      );
+      const { needsEmailConfirmation } = await backend.auth.signUpWithPassword(address!, password);
       if (needsEmailConfirmation) {
-        setSentTo(email.trim());
+        setSentTo(address);
         setInfo('Check your inbox to confirm your email, then sign in.');
       }
     });
@@ -74,7 +77,7 @@ export default function EmailSignInScreen() {
         title="Continue with email"
         body={
           mode === 'link'
-            ? 'We’ll email you a sign-in link. No password needed.'
+            ? 'We’ll email you a sign-in code and link. No password needed.'
             : 'Sign in with your email and password, or create an account.'
         }
       />
@@ -82,7 +85,9 @@ export default function EmailSignInScreen() {
         label="Email"
         value={email}
         onChangeText={setEmail}
-        placeholder="you@example.com"
+        placeholder={
+          __DEV__ && mode === 'password' ? 'you@example.com, or admin' : 'you@example.com'
+        }
         keyboardType="email-address"
         autoComplete="email"
         textContentType="emailAddress"
@@ -144,8 +149,28 @@ export default function EmailSignInScreen() {
           <Overline>After sending</Overline>
           <Text style={styles.sentTitle}>Check your inbox</Text>
           <Text style={formStyles.body}>
-            We sent a link to {sentTo}. Tap it on this device to finish. It expires in 1 hour.
+            We sent a 6-digit code and a link to {sentTo}. Type the code here, or tap the link on
+            this device. Both expire in 1 hour.
           </Text>
+          <View style={styles.code}>
+            <TextField
+              label="6-digit code"
+              value={code}
+              onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))}
+              keyboardType="number-pad"
+              autoComplete="one-time-code"
+              textContentType="oneTimeCode"
+              placeholder="123456"
+              returnKeyType="go"
+              onSubmitEditing={codeOk ? signInWithCode : undefined}
+            />
+            <PrimaryButton
+              label="Sign in with code"
+              busy={busy}
+              disabled={!codeOk}
+              onPress={signInWithCode}
+            />
+          </View>
           <View style={styles.sentButtons}>
             {Platform.OS === 'ios' ? (
               <OutlineButton label="Open Mail" onPress={() => void Linking.openURL('message://')} />
@@ -158,13 +183,19 @@ export default function EmailSignInScreen() {
           </View>
           {__DEV__ ? (
             <Text style={styles.dev}>
-              Local development: links arrive in Mailpit at http://127.0.0.1:54324
+              Local development: emails arrive in Mailpit at {mailpitUrl()}
             </Text>
           ) : null}
         </View>
       ) : null}
     </FormScreen>
   );
+}
+
+/** Mailpit runs next to the local Supabase API, on port 54324. */
+function mailpitUrl(): string {
+  const api = process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321';
+  return api.replace(/:\d+\/?$/, ':54324');
 }
 
 function LinkButtonBack() {
@@ -181,6 +212,7 @@ function LinkButtonBack() {
 const styles = StyleSheet.create({
   sent: { marginTop: space.xl },
   sentTitle: { ...type.headline, color: colors.text },
+  code: { marginTop: space.md },
   sentButtons: { flexDirection: 'row', gap: space.sm, marginTop: space.sm },
   dev: { ...type.caption, color: colors.textTertiary, marginTop: space.sm },
 });
