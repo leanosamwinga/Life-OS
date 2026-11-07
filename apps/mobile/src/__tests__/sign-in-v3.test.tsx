@@ -526,6 +526,10 @@ describe('row 9: Me → Security', () => {
     expect(screen.getByText('Email and password')).toBeTruthy();
     expect(screen.getByText('Last changed 12 October 2026')).toBeTruthy();
     expect(screen.getByText('Two-step verification')).toBeTruthy();
+    // "Coming later" rows: not buttons, and screen readers hear "Later".
+    const later = screen.getByLabelText(/^Passkeys, .*Later$/);
+    expect(later.props.accessibilityRole).toBeUndefined();
+    expect(screen.queryByRole('button', { name: /Passkeys/ })).toBeNull();
 
     await signedIn({
       id: 'a',
@@ -543,6 +547,11 @@ describe('row 9: Me → Security', () => {
     await signedIn(passwordAccount(), {});
     await fireEvent.press(screen.getByRole('button', { name: /^Password/ }));
     await onScreen('S-2a');
+    // S-2a: rules show before the fields are filled, and the button waits until they're met.
+    expect(screen.getByText(/15 characters/)).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Change password' }).props.accessibilityState.disabled,
+    ).toBe(true);
     const fill = async (cur: string, next: string) => {
       await type('Current password', cur);
       await type('New password', next);
