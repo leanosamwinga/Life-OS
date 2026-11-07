@@ -3,7 +3,7 @@
 -- day-30 deletion job.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(57);
+select plan(58);
 
 -- ---------------------------------------------------------------------------- setup
 insert into auth.users (id, email) values
@@ -163,6 +163,18 @@ select lives_ok(
   $$insert into public.auth_accounts (user_id, email, method, status, confirmed_at, pepper_version)
     values ('d4d4d4d4-0000-4000-8000-000000000004', 'v3-b@example.test', 'PASSWORD', 'UNCONFIRMED', null, 1)$$,
   'after deletion the email can be used for a new account');
+
+-- Deleting auth.users must reach every user table. Only these three keep rows on purpose
+-- (deletion record, the queued "deleted" email, short-lived permits); housekeeping purges them.
+select is(
+  (select array_agg(c.relname::text order by c.relname)
+     from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     join pg_attribute a on a.attrelid = c.oid and a.attname = 'user_id' and not a.attisdropped
+    where n.nspname = 'public' and c.relkind = 'r'
+      and not exists (select 1 from pg_constraint k where k.conrelid = c.oid and k.contype = 'f'
+                        and k.confdeltype = 'c' and a.attnum = any(k.conkey))),
+  array['auth_deletion_requests', 'auth_email_outbox', 'auth_permits'],
+  'every other user table cascades from auth.users, so the day-30 job erases it');
 
 select * from finish();
 rollback;
