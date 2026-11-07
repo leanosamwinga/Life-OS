@@ -3,6 +3,8 @@
 #
 #   bash scripts/local-auth/start.sh      # downloads (once), resets and starts everything
 #   bash scripts/local-auth/stop.sh
+#   LOCAL_AUTH_HOOKS=off bash scripts/local-auth/start.sh   # simulate a stack started with an old
+#                                                           # config.toml (doctor / setup tests)
 #
 # What it runs (all on 127.0.0.1, all data under .local-auth/, which is git-ignored):
 #   * Postgres 16 (your system install, e.g. /usr/lib/postgresql/16) on :54322, with pg_cron
@@ -126,7 +128,7 @@ GOTRUE_JWT_EXP=600
 GOTRUE_JWT_AUD=authenticated
 GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated
 GOTRUE_JWT_ADMIN_ROLES=service_role
-$(bash "$ROOT/scripts/local-auth/config-to-env.sh")
+$(bash "$ROOT/scripts/local-auth/config-to-env.sh" | if [[ "${LOCAL_AUTH_HOOKS:-on}" == off ]]; then grep -v '^GOTRUE_HOOK_'; else cat; fi)
 GOTRUE_SMTP_HOST=127.0.0.1
 GOTRUE_SMTP_PORT=$SMTP_PORT
 GOTRUE_SMTP_ADMIN_EMAIL=no-reply@lifeos.test
