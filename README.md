@@ -32,6 +32,15 @@ cp apps/mobile/.env.example apps/mobile/.env.local
 cp supabase/functions/.env.example supabase/functions/.env
 ```
 
+The copied `supabase/functions/.env` works locally as it is: its `NOT-A-SECRET` values are
+local-only defaults, and `auth-api` refuses to start with them anywhere but a local stack.
+
+**Coming from an older branch?** Apple and Google settings moved. The `SUPABASE_AUTH_EXTERNAL_*`
+values in `supabase/.env` are no longer read; put the ids in `supabase/functions/.env` instead
+(`GOOGLE_CLIENT_IDS`, `APPLE_BUNDLE_ID`, …) and restart `supabase functions serve`. To try Apple
+inside Expo Go, set `APPLE_BUNDLE_ID=host.exp.Exponent` there — local only, never on the hosted
+project.
+
 ### Signing in locally (sign-in v3)
 
 How sign-in works is in `docs/sign-in-spec.md`; how it's built on Supabase is in

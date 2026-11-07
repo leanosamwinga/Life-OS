@@ -75,7 +75,38 @@ function required(env: (k: string) => string | undefined, key: string): string {
   return v;
 }
 
+/** Values in supabase/functions/.env.example are marked like this: local development only. */
+export const LOCAL_ONLY_MARKER = 'NOT-A-SECRET';
+const SECRET_KEYS = [
+  'AUTH_CODE_HMAC_KEY',
+  'AUTH_KEY_HASH_KEY',
+  'AUTH_LOG_HMAC_KEY',
+  'AUTH_TOKEN_ENC_KEY',
+  'AUTH_JOB_SECRET',
+] as const;
+
+/** True for the local stacks (`supabase start` reaches Auth via kong; the Docker-free stack via 127.0.0.1). */
+function isLocal(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return ['localhost', '127.0.0.1', '::1', 'kong', 'host.docker.internal'].includes(host);
+  } catch {
+    return false;
+  }
+}
+
 export function configFromEnv(env: (k: string) => string | undefined): AuthConfig {
+  // Refuse the documented local-only values anywhere but a local stack, so they can never
+  // protect a hosted project by accident.
+  const authUrl = env('SUPABASE_AUTH_URL') ?? '';
+  if (!isLocal(authUrl)) {
+    const local = [...SECRET_KEYS, 'AUTH_PASSWORD_PEPPER_V1'].filter((k) =>
+      (env(k) ?? '').includes(LOCAL_ONLY_MARKER),
+    );
+    if (local.length) {
+      throw new Error(`${local.join(', ')}: local-only values can't be used outside a local stack`);
+    }
+  }
   const peppers: PepperKey[] = [];
   for (let v = 1; v <= 9; v++) {
     const secret = env(`AUTH_PASSWORD_PEPPER_V${v}`);
