@@ -54,7 +54,7 @@ building and estimated, 7g changed, the ingredient "how much" with "In the pot",
 | `npx expo export` ios · web · android                        | ✅                                                                                |
 | `npm run doctor -- --simulator` against the local stack      | ✅ "All good."                                                                    |
 | `database.types.ts`                                          | ✅ regenerated (`npx supabase gen types typescript --db-url`), additive diff only |
-| CI on the PR                                                 | see the PR                                                                        |
+| CI on PR #8 (lint/typecheck/unit, Deno check, database)      | ✅                                                                                |
 
 Not run here: anything that needs the iPhone (L11 look and feel on the phone, L12 VoiceOver and
 largest text) — the checklist in `docs/PHASE2-SIGNOFF.md`.
