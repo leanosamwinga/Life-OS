@@ -1,4 +1,5 @@
 import 'react-native-url-polyfill/auto';
+import { webDataFetch } from './auth/csrf';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import { AuthClient } from './auth/client';
@@ -53,9 +54,8 @@ export function createConnection(env: SupabaseEnv = readSupabaseEnv()): Connecti
     anonKey: env.anonKey,
     deviceCheck: defaultDeviceCheck(),
   });
-  const base: typeof fetch = web
-    ? (input, init) => fetch(input, { ...init, credentials: 'same-origin' })
-    : (input, init) => fetch(input, init);
+  // Web: the server's cookie carries the token; writes need the CSRF header too (bff.ts).
+  const base: typeof fetch = web ? webDataFetch() : (input, init) => fetch(input, init);
   const client = createClient<Database>(web ? `${origin}/api/supabase` : env.url, env.anonKey, {
     accessToken: async () => (web ? null : auth.accessToken()),
     // Spec 3.3 for Data API answers: an ended session → 0a; PENDING_DELETION → S-5h.
