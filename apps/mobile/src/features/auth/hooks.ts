@@ -5,6 +5,7 @@ import type { Rule } from '@/components/auth';
 import { RULES } from '@/lib/auth/copy';
 import { AuthError, toAuthError } from '@/lib/auth/errors';
 import { googleNeedsDevBuild } from '@/lib/auth/expoGo';
+import { webProviderSetupMissing } from '@/lib/auth/webProviders';
 import type { Intent, Provider } from '@/lib/backend/types';
 import { useBackend } from '@/lib/session';
 
@@ -95,6 +96,12 @@ export function useProviderFlow(intent: Intent) {
       // Expo Go can't receive Google's browser sign-in (lib/auth/expoGo.ts): say so instead of 0b-8g.
       if (provider === 'GOOGLE' && googleNeedsDevBuild()) {
         setAlert(new AuthError('DEV_BUILD_REQUIRED'));
+        return;
+      }
+      // A local web build without Apple's/Google's web ids can't open them: say so, not 0b-8g.
+      const webSetup = webProviderSetupMissing(provider);
+      if (webSetup) {
+        setAlert(new AuthError(webSetup));
         return;
       }
       setBusy(provider);

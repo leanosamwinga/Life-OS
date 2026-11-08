@@ -223,6 +223,21 @@ bundle id. Google on iPhone needs a development build (see "Run it on your phone
 On iPhone Google opens in `ASWebAuthenticationSession` (code + PKCE + nonce); on web it uses
 Google Identity Services with a nonce. Android sign-in screens are a follow-up (decision 9).
 
+**Apple and Google on the web** need more than the phone does, so a local web build
+(`npm run mobile -- --web` on `http://localhost:8081`) usually can't offer them:
+
+- **Apple** needs an Apple **Services ID** (`EXPO_PUBLIC_APPLE_SERVICES_ID` in the app,
+  `APPLE_SERVICES_ID` for `auth-api`) and an **HTTPS** return address registered with that
+  Services ID (`EXPO_PUBLIC_APPLE_WEB_REDIRECT_URI`). Apple never accepts `http://` or
+  `localhost` return addresses.
+- **Google** needs a Google **web** client id (`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, also listed in
+  `GOOGLE_CLIENT_IDS`) with your web origin added under "Authorised JavaScript origins".
+
+Without them, a development web build shows a note on the method screen ("Apple sign-in on the
+web needs an Apple Services ID and an HTTPS address — see README") instead of ending on 0b-8g;
+email + password works as usual. A release build keeps 0b-8g. Web Apple/Google with real ids on
+an HTTPS address is part of the web hosting work (Q-HOSTING, phase 7).
+
 ### Run the backend locally
 
 `start` runs Postgres, Auth, Storage and the edge runtime in Docker; `db reset` applies the

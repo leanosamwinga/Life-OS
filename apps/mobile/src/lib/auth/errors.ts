@@ -1,10 +1,12 @@
 import { AUTH_ERROR_CODES, type AuthErrorCode, type SignInMethod } from '@life-os/core';
 
 /**
- * Codes the app can see: the API's (spec 3.2), a network failure, and DEV_BUILD_REQUIRED
- * (development only: Google sign-in tapped in Expo Go, see expoGo.ts).
+ * Codes the app can see: the API's (spec 3.2), a network failure, and three development-only
+ * notes: DEV_BUILD_REQUIRED (Google tapped in Expo Go, expoGo.ts) and WEB_APPLE_SETUP /
+ * WEB_GOOGLE_SETUP (Apple/Google tapped on a local web build without their ids, webProviders.ts).
  */
-export type AuthCode = AuthErrorCode | 'NETWORK' | 'DEV_BUILD_REQUIRED';
+export type AuthCode =
+  AuthErrorCode | 'NETWORK' | 'DEV_BUILD_REQUIRED' | 'WEB_APPLE_SETUP' | 'WEB_GOOGLE_SETUP';
 
 export interface AuthErrorDetails {
   method?: SignInMethod;

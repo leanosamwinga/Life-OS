@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { View } from 'react-native';
 import { router } from 'expo-router';
 import { AuthScreen, InfoCard, Lead, ProviderButton } from '@/components/auth';
 import { SecondaryButton } from '@/components/forms';
@@ -7,6 +8,13 @@ import { toAuthError } from '@/lib/auth/errors';
 import type { Provider } from '@/lib/backend/types';
 import { useBackend } from '@/lib/session';
 import { postSignIn } from './hooks';
+
+/**
+ * Development only, on 0b-8i: a local database reset erases every account, so an Apple/Google
+ * account made before it is "not recognised" afterwards — which is right, but surprising.
+ */
+export const DB_RESET_NOTE =
+  'Local data was reset? `supabase db reset` erases every account — create it again.';
 
 /**
  * 0b-8h (an account already exists → "Sign in with Google") and 0b-8i (not recognised →
@@ -83,6 +91,11 @@ export function TicketScreen(props: {
           ? `Sign in goes straight to Today. You won't need to choose your ${name} account again.`
           : `Picked the wrong ${name} account? Try again and choose another.`}
       </InfoCard>
+      {!exists && __DEV__ ? (
+        <View testID="dev-note-db-reset">
+          <InfoCard overline="Development build">{DB_RESET_NOTE}</InfoCard>
+        </View>
+      ) : null}
     </AuthScreen>
   );
 }

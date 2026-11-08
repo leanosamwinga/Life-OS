@@ -52,6 +52,18 @@ export function sharedAlert(code: AuthCode): AlertCopy | null {
         title: 'Google sign-in needs a development build',
         body: 'Expo Go can’t finish Google sign-in. Use Apple or email here, or run a development build (npx expo run:ios).',
       };
+    case 'WEB_APPLE_SETUP':
+      // Development only (local web build without an Apple Services ID / HTTPS return address).
+      return {
+        title: 'Apple sign-in isn’t set up for this web build',
+        body: 'Apple sign-in on the web needs an Apple Services ID and an HTTPS address — see README. Use email here.',
+      };
+    case 'WEB_GOOGLE_SETUP':
+      // Development only (local web build without a Google web client id).
+      return {
+        title: 'Google sign-in isn’t set up for this web build',
+        body: 'Google sign-in on the web needs a Google web client id — see README. Use email here.',
+      };
     case 'SERVER_ERROR':
     case 'NETWORK':
       return {
