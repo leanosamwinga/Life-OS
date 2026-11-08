@@ -263,8 +263,10 @@ and writes `.local-auth/env` (git-ignored, local-only keys). Then:
 - `npm run test:e2e` — acts like the phone: the app's own sign-in and data code through the gateway,
   with several phones (each its own device): sign up → code from Mailpit → onboarding → log meal →
   water; Apple and Google; wrong method; forgot password; new-device code; signed-in devices;
-  change password; delete and keep; export; consent off; an unknown barcode. What each sign-off
-  criterion rests on is in `docs/PHASE2-SIGNOFF.md`.
+  change password; delete and keep; export; consent off; an unknown barcode; save to roster only;
+  batches (server per-100 g = core, tampering refused, log by the gram, as a component, cook
+  again, stars, another user and consent off). What each sign-off criterion rests on is in
+  `docs/PHASE2-SIGNOFF.md`.
 
 The stack also starts local fakes (`scripts/local-auth/fakes.mjs`): a fake Apple and Google (keys
 made on each start; `auth-api` here trusts only them) and an Open Food Facts that knows no
@@ -285,6 +287,17 @@ device or the web app in a browser with a webcam (the iOS simulator has no camer
 platform also has "Or type the barcode". Seed barcodes are fake (`0000000000017`, …), so try
 a real product to exercise Open Food Facts. Expo Go includes `expo-camera`; Apple sign-in
 still needs a development build.
+
+### Saved meals and batches
+
+Log meal has two tabs: **Plan & recent** (the roster, as before) and **Saved** (saved meals and
+batches together, starred first, then A–Z). "Save to roster only" on 7b saves a meal without
+logging it. **+ Cooked a batch** builds one pot from its ingredients; the batch becomes your own
+food with per-100 g = ingredient totals ÷ cooked weight, logged by the gram (liquids: 1 ml = 1 g)
+or used as a component. The cooked weight is estimated from a small table of dry→cooked ratios
+(`packages/core/src/batch.ts`) unless you weigh it. Tap a batch on Saved to cook it again;
+meals already logged keep their numbers. Batches are saved only through the `save_batch` Postgres
+function, which recomputes the per-100 g values and refuses any mismatch.
 
 ### Run the app
 
@@ -314,7 +327,7 @@ npm run mobile
 
 ### Database tests
 
-`supabase/tests/*.test.sql` are pgTAP tests proving owner-only access, the global food cache rules, health-data consent and the sign-in tables, hooks, guards and deletion job.
+`supabase/tests/*.test.sql` are pgTAP tests proving owner-only access, the global food cache rules, health-data consent, logging and batches (`save_batch` recomputes and refuses mismatches) and the sign-in tables, hooks, guards and deletion job.
 
 - With Docker: `npx supabase start`, then `npx supabase test db`
 - Without Docker: point `DATABASE_URL` at an empty Postgres 15+ database with pgTAP installed and run `npm run test:db`. It loads `scripts/db/supabase-shim.sql` (roles, `auth.users`, `auth.uid()`), applies the migrations, then runs every test file. CI uses this path.
