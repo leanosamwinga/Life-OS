@@ -10,7 +10,7 @@ Branch `claude/log-meal-saved-batches`. Criteria L1–L13 and the proof for each
 
 New tests:
 
-- **core** `batch.test.ts` (35): the ratio table; `guessCooksAs` on 27 names (what counts, what
+- **core** `batch.test.ts` (40): the ratio table; `guessCooksAs` on 27 names (what counts, what
   doesn't); cooked-weight rounding; the estimate; a correction; impossible weights; whole batch =
   ingredients summed like a meal; per-100 g estimated and weighed (wireframe 7f: 1,310 g → 136 kcal,
   and 350 g of it = 7h's 476 kcal); cook again; liquids; half-away-from-zero rounding; empty batch.
