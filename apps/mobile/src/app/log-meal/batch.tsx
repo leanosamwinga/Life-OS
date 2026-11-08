@@ -23,8 +23,10 @@ import { useSession } from '@/lib/session';
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
 
 const fmt1 = (n: number) => n.toFixed(1);
+/** Rows as in 7f: "180 kcal · P 0 · C 0 · F 20.0" — a zero macro is plain "0". */
+const g1 = (n: number) => (n === 0 ? '0' : fmt1(n));
 const macroLine = (m: Macros) =>
-  `${formatKcal(m.kcal)} kcal · P ${fmt1(m.protein)} · C ${fmt1(m.carbs)} · F ${fmt1(m.fat)}`;
+  `${formatKcal(m.kcal)} kcal · P ${g1(m.protein)} · C ${g1(m.carbs)} · F ${g1(m.fat)}`;
 /** The batch's own numbers, with the 1-decimal macros the wireframes show (P 4.3, C 0). */
 const per100Line = (m: Macros) =>
   `${formatKcal(m.kcal)} kcal · P ${fmt1(m.protein)} · C ${fmt1(m.carbs)} · F ${fmt1(m.fat)}`;

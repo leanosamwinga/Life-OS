@@ -18,8 +18,10 @@ import { defaultMealName, isValidTime, loggedAtFor, slotLabel } from '@/features
 import { useSession } from '@/lib/session';
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
 
+/** Wireframes 7b: "212 kcal · P 48.0 · C 0 · F 2.4" — a zero macro is plain "0". */
+const g1 = (n: number) => (n === 0 ? '0' : n.toFixed(1));
 const macroLine = (m: { kcal: number; protein: number; carbs: number; fat: number }) =>
-  `${formatKcal(m.kcal)} kcal · P ${m.protein.toFixed(1)} · C ${m.carbs.toFixed(1)} · F ${m.fat.toFixed(1)}`;
+  `${formatKcal(m.kcal)} kcal · P ${g1(m.protein)} · C ${g1(m.carbs)} · F ${g1(m.fat)}`;
 
 function confirmDelete(name: string): Promise<boolean> {
   const msg = `“${name}” leaves your roster. Meals you’ve already logged stay in your history.`;

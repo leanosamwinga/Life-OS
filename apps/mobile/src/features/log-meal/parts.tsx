@@ -202,11 +202,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   starText: { fontSize: 24, color: colors.text },
+  // Fills FormScreen's header row (which already has the side padding), so the left action,
+  // title and right detail get their share of the width instead of being squeezed.
   header: {
+    flex: 1,
     minHeight: MIN_TOUCH + 12,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: space.xl,
     gap: space.sm,
   },
   headerSide: { flex: 1, minHeight: MIN_TOUCH, justifyContent: 'center' },

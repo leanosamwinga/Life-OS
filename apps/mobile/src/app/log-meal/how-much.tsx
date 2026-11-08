@@ -159,7 +159,9 @@ export default function HowMuchScreen() {
         </View>
       </View>
 
-      <Text style={styles.question}>How much did you have?</Text>
+      <Text style={styles.question}>
+        {forBatch ? 'How much went in the pot?' : 'How much did you have?'}
+      </Text>
       <TextField
         label="Grams"
         value={input}
