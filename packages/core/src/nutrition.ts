@@ -124,6 +124,7 @@ export function toFood(record: FoodRecord & { id: string }): Food | null {
     },
     packGrams: record.packGrams ?? null,
     servingGrams: record.servingGrams ?? null,
+    ...(record.batch ? { batch: record.batch } : {}),
   };
 }
 

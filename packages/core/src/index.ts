@@ -5,3 +5,4 @@ export * from './time.ts';
 export * from './training.ts';
 export * from './defaults.ts';
 export * from './auth.ts';
+export * from './batch.ts';
