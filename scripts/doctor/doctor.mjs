@@ -5,7 +5,8 @@
 //   npm run doctor                 checks for a phone (Expo Go / dev build on your Wi-Fi)
 //   npm run doctor -- --simulator  127.0.0.1 is fine (iOS simulator, web)
 //
-// Works with `supabase start` (Docker) or the Docker-free `npm run local-auth` stack.
+// Works with `npx supabase start` (Docker; the CLI installed or only used through npx) or the
+// Docker-free `npm run local-auth` stack. Every fix it prints spells the CLI `npx supabase …`.
 /* eslint-disable no-console -- a command-line tool that prints its report */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -13,13 +14,16 @@ import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import {
+  SUPABASE,
   checkAppEnv,
   checkFunctionsEnv,
+  checkLegacySupabaseEnv,
   checkPhoneUrl,
   fail,
   line,
   parseEnv,
   pass,
+  supabaseStatus,
   warn,
 } from './checks.mjs';
 
@@ -62,33 +66,23 @@ function findStack() {
     /* no daemon */
   }
   if (docker) {
-    try {
-      // The Supabase CLI may be installed, or only used through npx.
-      let out;
-      try {
-        out = sh('supabase', ['status', '-o', 'env'], 20_000);
-      } catch {
-        out = sh('npx', ['--yes', 'supabase', 'status', '-o', 'env'], 60_000);
-      }
-      const env = parseEnv(out);
-      const api = env.API_URL;
-      if (api) {
-        return {
-          kind: 'supabase start',
-          api,
-          db: env.DB_URL,
-          mailpit: env.INBUCKET_URL ?? env.MAILPIT_URL ?? 'http://127.0.0.1:54324',
-          service: env.SERVICE_ROLE_KEY ?? env.SECRET_KEY,
-          keys: [env.ANON_KEY, env.PUBLISHABLE_KEY].filter(Boolean),
-          secretKeys: [env.SERVICE_ROLE_KEY, env.SECRET_KEY].filter(Boolean),
-          functionsEnvPath: 'supabase/functions/.env',
-          projectId: /project_id\s*=\s*"([^"]+)"/.exec(
-            readFileSync(ROOT + 'supabase/config.toml', 'utf8'),
-          )?.[1],
-        };
-      }
-    } catch {
-      /* not started, or no CLI */
+    // The Supabase CLI may be installed, or only used through npx.
+    const env = supabaseStatus(sh);
+    const api = env?.API_URL;
+    if (env && api) {
+      return {
+        kind: `${SUPABASE} start`,
+        api,
+        db: env.DB_URL,
+        mailpit: env.INBUCKET_URL ?? env.MAILPIT_URL ?? 'http://127.0.0.1:54324',
+        service: env.SERVICE_ROLE_KEY ?? env.SECRET_KEY,
+        keys: [env.ANON_KEY, env.PUBLISHABLE_KEY].filter(Boolean),
+        secretKeys: [env.SERVICE_ROLE_KEY, env.SECRET_KEY].filter(Boolean),
+        functionsEnvPath: 'supabase/functions/.env',
+        projectId: /project_id\s*=\s*"([^"]+)"/.exec(
+          readFileSync(ROOT + 'supabase/config.toml', 'utf8'),
+        )?.[1],
+      };
     }
   }
   const local = read('.local-auth/env');
@@ -108,13 +102,19 @@ function findStack() {
 }
 
 const stack = findStack();
+const isDocker = stack.kind === `${SUPABASE} start` || !stack.kind;
+const restart = isDocker ? `${SUPABASE} stop && ${SUPABASE} start` : 'npm run local-auth';
+const resetDb = isDocker ? `${SUPABASE} db reset` : 'npm run local-auth';
+const serveFunctions = isDocker
+  ? `${SUPABASE} functions serve --env-file supabase/functions/.env`
+  : 'npm run local-auth';
 if (!stack.kind) {
   report(
     fail(
       'local stack',
       stack.docker
-        ? "Docker is running but Supabase isn't — run `supabase start` (then `supabase db reset` after switching branches)"
-        : 'no Docker and no Docker-free stack — start Docker and run `supabase start`, or run `npm run local-auth`',
+        ? `Docker is running but Supabase isn't — run \`${SUPABASE} start\` (then \`${SUPABASE} db reset\` after switching branches)`
+        : `no Docker and no Docker-free stack — start Docker and run \`${SUPABASE} start\`, or run \`npm run local-auth\``,
     ),
   );
 } else {
@@ -126,7 +126,7 @@ if (!stack.kind) {
       ? pass('local stack', `${stack.kind} at ${stack.api}`)
       : fail(
           'local stack',
-          `${stack.kind} found but ${stack.api} doesn't answer — run \`supabase stop && supabase start\``,
+          `${stack.kind} found but ${stack.api} doesn't answer — run \`${restart}\``,
         ),
   );
 }
@@ -143,14 +143,14 @@ if (stack.kind && stack.db) {
       report(
         fail(
           'database',
-          "sign-in v3 tables are missing — this branch's migrations aren't applied: run `supabase db reset`",
+          `sign-in v3 tables are missing — this branch's migrations aren't applied: run \`${resetDb}\``,
         ),
       );
     else if (!cfg.includes('pgrst.db_pre_request=public.check_request'))
       report(
         fail(
           'database',
-          "the Data API guard (pgrst.db_pre_request) isn't set — run `supabase db reset`",
+          `the Data API guard (pgrst.db_pre_request) isn't set — run \`${resetDb}\``,
         ),
       );
     else report(pass('database', 'migrations applied; Data API runs public.check_request'));
@@ -203,7 +203,7 @@ if (stack.kind && stack.service) {
       report(
         fail(
           'Auth hooks (config.toml)',
-          "Supabase Auth hooks aren't running — run `supabase stop && supabase start` (config.toml is only read at start)",
+          `Supabase Auth hooks aren't running — run \`${restart}\` (config.toml is only read at start)`,
         ),
       );
     else
@@ -227,18 +227,11 @@ if (stack.kind && stack.service) {
 // ---------------------------------------------------------------- 4–5. env files
 const appEnv = read('apps/mobile/.env.local');
 const fnEnv = stack.kind ? read(stack.functionsEnvPath) : read('supabase/functions/.env');
-report(checkFunctionsEnv(fnEnv, appEnv, stack.kind ? stack.functionsEnvPath : undefined));
-if (
-  stack.kind &&
-  read('supabase/.env') &&
-  Object.keys(read('supabase/.env')).some((k) => k.startsWith('SUPABASE_AUTH_EXTERNAL_'))
-)
-  report(
-    warn(
-      'supabase/.env',
-      'SUPABASE_AUTH_EXTERNAL_* values are no longer read — move the ids to supabase/functions/.env',
-    ),
-  );
+// supabase/.env held the Apple/Google ids before sign-in v3 (Supabase Auth's own providers).
+const legacy = isDocker ? read('supabase/.env') : null;
+report(checkFunctionsEnv(fnEnv, appEnv, stack.kind ? stack.functionsEnvPath : undefined, legacy));
+const leftover = checkLegacySupabaseEnv(legacy, fnEnv);
+if (leftover) report(leftover);
 report(checkAppEnv(appEnv, stack.kind ? stack : null));
 
 // ---------------------------------------------------------------- 6. auth-api answers
@@ -251,7 +244,7 @@ if (stack.kind) {
     report(
       fail(
         'auth-api',
-        `not answering (${r ? `HTTP ${r.status}` : 'no response'}) — run \`supabase functions serve --env-file supabase/functions/.env\` and read its output`,
+        `not answering (${r ? `HTTP ${r.status}` : 'no response'}) — run \`${serveFunctions}\` and read its output`,
       ),
     );
 }
@@ -261,7 +254,7 @@ if (stack.kind && fnEnv?.MAILPIT_URL) {
   const name = 'Mailpit from auth-api';
   const url = new URL(fnEnv.MAILPIT_URL);
   const port = url.port || '80';
-  if (stack.kind === 'supabase start') {
+  if (stack.kind === `${SUPABASE} start`) {
     const container = `supabase_edge_runtime_${stack.projectId ?? 'life-os'}`;
     try {
       sh(
@@ -274,10 +267,7 @@ if (stack.kind && fnEnv?.MAILPIT_URL) {
       const notRunning = /No such container|is not running/.test(String(e.stderr ?? ''));
       report(
         notRunning
-          ? warn(
-              name,
-              `couldn't check: ${container} isn't running — start \`supabase functions serve\``,
-            )
+          ? warn(name, `couldn't check: ${container} isn't running — start \`${serveFunctions}\``)
           : fail(
               name,
               `${fnEnv.MAILPIT_URL} unreachable from the edge runtime — on Linux Docker use MAILPIT_URL=http://supabase_inbucket_${stack.projectId ?? 'life-os'}:8025 in supabase/functions/.env`,

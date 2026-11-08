@@ -1,5 +1,14 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { checkAppEnv, checkFunctionsEnv, checkPhoneUrl, line, parseEnv } from './checks.mjs';
+import {
+  checkAppEnv,
+  checkFunctionsEnv,
+  checkLegacySupabaseEnv,
+  checkPhoneUrl,
+  line,
+  parseEnv,
+  supabaseStatus,
+} from './checks.mjs';
 
 const secrets = Object.fromEntries(
   [
@@ -48,8 +57,69 @@ describe('npm run doctor checks', () => {
       false,
     );
     expect(checkFunctionsEnv(fn({ AUTH_DEVICE_CHECKS: 'on' }), app()).ok).toBe(false);
-    expect(checkFunctionsEnv(fn({ APPLE_BUNDLE_ID: '' }), app()).ok).toBeNull();
     expect(checkFunctionsEnv(fn(), app()).ok).toBe(true);
+  });
+
+  it('A3: an empty APPLE_BUNDLE_ID is ✗ (not a warning), with the Expo Go value as the fix', () => {
+    const r = checkFunctionsEnv(fn({ APPLE_BUNDLE_ID: '' }), app());
+    expect(r.ok).toBe(false);
+    expect(line(r)).toMatch(/^✗ /);
+    expect(r.detail).toContain('APPLE_BUNDLE_ID=host.exp.Exponent for Expo Go (local only)');
+  });
+
+  it('A3: an Apple id left only in supabase/.env is ✗ "moved: copy it to supabase/functions/.env"', () => {
+    const legacy = { SUPABASE_AUTH_EXTERNAL_APPLE_CLIENT_ID: 'host.exp.Exponent' };
+    const r = checkFunctionsEnv(fn({ APPLE_BUNDLE_ID: '' }), app(), undefined, legacy);
+    expect(r.ok).toBe(false);
+    expect(r.detail).toContain(
+      'SUPABASE_AUTH_EXTERNAL_APPLE_CLIENT_ID in supabase/.env moved: copy it to supabase/functions/.env as APPLE_BUNDLE_ID=host.exp.Exponent',
+    );
+    // One fix for one problem: no second "set it to host.exp.Exponent" next to it.
+    expect(r.detail.match(/APPLE_BUNDLE_ID/g)).toHaveLength(1);
+    expect(checkLegacySupabaseEnv(legacy, fn({ APPLE_BUNDLE_ID: '' }))).toBeNull();
+    // Google moved the same way.
+    const g = checkFunctionsEnv(fn({ GOOGLE_CLIENT_IDS: '' }), {}, undefined, {
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: 'web.apps.example.test',
+    });
+    expect(g.ok).toBe(false);
+    expect(g.detail).toContain('moved: copy it to supabase/functions/.env as GOOGLE_CLIENT_IDS=');
+    // Already copied: the leftover is only a warning that it can go.
+    const left = checkLegacySupabaseEnv(legacy, fn());
+    expect(left?.ok).toBeNull();
+    expect(left?.detail).toContain('no longer read');
+    expect(checkFunctionsEnv(fn(), app(), undefined, legacy).ok).toBe(true);
+    expect(checkLegacySupabaseEnv(null, fn())).toBeNull();
+  });
+
+  it('A2: finds the stack through `npx supabase status -o env` when the CLI is not installed', () => {
+    const calls = [];
+    const env = supabaseStatus((cmd, args) => {
+      calls.push([cmd, ...args].join(' '));
+      if (cmd === 'supabase')
+        throw Object.assign(new Error('spawn supabase ENOENT'), { code: 'ENOENT' });
+      return 'API_URL="http://127.0.0.1:54321"\nDB_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"\nPUBLISHABLE_KEY="sb_publishable_x"\n';
+    });
+    expect(calls).toEqual(['supabase status -o env', 'npx --yes supabase status -o env']);
+    expect(env?.API_URL).toBe('http://127.0.0.1:54321');
+    expect(env?.PUBLISHABLE_KEY).toBe('sb_publishable_x');
+    // Installed CLI: used directly. Neither answers (stack not started): null.
+    expect(supabaseStatus(() => 'API_URL=http://127.0.0.1:54321\n')?.API_URL).toBeTruthy();
+    expect(
+      supabaseStatus(() => {
+        throw new Error('supabase start is not running');
+      }),
+    ).toBeNull();
+  });
+
+  it('A2: every command the doctor prints spells the CLI `npx supabase …`', () => {
+    for (const file of ['./doctor.mjs', './checks.mjs']) {
+      const src = readFileSync(new URL(file, import.meta.url), 'utf8');
+      // A backticked command (in a string the user reads) never starts with a bare `supabase`.
+      expect(src).not.toMatch(/\\?`supabase /);
+      expect(src).not.toMatch(/run supabase |start supabase /);
+    }
+    const r = checkAppEnv({ EXPO_PUBLIC_SUPABASE_URL: 'http://192.168.1.2:54321' }, null);
+    expect(r.detail).toContain('`npx supabase status`');
   });
 
   it('app env: missing values, a key from another stack, the secret key', () => {

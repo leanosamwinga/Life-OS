@@ -19,6 +19,12 @@ export function parseEnv(text) {
 }
 
 export const pass = (name, detail) => ({ ok: true, name, detail });
+/** How every fix text spells the Supabase CLI: it works whether or not the CLI is installed. */
+export const SUPABASE = 'npx supabase';
+/** Expo Go's own bundle id — what Apple puts in the token's audience inside Expo Go. */
+export const EXPO_GO_BUNDLE_ID = 'host.exp.Exponent';
+const LEGACY_APPLE = 'SUPABASE_AUTH_EXTERNAL_APPLE_CLIENT_ID';
+const LEGACY_GOOGLE = 'SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID';
 export const fail = (name, detail) => ({ ok: false, name, detail });
 export const warn = (name, detail) => ({ ok: null, name, detail });
 
@@ -32,7 +38,60 @@ export const FUNCTION_SECRETS = [
   'AUTH_JOB_SECRET',
 ];
 
-export function checkFunctionsEnv(env, appEnv, name = 'supabase/functions/.env') {
+/**
+ * The `status -o env` output of an installed Supabase CLI, else through npx (the CLI is often only used as
+ * `npx supabase …`). `run(cmd, args, timeoutMs)` returns stdout or throws. Null if neither answers.
+ */
+export function supabaseStatus(run) {
+  const attempts = [
+    ['supabase', ['status', '-o', 'env'], 20_000],
+    ['npx', ['--yes', 'supabase', 'status', '-o', 'env'], 90_000],
+  ];
+  for (const [cmd, args, timeout] of attempts) {
+    try {
+      const env = parseEnv(run(cmd, args, timeout));
+      if (env.API_URL) return env;
+    } catch {
+      /* not installed, or not started */
+    }
+  }
+  return null;
+}
+
+/**
+ * Apple and Google ids that still sit in supabase/.env from before sign-in v3. Supabase Auth's
+ * own providers are off now, so nothing reads them there; auth-api reads supabase/functions/.env.
+ */
+export function legacyIdMoves(legacy, env) {
+  const out = [];
+  const apple = legacy?.[LEGACY_APPLE]?.split(',')[0]?.trim();
+  if (apple && !env?.APPLE_BUNDLE_ID)
+    out.push(
+      `${LEGACY_APPLE} in supabase/.env moved: copy it to supabase/functions/.env as APPLE_BUNDLE_ID=${apple}`,
+    );
+  const google = legacy?.[LEGACY_GOOGLE];
+  if (google && !env?.GOOGLE_CLIENT_IDS)
+    out.push(
+      `${LEGACY_GOOGLE} in supabase/.env moved: copy it to supabase/functions/.env as GOOGLE_CLIENT_IDS=${google}`,
+    );
+  return out;
+}
+
+/** Leftover SUPABASE_AUTH_EXTERNAL_* values whose new home is already filled in: harmless. */
+export function checkLegacySupabaseEnv(legacy, env) {
+  const name = 'supabase/.env';
+  const left = Object.keys(legacy ?? {}).filter(
+    (k) => k.startsWith('SUPABASE_AUTH_EXTERNAL_') && legacy[k],
+  );
+  if (!left.length) return null;
+  if (legacyIdMoves(legacy, env).length) return null; // reported as ✗ by checkFunctionsEnv
+  return warn(
+    name,
+    `${left.join(', ')} ${left.length === 1 ? 'is' : 'are'} no longer read (auth-api reads supabase/functions/.env) — you can delete ${left.length === 1 ? 'it' : 'them'}`,
+  );
+}
+
+export function checkFunctionsEnv(env, appEnv, name = 'supabase/functions/.env', legacy = null) {
   if (!env)
     return fail(name, 'missing — run `cp supabase/functions/.env.example supabase/functions/.env`');
   const missing = FUNCTION_SECRETS.filter((k) => !env[k]);
@@ -68,9 +127,11 @@ export function checkFunctionsEnv(env, appEnv, name = 'supabase/functions/.env')
       problems.push(`GOOGLE_CLIENT_IDS doesn't include the app's ${id.slice(0, 12)}… — add it`);
   }
   const notes = [];
-  if (!env.APPLE_BUNDLE_ID)
-    notes.push(
-      'APPLE_BUNDLE_ID is empty, so Sign in with Apple ends on 0b-8g — in Expo Go set APPLE_BUNDLE_ID=host.exp.Exponent (local only)',
+  const moves = legacyIdMoves(legacy, env);
+  if (moves.length) problems.push(...moves);
+  if (!env.APPLE_BUNDLE_ID && !moves.some((m) => m.includes('APPLE_BUNDLE_ID')))
+    problems.push(
+      `APPLE_BUNDLE_ID is empty, so Sign in with Apple ends on 0b-8g — APPLE_BUNDLE_ID=${EXPO_GO_BUNDLE_ID} for Expo Go (local only), your own bundle id in a development build`,
     );
   if (!env.GOOGLE_CLIENT_IDS && !problems.length)
     notes.push('GOOGLE_CLIENT_IDS is empty, so Google sign-in is off');
@@ -97,12 +158,12 @@ export function checkAppEnv(appEnv, stack) {
   if (!appEnv.EXPO_PUBLIC_SUPABASE_ANON_KEY)
     return fail(
       name,
-      'EXPO_PUBLIC_SUPABASE_ANON_KEY is empty — use the Publishable (anon) key from `supabase status`',
+      `EXPO_PUBLIC_SUPABASE_ANON_KEY is empty — use the Publishable (anon) key from \`${SUPABASE} status\``,
     );
   if (stack && stack.keys.length && !stack.keys.includes(appEnv.EXPO_PUBLIC_SUPABASE_ANON_KEY))
     return fail(
       name,
-      "EXPO_PUBLIC_SUPABASE_ANON_KEY is not this stack's key — copy the Publishable key from `supabase status` (never the Secret key), then `npm run mobile -- --clear`",
+      `EXPO_PUBLIC_SUPABASE_ANON_KEY is not this stack's key — copy the Publishable key from \`${SUPABASE} status\` (never the Secret key), then \`npm run mobile -- --clear\``,
     );
   if (stack && stack.secretKeys.includes(appEnv.EXPO_PUBLIC_SUPABASE_ANON_KEY))
     return fail(
