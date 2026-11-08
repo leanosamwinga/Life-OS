@@ -29,6 +29,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:core
       - run: npm run test:functions
+      - run: npm run test:scripts
       - run: npm run test:mobile
 
   edge-functions:
@@ -41,6 +42,7 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check --config supabase/functions/food-lookup/deno.json supabase/functions/food-lookup/index.ts
+      - run: deno check --config supabase/functions/auth-api/deno.json supabase/functions/auth-api/index.ts
 
   database:
     name: Database RLS tests (Postgres + pgTAP)
