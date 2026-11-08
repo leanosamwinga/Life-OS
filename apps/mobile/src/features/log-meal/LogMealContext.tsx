@@ -2,10 +2,13 @@ import { createContext, useContext, useMemo, useRef, useState, type ReactNode } 
 import {
   addDays,
   dayProgress,
+  guessCooksAs,
   londonDateTimeToInstant,
   sumMacros,
   toLondonDate,
   toLondonTime,
+  type BatchIngredient,
+  type CooksAs,
   type DayProgress,
   type Food,
   type LocalTime,
@@ -14,7 +17,7 @@ import {
   type MealLog,
 } from '@life-os/core';
 import { useAsync } from '@/features/data/useAsync';
-import type { RosterMeal, StoredFood } from '@/lib/backend/foods';
+import type { RosterMeal, SavedBatch, StoredFood } from '@/lib/backend/foods';
 import { targetsForProgress } from '@/lib/backend/settings';
 import type { RecentFood } from '@/lib/backend/types';
 import { useSession } from '@/lib/session';
@@ -22,18 +25,36 @@ import { defaultSlot, type MealSlot } from './slots';
 
 export interface DraftComponent extends MealComponent {
   key: string;
+  /** Batches only: how this ingredient changes weight in the pot (7f). */
+  cooksAs?: CooksAs;
+  /** Cook again (7g): what this ingredient was last time. Absent for a new ingredient. */
+  origin?: { grams: number; cooksAs: CooksAs };
 }
 
 export interface MealDraft {
+  /** `meal`: 7b. `batch`: the batch builder (7f) or cook again (7g). */
+  kind: 'meal' | 'batch';
   /** `log`: build a meal to log now. `edit`: change a roster meal. */
   mode: 'log' | 'edit';
   savedMealId: string | null;
   name: string;
   components: DraftComponent[];
   saveToRoster: boolean;
+  /** 7b-R: "Save to roster only" chosen — saved through save_meal, nothing logged. */
+  saveOnly: boolean;
   inDailyPlan: boolean;
   usualTime: LocalTime | '';
+  /** Cook again: the batch being cooked again and last time's ingredients and weight. */
+  batch: SavedBatch | null;
+  /** "I weighed it", as typed. Empty uses the estimate. */
+  weighed: string;
 }
+
+export type LogMealTab = 'plan' | 'saved';
+
+/** Where the draft is being built: 7b for meals, 7f/7g for batches. */
+export const builderPath = (d: Pick<MealDraft, 'kind'>) =>
+  d.kind === 'batch' ? ('/log-meal/batch' as const) : ('/log-meal/build' as const);
 
 /** A food on its way into the meal, shown on the "how much" screen (7d). */
 export interface PendingFood {
@@ -43,7 +64,9 @@ export interface PendingFood {
   /** Set when changing an existing component's amount. */
   componentKey?: string;
   /** Where the food came from: a scan shows "‹ Scan again" and "Add and scan another". */
-  from?: 'scan' | 'search' | 'suggestion' | 'component' | 'manual';
+  from?: 'scan' | 'search' | 'suggestion' | 'component' | 'manual' | 'batch';
+  /** Batch ingredients: the ratio chosen so far (7f). */
+  cooksAs?: CooksAs;
 }
 
 /** What the manual entry screen (7e) starts from. */
@@ -60,6 +83,7 @@ interface LogMealData {
   /** Meal logs from the last 14 days (for "eaten recently") including today. */
   logs: MealLog[];
   roster: RosterMeal[];
+  batches: SavedBatch[];
   recentFoods: RecentFood[];
 }
 
@@ -73,15 +97,22 @@ export interface LogMealValue {
   progress: DayProgress;
   slot: MealSlot;
   setSlot(slot: MealSlot): void;
+  /** 7a's tabs: "Plan & recent" or "Saved". */
+  tab: LogMealTab;
+  setTab(tab: LogMealTab): void;
 
   draft: MealDraft;
   draftTotals: Macros;
   startDraft(
-    d?: Partial<Omit<MealDraft, 'components'>> & { components?: readonly MealComponent[] },
+    d?: Partial<Omit<MealDraft, 'components'>> & {
+      components?: readonly (MealComponent & Partial<Pick<DraftComponent, 'cooksAs' | 'origin'>>)[];
+    },
   ): void;
+  /** 7g: last time's ingredients pre-filled; the weighed field starts empty (a new pot). */
+  startCookAgain(batch: SavedBatch): void;
   updateDraft(patch: Partial<Omit<MealDraft, 'components'>>): void;
-  addComponent(food: Food, grams: number): void;
-  updateComponent(key: string, grams: number): void;
+  addComponent(food: Food, grams: number, cooksAs?: CooksAs): void;
+  updateComponent(key: string, grams: number, cooksAs?: CooksAs): void;
   removeComponent(key: string): void;
 
   pending: PendingFood | null;
@@ -92,17 +123,29 @@ export interface LogMealValue {
   lastGrams(foodId: string): number | null;
 }
 
-const EMPTY_DATA: LogMealData = { logs: [], roster: [], recentFoods: [] };
+const EMPTY_DATA: LogMealData = { logs: [], roster: [], batches: [], recentFoods: [] };
 
 const blankDraft = (): MealDraft => ({
+  kind: 'meal',
   mode: 'log',
   savedMealId: null,
   name: '',
   components: [],
   saveToRoster: false,
+  saveOnly: false,
   inDailyPlan: false,
   usualTime: '',
+  batch: null,
+  weighed: '',
 });
+
+/** The ingredients of a batch draft, with a ratio for each (guessed from the name if unset). */
+export const draftIngredients = (d: MealDraft): BatchIngredient[] =>
+  d.components.map((c) => ({
+    food: c.food,
+    grams: c.grams,
+    cooksAs: c.cooksAs ?? guessCooksAs(c.food.name),
+  }));
 
 const Ctx = createContext<LogMealValue | null>(null);
 
@@ -122,15 +165,16 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
   const state = useAsync<LogMealData>(
     enabled
       ? async () => {
-          const [logs, roster, recentFoods] = await Promise.all([
+          const [logs, roster, batches, recentFoods] = await Promise.all([
             backend.listMealLogs({
               from: londonDateTimeToInstant(addDays(today, -RECENT_DAYS), '00:00'),
               to: londonDateTimeToInstant(addDays(today, 1), '00:00'),
             }),
             backend.listSavedMeals(),
+            backend.listBatches(),
             backend.listRecentFoods(20),
           ]);
-          return { logs, roster, recentFoods };
+          return { logs, roster, batches, recentFoods };
         }
       : null,
     [enabled, backend, today, session.dataVersion],
@@ -153,6 +197,7 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
   );
 
   const [chosenSlot, setSlot] = useState<MealSlot | null>(null);
+  const [tab, setTab] = useState<LogMealTab>('plan');
   const loggedPlanIds = new Set(
     progress.meals.map((m) => m.savedMealId).filter(Boolean) as string[],
   );
@@ -173,6 +218,8 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
     progress,
     slot,
     setSlot,
+    tab,
+    setTab,
     draft,
     draftTotals: useMemo(() => sumMacros(draft.components), [draft.components]),
     startDraft: (d = {}) =>
@@ -181,13 +228,37 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
         ...d,
         components: (d.components ?? []).map((c) => ({ ...c, key: key() })),
       }),
+    startCookAgain: (batch) =>
+      setDraft({
+        ...blankDraft(),
+        kind: 'batch',
+        name: batch.food.name,
+        batch,
+        components: batch.ingredients.map((i) => ({
+          key: key(),
+          food: i.food,
+          grams: i.grams,
+          cooksAs: i.cooksAs,
+          origin: { grams: i.grams, cooksAs: i.cooksAs },
+        })),
+      }),
     updateDraft: (patch) => setDraft((d) => ({ ...d, ...patch })),
-    addComponent: (food, grams) =>
-      setDraft((d) => ({ ...d, components: [...d.components, { key: key(), food, grams }] })),
-    updateComponent: (k, grams) =>
+    addComponent: (food, grams, cooksAs) =>
       setDraft((d) => ({
         ...d,
-        components: d.components.map((c) => (c.key === k ? { ...c, grams } : c)),
+        components: [
+          ...d.components,
+          d.kind === 'batch'
+            ? { key: key(), food, grams, cooksAs: cooksAs ?? guessCooksAs(food.name) }
+            : { key: key(), food, grams },
+        ],
+      })),
+    updateComponent: (k, grams, cooksAs) =>
+      setDraft((d) => ({
+        ...d,
+        components: d.components.map((c) =>
+          c.key === k ? { ...c, grams, ...(cooksAs ? { cooksAs } : {}) } : c,
+        ),
       })),
     removeComponent: (k) =>
       setDraft((d) => ({ ...d, components: d.components.filter((c) => c.key !== k) })),

@@ -8,8 +8,8 @@ import { useSession } from '@/lib/session';
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
 import { useLogMeal } from './LogMealContext';
 
-const sourceLabel = (f: { source: string; barcode?: string | null }) =>
-  f.source === 'open_food_facts' ? 'Barcode' : 'Your food';
+const sourceLabel = (f: { source: string; batch?: unknown }) =>
+  f.source === 'open_food_facts' ? 'Barcode' : f.batch ? 'Your batch' : 'Your food';
 
 /**
  * Search tab of "Add component" (7c), plus "Or pick a food you've had". Picking a complete
@@ -21,6 +21,8 @@ export function FoodSearch(props: {
   showSearch?: boolean;
   /** Show the Open Food Facts credit under results (off when the screen shows its own). */
   showCredit?: boolean;
+  /** Building a batch: a batch can't go in another batch. */
+  hideBatches?: boolean;
 }) {
   const session = useSession();
   const lm = useLogMeal();
@@ -49,9 +51,11 @@ export function FoodSearch(props: {
   }, [query, session.backend]);
 
   const recent = lm.data.recentFoods.map((r) => r.food);
-  const shown: { key: string; food: Food | null; record?: StoredFood }[] = results
+  type Shown = { key: string; food: Food | null; record?: StoredFood };
+  const all: Shown[] = results
     ? results.map((r) => ({ key: r.id, food: toFood(r), record: r }))
     : recent.map((f) => ({ key: f.id, food: f }));
+  const shown = all.filter((x) => !(props.hideBatches && (x.food ?? x.record)?.batch));
   const anyOff = shown.some((s) => (s.food ?? s.record)?.source === 'open_food_facts');
 
   return (

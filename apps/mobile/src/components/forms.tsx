@@ -129,6 +129,8 @@ export function TextField(
     big?: boolean;
     suffix?: string;
     error?: string | null;
+    /** The screen shows its own label; the field keeps `label` for VoiceOver. */
+    hideLabel?: boolean;
   } & Pick<
     TextInputProps,
     | 'placeholder'
@@ -142,10 +144,10 @@ export function TextField(
     | 'testID'
   >,
 ) {
-  const { label, big, suffix, error, ...input } = props;
+  const { label, big, suffix, error, hideLabel, ...input } = props;
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      {hideLabel ? null : <Text style={styles.fieldLabel}>{label}</Text>}
       <View
         style={[styles.inputWrap, big && styles.inputWrapBig, error ? styles.inputError : null]}
       >

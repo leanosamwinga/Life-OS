@@ -74,12 +74,19 @@ export default function AddComponentScreen() {
     setTab(t);
   };
 
-  const mealName = lm.draft.name.trim() || defaultMealName(lm.slot);
+  const forBatch = lm.draft.kind === 'batch';
+  const mealName = lm.draft.name.trim() || (forBatch ? 'New batch' : defaultMealName(lm.slot));
 
   return (
     <FormScreen
       testID="screen-add-component"
-      header={<SheetHeader left="Cancel" onLeft={() => router.back()} title="Add component" />}
+      header={
+        <SheetHeader
+          left="Cancel"
+          onLeft={() => router.back()}
+          title={forBatch ? 'Add ingredient' : 'Add component'}
+        />
+      }
     >
       <Segmented options={TABS} value={tab} onChange={changeTab} />
       {tab === 'Scan' ? (
@@ -121,6 +128,7 @@ export default function AddComponentScreen() {
         onIncomplete={complete}
         showSearch={tab === 'Search'}
         showCredit={false}
+        hideBatches={forBatch}
       />
 
       <Pressable

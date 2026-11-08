@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
+  COOKS_AS_OPTIONS,
   OPEN_FOOD_FACTS_CREDIT,
+  cooksAsLabel,
   formatGrams,
+  guessCooksAs,
   formatKcal,
   portionMacros,
   roundGrams,
@@ -17,9 +20,10 @@ import {
   TextField,
   formStyles,
 } from '@/components/forms';
-import { useLogMeal } from '@/features/log-meal/LogMealContext';
+import { builderPath, useLogMeal } from '@/features/log-meal/LogMealContext';
 import { amountChips } from '@/features/log-meal/amounts';
-import { Chip, MacroTiles, SheetHeader, TodayBar } from '@/features/log-meal/parts';
+import { Chip, FoodName, MacroTiles, SheetHeader, TodayBar } from '@/features/log-meal/parts';
+import { Overline } from '@/components/ui';
 import { defaultMealName } from '@/features/log-meal/slots';
 import { parseAmount } from '@/features/targets/parse';
 import { colors, radius, space, type } from '@/theme';
@@ -31,6 +35,10 @@ export default function HowMuchScreen() {
   const lm = useLogMeal();
   const pending = lm.pending;
   const [input, setInput] = useState(() => (pending?.grams != null ? String(pending.grams) : ''));
+  const forBatch = lm.draft.kind === 'batch';
+  const [cooksAs, setCooksAs] = useState(
+    () => pending?.cooksAs ?? guessCooksAs(pending?.food.name ?? ''),
+  );
 
   if (!pending) {
     return (
@@ -56,12 +64,19 @@ export default function HowMuchScreen() {
   const fromScan = pending.from === 'scan';
   const add = (scanAnother = false) => {
     if (!grams) return;
-    if (editingKey) lm.updateComponent(editingKey, grams);
-    else lm.addComponent(food, grams);
+    const ratio = forBatch ? cooksAs : undefined;
+    if (editingKey) lm.updateComponent(editingKey, grams, ratio);
+    else lm.addComponent(food, grams, ratio);
     lm.setPending(null);
     if (scanAnother) router.back();
-    else router.dismissTo('/log-meal/build');
+    else router.dismissTo(builderPath(lm.draft));
   };
+  const remove = () => {
+    if (editingKey) lm.removeComponent(editingKey);
+    lm.setPending(null);
+    router.dismissTo(builderPath(lm.draft));
+  };
+  const thing = forBatch ? 'ingredient' : 'component';
 
   const editValues = () => {
     lm.setManual({
@@ -88,7 +103,7 @@ export default function HowMuchScreen() {
     router.push('/log-meal/manual');
   };
 
-  const mealName = lm.draft.name.trim() || defaultMealName(lm.slot);
+  const mealName = lm.draft.name.trim() || (forBatch ? 'new batch' : defaultMealName(lm.slot));
 
   return (
     <FormScreen
@@ -105,7 +120,7 @@ export default function HowMuchScreen() {
           <PrimaryButton
             label={
               grams
-                ? `${editingKey ? 'Update' : 'Add'} component · ${formatKcal(macros.kcal)} kcal`
+                ? `${editingKey ? 'Update' : 'Add'} ${thing} · ${formatKcal(macros.kcal)} kcal`
                 : 'Enter how much you had'
             }
             disabled={!grams}
@@ -114,15 +129,18 @@ export default function HowMuchScreen() {
           {fromScan ? (
             <LinkButton label="Add and scan another" muted onPress={() => add(true)} />
           ) : null}
+          {forBatch && editingKey ? (
+            <LinkButton label="Remove from batch" muted onPress={remove} />
+          ) : null}
         </>
       }
     >
       <View style={styles.food}>
         <IconTile size={64} />
         <View style={styles.foodText}>
-          <Text style={styles.foodName} accessibilityRole="header">
-            {food.name}
-          </Text>
+          <View accessibilityRole="header">
+            <FoodName name={food.name} batch={Boolean(food.batch)} style={styles.foodName} />
+          </View>
           {food.brand || food.barcode ? (
             <Text style={styles.sub}>
               {[
@@ -169,21 +187,45 @@ export default function HowMuchScreen() {
         {grams ? formatGrams(grams) : '— g'} × per-100 g values ÷ 100
       </Text>
 
+      {forBatch ? (
+        <View style={styles.pot}>
+          <Overline>In the pot</Overline>
+          <Text style={styles.sub}>
+            For the cooked-weight estimate. Dry rice, pasta, oats, lentils, couscous and quinoa soak
+            up water; raw meat, poultry and fish lose it. Anything else counts as added.
+          </Text>
+          <View style={styles.chips}>
+            {COOKS_AS_OPTIONS.map((o) => (
+              <Chip
+                key={o}
+                label={cooksAsLabel(o)}
+                selected={cooksAs === o}
+                onPress={() => setCooksAs(o)}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.after}>
         <View style={styles.afterRow}>
-          <Text style={styles.afterLabel}>Meal after this</Text>
+          <Text style={styles.afterLabel}>{forBatch ? 'Batch after this' : 'Meal after this'}</Text>
           <Text style={styles.afterValue}>
             {formatKcal(mealAfter.kcal)} kcal · P {fmt1(mealAfter.protein)} · C{' '}
             {fmt1(mealAfter.carbs)} · F {fmt1(mealAfter.fat)}
           </Text>
         </View>
-        <TodayBar
-          label="Today"
-          logged={lm.progress.kcal.consumed}
-          meal={mealAfter.kcal}
-          target={lm.progress.kcal.target}
-        />
-        <Text style={styles.sub}>Dark: already logged today · light: this meal so far</Text>
+        {forBatch ? null : (
+          <>
+            <TodayBar
+              label="Today"
+              logged={lm.progress.kcal.consumed}
+              meal={mealAfter.kcal}
+              target={lm.progress.kcal.target}
+            />
+            <Text style={styles.sub}>Dark: already logged today · light: this meal so far</Text>
+          </>
+        )}
       </View>
       {food.source === 'open_food_facts' ? (
         <View style={styles.offNote}>
@@ -219,6 +261,7 @@ const styles = StyleSheet.create({
     gap: space.md,
   },
   offNote: { marginTop: space.lg },
+  pot: { gap: space.sm, marginBottom: space.lg },
   afterRow: { flexDirection: 'row', gap: space.lg },
   afterLabel: { ...type.headline, color: colors.text, width: 90 },
   afterValue: { ...type.callout, color: colors.text, flex: 1 },
