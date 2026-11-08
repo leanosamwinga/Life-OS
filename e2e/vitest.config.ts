@@ -15,8 +15,8 @@ export default defineConfig({
       'expo-crypto': stub('expo-crypto.ts'),
       'expo-file-system': stub('empty.ts'),
       'expo-sharing': stub('empty.ts'),
-      'expo-apple-authentication': stub('empty.ts'),
-      'expo-web-browser': stub('empty.ts'),
+      'expo-apple-authentication': stub('expo-apple-authentication.ts'),
+      'expo-web-browser': stub('expo-web-browser.ts'),
     },
   },
   test: {
@@ -24,5 +24,10 @@ export default defineConfig({
     testTimeout: 60_000,
     hookTimeout: 60_000,
     fileParallelism: false,
+    // The app reads these at build time; the local stack's fake Google accepts this client id.
+    env: {
+      EXPO_PUBLIC_DEVICE_CHECKS: 'off',
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: 'test-google-client.apps.example.test',
+    },
   },
 });

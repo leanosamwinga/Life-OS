@@ -12,6 +12,8 @@ export const OFF_USER_AGENT = 'LifeOS/0.1 (leanosamwinga@gmail.com)';
 export const OFF_CREDIT = 'Food data from Open Food Facts (ODbL)';
 /** Cached products older than this are refreshed from Open Food Facts when possible. */
 export const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+/** Open Food Facts. The Docker-free test stack points OPEN_FOOD_FACTS_URL at a local stand-in. */
+export const OFF_BASE_URL = 'https://world.openfoodfacts.org';
 
 export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -26,6 +28,8 @@ export interface FoodLookupDeps {
   saveToCache(row: FoodRow): Promise<FoodRow>;
   fetch: typeof fetch;
   now(): Date;
+  /** Defaults to OFF_BASE_URL. */
+  offBaseUrl?: string;
 }
 
 export type FoodLookupResult =
@@ -40,8 +44,9 @@ type FetchOutcome =
 export async function fetchFromOff(
   barcode: string,
   fetchImpl: typeof fetch,
+  baseUrl: string = OFF_BASE_URL,
 ): Promise<FetchOutcome> {
-  const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`;
+  const url = `${baseUrl}/api/v2/product/${encodeURIComponent(barcode)}.json`;
   let res: Response;
   try {
     res = await fetchImpl(url, {
@@ -94,7 +99,7 @@ export async function lookupFood(
     };
   }
 
-  const outcome = await fetchFromOff(barcode, deps.fetch);
+  const outcome = await fetchFromOff(barcode, deps.fetch, deps.offBaseUrl);
   if (outcome.kind === 'found') {
     const stored = await deps.saveToCache(toFoodRow(outcome.record, deps.now()));
     return {

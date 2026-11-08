@@ -19,6 +19,12 @@
 #   * The edge functions (auth-api, food-lookup) in Deno — official release binary, pinned — on
 #     :54331 / :54332, with supabase/functions/.env.example as their env (+ the SUPABASE_* values
 #     the edge runtime injects).
+#   * Local fakes (scripts/local-auth/fakes.mjs) on :54333 — a fake Apple and Google (JWKS from
+#     keys generated on each start, private halves in .local-auth/fakes.json for the e2e test)
+#     and an Open Food Facts stand-in that knows no barcodes. auth-api here trusts ONLY the fake
+#     Apple/Google. `LOCAL_FAKES=off npm run local-auth` leaves them out (Apple and Google are then
+#     off, as in supabase/functions/.env.example, and food-lookup calls the real Open Food Facts).
+#     Real Apple/Google on a phone: `npx supabase functions serve` with supabase/functions/.env.
 #   * A small gateway on :54321 (scripts/local-auth/gateway.mjs) routing /auth/v1, /rest/v1 and
 #     /functions/v1 like Supabase's Kong, so the app and the e2e test use the same URLs as with
 #     `supabase start`. LOCAL_STACK_HOST=0.0.0.0 makes it reachable from a phone on your Wi-Fi.
@@ -50,6 +56,7 @@ MAIL_UI_PORT=54324
 REST_PORT=54330
 AUTH_API_PORT=54331
 FOOD_LOOKUP_PORT=54332
+FAKES_PORT=54333
 GATEWAY_PORT=54321
 GATEWAY_HOST="${LOCAL_STACK_HOST:-127.0.0.1}"
 
@@ -182,17 +189,41 @@ EOF
   echo $! >"$STATE/postgrest.pid"
 )
 
+# ---------------------------------------------------------------------------- fakes
+rm -f "$STATE/fakes.json"
+if [[ "${LOCAL_FAKES:-on}" != off ]]; then
+  FAKES_PORT="$FAKES_PORT" nohup node "$ROOT/scripts/local-auth/fakes.mjs" "$STATE" \
+    >"$STATE/logs/fakes.log" 2>&1 &
+  echo $! >"$STATE/fakes.pid"
+  for _ in $(seq 1 100); do [[ -s "$STATE/fakes.json" ]] && break; sleep 0.1; done
+  [[ -s "$STATE/fakes.json" ]] || { tail -20 "$STATE/logs/fakes.log"; exit 1; }
+fi
+
 # ---------------------------------------------------------------------------- edge functions
 # Each function's env: supabase/functions/.env.example exactly as the README says to copy it,
 # plus what the edge runtime injects. Mailpit is on 127.0.0.1 here (no Docker).
 FN_ENV="$STATE/functions.env"
 {
-  grep -E '^[A-Z_0-9]+=' "$ROOT/supabase/functions/.env.example" | grep -v '^MAILPIT_URL='
+  grep -E '^[A-Z_0-9]+=' "$ROOT/supabase/functions/.env.example" |
+    grep -vE '^(MAILPIT_URL|APPLE_BUNDLE_ID|APPLE_SERVICES_ID|GOOGLE_CLIENT_IDS)='
   echo "MAILPIT_URL=http://127.0.0.1:$MAIL_UI_PORT"
   echo "SUPABASE_URL=http://127.0.0.1:$GATEWAY_PORT"
   echo "SUPABASE_ANON_KEY=$ANON_KEY"
   echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_KEY"
   echo "SUPABASE_DB_URL=postgresql://postgres@127.0.0.1:$PG_PORT/postgres"
+  if [[ ! -s "$STATE/fakes.json" ]]; then
+    grep -E '^(APPLE_BUNDLE_ID|APPLE_SERVICES_ID|GOOGLE_CLIENT_IDS)=' "$ROOT/supabase/functions/.env.example"
+  else
+    fake="http://127.0.0.1:$FAKES_PORT"
+    echo "APPLE_ISSUERS=https://appleid.apple.test"
+    echo "APPLE_JWKS_URL=$fake/apple/keys"
+    echo "APPLE_BUNDLE_ID=test.lifeos.app"
+    echo "APPLE_SERVICES_ID=test.lifeos.web"
+    echo "GOOGLE_ISSUERS=https://accounts.google.test"
+    echo "GOOGLE_JWKS_URL=$fake/google/certs"
+    echo "GOOGLE_CLIENT_IDS=test-google-client.apps.example.test"
+    echo "OPEN_FOOD_FACTS_URL=$fake/off"
+  fi
 } >"$FN_ENV"
 start_fn() { # name port
   local name="$1" fport="$2"

@@ -43,27 +43,67 @@ export function findStack(): Stack | null {
   };
 }
 
-/** The newest 6-digit code Mailpit has for `email` (waits for the outbox to send it). */
-export async function codeFromMailpit(stack: Stack, email: string, after = 0): Promise<string> {
+/**
+ * The newest email Mailpit has for `email` since `after` (optionally with this subject) whose
+ * text matches `pattern`; returns the first capture group. Waits for the outbox to send it.
+ */
+async function fromMailpit(
+  stack: Stack,
+  email: string,
+  after: number,
+  pattern: RegExp,
+  subject?: string,
+): Promise<string> {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     const r = await fetch(
       `${stack.mailpitUrl}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}`,
     );
-    const list = (await r.json()) as { messages: { ID: string; Created: string }[] };
-    const fresh = list.messages.filter((m) => Date.parse(m.Created) >= after);
-    if (fresh.length) {
-      const m = (await (
-        await fetch(`${stack.mailpitUrl}/api/v1/message/${fresh[0]!.ID}`)
-      ).json()) as {
+    const list = (await r.json()) as {
+      messages: { ID: string; Created: string; Subject: string }[];
+    };
+    const fresh = list.messages.filter(
+      (m) => Date.parse(m.Created) >= after && (!subject || m.Subject === subject),
+    );
+    for (const msg of fresh) {
+      const m = (await (await fetch(`${stack.mailpitUrl}/api/v1/message/${msg.ID}`)).json()) as {
         Text: string;
       };
-      const code = /\b(\d{6})\b/.exec(m.Text)?.[1];
-      if (code) return code;
+      const hit = pattern.exec(m.Text)?.[1];
+      if (hit) return hit;
     }
     await new Promise((r) => setTimeout(r, 250));
   }
-  throw new Error(`no code emailed to ${email}`);
+  throw new Error(`nothing matching ${pattern} emailed to ${email}`);
+}
+
+/** The newest 6-digit code Mailpit has for `email`. */
+export const codeFromMailpit = (stack: Stack, email: string, after = 0, subject?: string) =>
+  fromMailpit(stack, email, after, /\b(\d{6})\b/, subject);
+
+/** The reset token from the newest "Set a new password" link (…/reset#t=<token>). */
+export const resetTokenFromMailpit = (stack: Stack, email: string, after = 0) =>
+  fromMailpit(stack, email, after, /#t=([A-Za-z0-9_-]+)/);
+
+export interface FakeIdp {
+  issuer: string;
+  kid: string;
+  privateJwk: Record<string, unknown>;
+}
+export interface Fakes {
+  apple: FakeIdp & { bundleId: string; servicesId: string };
+  google: FakeIdp & { clientId: string };
+  openFoodFactsUrl: string;
+}
+
+/**
+ * The local stack's fake Apple/Google keys (scripts/local-auth/fakes.mjs), or null when the
+ * stack runs without them (LOCAL_FAKES=off, or `npx supabase start`).
+ */
+export function findFakes(): Fakes | null {
+  if (process.env.E2E_API_URL) return null;
+  const file = fileURLToPath(new URL('../.local-auth/fakes.json', import.meta.url));
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Fakes) : null;
 }
 
 export const uniqueEmail = (tag: string) =>

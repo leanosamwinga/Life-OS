@@ -47,6 +47,7 @@ const deps: FoodLookupDeps = {
   },
   fetch: (input, init) => fetch(input, init),
   now: () => new Date(),
+  offBaseUrl: Deno.env.get('OPEN_FOOD_FACTS_URL') || undefined,
 };
 
 Deno.serve(async (req) => {
