@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "@life-os/core": "../../../packages/core/src/index.ts",
+    "jose": "npm:jose@6",
+    "postgres": "npm:postgres@3"
+  }
+}

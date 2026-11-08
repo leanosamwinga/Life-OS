@@ -15,24 +15,31 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "npm run build:core && tsc -b packages/core supabase/functions && npm run typecheck -w @life-os/mobile",
-    "test": "npm run test:core && npm run test:functions && npm run test:mobile",
+    "typecheck": "npm run build:core && tsc -b packages/core supabase/functions && npm run typecheck -w @life-os/mobile && tsc -p e2e",
+    "test": "npm run test:core && npm run test:functions && npm run test:scripts && npm run test:mobile",
     "test:core": "npm run test -w @life-os/core",
-    "test:functions": "vitest run --root supabase/functions",
+    "test:functions": "vitest run --root supabase/functions --exclude '**/*.integration.test.ts'",
     "test:mobile": "npm run test -w @life-os/mobile",
     "test:db": "bash scripts/test-db.sh",
-    "mobile": "npm run start -w @life-os/mobile"
+    "mobile": "npm run start -w @life-os/mobile",
+    "test:integration": "vitest run --root supabase/functions integration",
+    "local-auth": "bash scripts/local-auth/start.sh",
+    "test:e2e": "vitest run --root e2e",
+    "test:scripts": "vitest run --root scripts",
+    "doctor": "node scripts/doctor/doctor.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/node": "^24.0.0",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.0.0",
+    "jose": "^6.2.15",
+    "postgres": "^3.4.9",
     "prettier": "^3.9.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.0",
-    "vitest": "^5.1.0",
-    "@types/node": "^24.0.0"
+    "vitest": "^5.1.0"
   }
 }

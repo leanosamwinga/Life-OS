@@ -4,3 +4,4 @@ export * from './format.ts';
 export * from './time.ts';
 export * from './training.ts';
 export * from './defaults.ts';
+export * from './auth.ts';

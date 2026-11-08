@@ -8,8 +8,27 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { applyPatch, type SettingsPatch, type UserSettings } from './backend/settings';
-import type { AuthUser, Backend } from './backend/types';
+import {
+  applyPatch,
+  defaultUserSettings,
+  type SettingsPatch,
+  type UserSettings,
+} from './backend/settings';
+import { SessionEndedError, UserFacingError, type AuthUser, type Backend } from './backend/types';
+
+const sessionKey = (u: AuthUser) => `${u.id}:${u.scope ?? 'FULL'}`;
+
+/**
+ * "Couldn't load your data" is only for real network or server errors (an ended session goes
+ * to 0a instead). Network → check your connection; otherwise the server's friendly message.
+ */
+export function loadErrorMessage(err: unknown): string {
+  const text = err instanceof Error ? err.message : '';
+  if (err instanceof TypeError || /network request failed|failed to fetch|load failed/i.test(text))
+    return 'Check your connection and try again.';
+  if (err instanceof UserFacingError && text) return text;
+  return 'Something went wrong on our side. Try again in a moment.';
+}
 
 /**
  * - `disconnected`: no Supabase env — the app shows sample data and never asks to sign in.
@@ -27,6 +46,8 @@ export interface SessionValue {
   healthConsent: boolean;
   /** Set when loading the signed-in user's data failed (e.g. offline). */
   loadError: string | null;
+  /** The account is being deleted: only S-5h is available (spec 8.1). */
+  pendingDeletion: boolean;
   /** Re-read profile, settings and consent (e.g. after onboarding steps). */
   refresh(): Promise<void>;
   /** Optimistically update settings, then persist. Reverts and rethrows on failure. */
@@ -48,6 +69,7 @@ const DISCONNECTED: SessionValue = {
   settings: null,
   healthConsent: false,
   loadError: null,
+  pendingDeletion: false,
   refresh: noop,
   updateSettings: noop,
   setDisplayName: noop,
@@ -85,7 +107,8 @@ export function SessionProvider({
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
-  const userRef = useRef<string | null>(null);
+  // '\u0000' = nothing seen yet, so the first "signed out" still counts.
+  const userRef = useRef<string | null>('\u0000');
 
   const load = useCallback(
     async (forUser: AuthUser | null) => {
@@ -93,7 +116,15 @@ export function SessionProvider({
         setLoaded(null);
         return;
       }
+      // Only this exact user + scope may write the result: if the session ends or its scope
+      // changes while we wait, the newer state wins.
+      const key = sessionKey(forUser);
       setLoadError(null);
+      if (forUser.scope === 'PENDING_DELETION') {
+        // The Data API refuses this session; don't ask it for anything.
+        setLoaded({ displayName: null, settings: defaultUserSettings(), healthConsent: false });
+        return;
+      }
       let profile, settings, healthConsent;
       try {
         [profile, settings, healthConsent] = await Promise.all([
@@ -102,12 +133,13 @@ export function SessionProvider({
           backend.hasHealthConsent(),
         ]);
       } catch (err) {
-        if (userRef.current === forUser.id) {
-          setLoadError(err instanceof Error ? err.message : 'Could not load your data.');
+        // An ended session has already been cleared (→ 0a, no message, spec 3.3).
+        if (userRef.current === key && !(err instanceof SessionEndedError)) {
+          setLoadError(loadErrorMessage(err));
         }
         return;
       }
-      if (userRef.current === forUser.id) {
+      if (userRef.current === key) {
         setLoaded({ displayName: profile.displayName, settings, healthConsent });
       }
     },
@@ -119,8 +151,9 @@ export function SessionProvider({
     let alive = true;
     const handle = (next: AuthUser | null) => {
       if (!alive) return;
-      if (next?.id === userRef.current) return;
-      userRef.current = next?.id ?? null;
+      const key = next ? sessionKey(next) : null;
+      if (key === userRef.current) return;
+      userRef.current = key;
       setUser(next);
       setLoaded(null);
       void load(next).finally(() => alive && setReady(true));
@@ -153,6 +186,8 @@ export function SessionProvider({
       settings: loaded?.settings ?? null,
       healthConsent: loaded?.healthConsent ?? false,
       loadError,
+      pendingDeletion: user?.scope === 'PENDING_DELETION',
+      // "Try again" really retries: back to the spinner, then load again.
       refresh: () => load(user),
       async updateSettings(patch) {
         const before = loaded;

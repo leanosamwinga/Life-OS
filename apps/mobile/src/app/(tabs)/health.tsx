@@ -16,6 +16,7 @@ import {
 import { Card, ComingIn, PlaceholderBlock, Screen } from '@/components/ui';
 import { FormMessage, SecondaryButton } from '@/components/forms';
 import { useDay } from '@/features/data/useDay';
+import { useNow } from '@/features/data/useNow';
 import type { RosterMeal } from '@/lib/backend/foods';
 import { useSession } from '@/lib/session';
 import {
@@ -31,7 +32,7 @@ const RANGES = ['Day', 'Week', 'Month'] as const;
 
 export default function HealthScreen() {
   const [range, setRange] = useState<(typeof RANGES)[number]>('Day');
-  const today = toLondonDate(new Date());
+  const today = toLondonDate(useNow());
   const session = useSession();
   const day = useDay(today);
   const live = day.live;

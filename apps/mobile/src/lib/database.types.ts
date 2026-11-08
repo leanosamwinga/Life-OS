@@ -6,6 +6,789 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type Database = {
   public: {
     Tables: {
+      auth_accounts: {
+        Row: {
+          confirmed_at: string | null;
+          created_at: string;
+          email: string;
+          email_deliverable: boolean;
+          email_norm: string;
+          is_private_relay: boolean;
+          method: string;
+          password_changed_at: string | null;
+          pepper_version: number | null;
+          status: string;
+          step_up_required: boolean;
+          step_up_set_at: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          confirmed_at?: string | null;
+          created_at?: string;
+          email: string;
+          email_deliverable?: boolean;
+          email_norm?: never;
+          is_private_relay?: boolean;
+          method: string;
+          password_changed_at?: string | null;
+          pepper_version?: number | null;
+          status?: string;
+          step_up_required?: boolean;
+          step_up_set_at?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          confirmed_at?: string | null;
+          created_at?: string;
+          email?: string;
+          email_deliverable?: boolean;
+          email_norm?: never;
+          is_private_relay?: boolean;
+          method?: string;
+          password_changed_at?: string | null;
+          pepper_version?: number | null;
+          status?: string;
+          step_up_required?: boolean;
+          step_up_set_at?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      auth_app_attest_keys: {
+        Row: {
+          counter: number;
+          created_at: string;
+          device_id_hash: string;
+          key_id: string;
+          public_key_spki: string;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          counter?: number;
+          created_at?: string;
+          device_id_hash: string;
+          key_id: string;
+          public_key_spki: string;
+          updated_at?: string;
+        };
+        Update: {
+          counter?: number;
+          created_at?: string;
+          device_id_hash?: string;
+          key_id?: string;
+          public_key_spki?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      auth_apple_events: {
+        Row: {
+          created_at: string;
+          event_key: string;
+          event_type: string;
+          processed_at: string | null;
+          received_at: string;
+          subject: string;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          event_key: string;
+          event_type: string;
+          processed_at?: string | null;
+          received_at?: string;
+          subject: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          event_key?: string;
+          event_type?: string;
+          processed_at?: string | null;
+          received_at?: string;
+          subject?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      auth_apple_revocations: {
+        Row: {
+          attempts: number;
+          created_at: string;
+          id: string;
+          refresh_token_enc: string;
+          revoked_at: string | null;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          refresh_token_enc: string;
+          revoked_at?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          refresh_token_enc?: string;
+          revoked_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      auth_breached_hashes: {
+        Row: {
+          breach_count: number;
+          prefix: string;
+          suffix: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          breach_count?: number;
+          prefix: string;
+          suffix: string;
+        };
+        Update: {
+          breach_count?: number;
+          prefix?: string;
+          suffix?: string;
+        };
+        Relationships: [];
+      };
+      auth_deletion_requests: {
+        Row: {
+          cancelled_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          due_at: string;
+          id: string;
+          requested_at: string;
+          source: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          cancelled_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          due_at: string;
+          id?: string;
+          requested_at?: string;
+          source?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          cancelled_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          due_at?: string;
+          id?: string;
+          requested_at?: string;
+          source?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      auth_email_outbox: {
+        Row: {
+          attempts: number;
+          created_at: string;
+          failed_at: string | null;
+          id: string;
+          idempotency_key: string | null;
+          params: NonNullable<Json>;
+          send_after: string;
+          sent_at: string | null;
+          template: string;
+          to_email: string | null;
+          updated_at: string;
+          user_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          created_at?: string;
+          failed_at?: string | null;
+          id?: string;
+          idempotency_key?: string | null;
+          params?: NonNullable<Json>;
+          send_after?: string;
+          sent_at?: string | null;
+          template: string;
+          to_email?: string | null;
+          updated_at?: string;
+          user_id?: string | null;
+        };
+        Update: {
+          attempts?: number;
+          created_at?: string;
+          failed_at?: string | null;
+          id?: string;
+          idempotency_key?: string | null;
+          params?: NonNullable<Json>;
+          send_after?: string;
+          sent_at?: string | null;
+          template?: string;
+          to_email?: string | null;
+          updated_at?: string;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      auth_federated_identities: {
+        Row: {
+          apple_refresh_token_enc: string | null;
+          created_at: string;
+          email_at_provider: string | null;
+          id: string;
+          is_private_relay: boolean;
+          provider: string;
+          subject: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          apple_refresh_token_enc?: string | null;
+          created_at?: string;
+          email_at_provider?: string | null;
+          id?: string;
+          is_private_relay?: boolean;
+          provider: string;
+          subject: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          apple_refresh_token_enc?: string | null;
+          created_at?: string;
+          email_at_provider?: string | null;
+          id?: string;
+          is_private_relay?: boolean;
+          provider?: string;
+          subject?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_federated_identities_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: true;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_known_devices: {
+        Row: {
+          coarse_location: string | null;
+          created_at: string;
+          device_id_hash: string;
+          first_seen_at: string;
+          id: string;
+          label: string;
+          last_seen_at: string;
+          platform: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          coarse_location?: string | null;
+          created_at?: string;
+          device_id_hash: string;
+          first_seen_at?: string;
+          id?: string;
+          label: string;
+          last_seen_at?: string;
+          platform: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          coarse_location?: string | null;
+          created_at?: string;
+          device_id_hash?: string;
+          first_seen_at?: string;
+          id?: string;
+          label?: string;
+          last_seen_at?: string;
+          platform?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_known_devices_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_nonces: {
+        Row: {
+          created_at: string;
+          device_id_hash: string;
+          expires_at: string;
+          id: string;
+          nonce_hash: string;
+          purpose: string;
+          updated_at: string;
+          used_at: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          device_id_hash: string;
+          expires_at: string;
+          id?: string;
+          nonce_hash: string;
+          purpose?: string;
+          updated_at?: string;
+          used_at?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          device_id_hash?: string;
+          expires_at?: string;
+          id?: string;
+          nonce_hash?: string;
+          purpose?: string;
+          updated_at?: string;
+          used_at?: string | null;
+        };
+        Relationships: [];
+      };
+      auth_one_time_codes: {
+        Row: {
+          attempts: number;
+          code_hmac: string;
+          consumed_at: string | null;
+          created_at: string;
+          device_id_hash: string;
+          expires_at: string;
+          id: string;
+          purpose: string;
+          superseded_at: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          code_hmac: string;
+          consumed_at?: string | null;
+          created_at?: string;
+          device_id_hash: string;
+          expires_at: string;
+          id?: string;
+          purpose: string;
+          superseded_at?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          attempts?: number;
+          code_hmac?: string;
+          consumed_at?: string | null;
+          created_at?: string;
+          device_id_hash?: string;
+          expires_at?: string;
+          id?: string;
+          purpose?: string;
+          superseded_at?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_one_time_codes_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_owner_alerts: {
+        Row: {
+          created_at: string;
+          last_sent_at: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          last_sent_at: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          last_sent_at?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_owner_alerts_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: true;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_permits: {
+        Row: {
+          created_at: string;
+          expires_at: string;
+          id: string;
+          purpose: string;
+          used_at: string | null;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          expires_at: string;
+          id?: string;
+          purpose: string;
+          used_at?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          expires_at?: string;
+          id?: string;
+          purpose?: string;
+          used_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      auth_rate_events: {
+        Row: {
+          at: string;
+          bucket: string;
+          id: number;
+          key_hash: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          at?: string;
+          bucket: string;
+          id?: never;
+          key_hash: string;
+        };
+        Update: {
+          at?: string;
+          bucket?: string;
+          id?: never;
+          key_hash?: string;
+        };
+        Relationships: [];
+      };
+      auth_reauth_tokens: {
+        Row: {
+          created_at: string;
+          expires_at: string;
+          scope: string;
+          session_id: string;
+          token_hash: string;
+          updated_at: string;
+          used_at: string | null;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          expires_at: string;
+          scope: string;
+          session_id: string;
+          token_hash: string;
+          updated_at?: string;
+          used_at?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          expires_at?: string;
+          scope?: string;
+          session_id?: string;
+          token_hash?: string;
+          updated_at?: string;
+          used_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_reauth_tokens_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_refresh_hashes: {
+        Row: {
+          created_at: string;
+          issued_at: string;
+          session_id: string;
+          superseded_at: string | null;
+          token_hash: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          issued_at?: string;
+          session_id: string;
+          superseded_at?: string | null;
+          token_hash: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          issued_at?: string;
+          session_id?: string;
+          superseded_at?: string | null;
+          token_hash?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_refresh_hashes_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_reset_tokens: {
+        Row: {
+          created_at: string;
+          expires_at: string;
+          superseded_at: string | null;
+          token_hash: string;
+          updated_at: string;
+          used_at: string | null;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          expires_at: string;
+          superseded_at?: string | null;
+          token_hash: string;
+          updated_at?: string;
+          used_at?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          expires_at?: string;
+          superseded_at?: string | null;
+          token_hash?: string;
+          updated_at?: string;
+          used_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_reset_tokens_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_session_meta: {
+        Row: {
+          coarse_location: string | null;
+          created_at: string;
+          device_id_hash: string;
+          label: string;
+          platform: string;
+          push_token: string | null;
+          session_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          coarse_location?: string | null;
+          created_at?: string;
+          device_id_hash: string;
+          label: string;
+          platform: string;
+          push_token?: string | null;
+          session_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          coarse_location?: string | null;
+          created_at?: string;
+          device_id_hash?: string;
+          label?: string;
+          platform?: string;
+          push_token?: string | null;
+          session_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_session_meta_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_sign_in_failures: {
+        Row: {
+          email_norm: string;
+          failed_at: string;
+          id: number;
+          key_hash: string;
+          key_kind: string;
+          user_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          email_norm: string;
+          failed_at?: string;
+          id?: never;
+          key_hash: string;
+          key_kind: string;
+          user_id?: string | null;
+        };
+        Update: {
+          email_norm?: string;
+          failed_at?: string;
+          id?: never;
+          key_hash?: string;
+          key_kind?: string;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'auth_sign_in_failures_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'auth_accounts';
+            referencedColumns: ['user_id'];
+          },
+        ];
+      };
+      auth_sign_in_pauses: {
+        Row: {
+          created_at: string;
+          email_norm: string;
+          key_hash: string;
+          key_kind: string;
+          last_failure_at: string;
+          level: number;
+          paused_until: string;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          email_norm: string;
+          key_hash: string;
+          key_kind: string;
+          last_failure_at?: string;
+          level?: number;
+          paused_until: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          email_norm?: string;
+          key_hash?: string;
+          key_kind?: string;
+          last_failure_at?: string;
+          level?: number;
+          paused_until?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      auth_tickets: {
+        Row: {
+          apple_refresh_token_enc: string | null;
+          created_at: string;
+          device_id_hash: string;
+          email: string | null;
+          expires_at: string;
+          given_name: string | null;
+          is_private_relay: boolean;
+          kind: string;
+          provider: string;
+          subject: string;
+          ticket_hash: string;
+          updated_at: string;
+          used_at: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          apple_refresh_token_enc?: string | null;
+          created_at?: string;
+          device_id_hash: string;
+          email?: string | null;
+          expires_at: string;
+          given_name?: string | null;
+          is_private_relay?: boolean;
+          kind: string;
+          provider: string;
+          subject: string;
+          ticket_hash: string;
+          updated_at?: string;
+          used_at?: string | null;
+        };
+        Update: {
+          apple_refresh_token_enc?: string | null;
+          created_at?: string;
+          device_id_hash?: string;
+          email?: string | null;
+          expires_at?: string;
+          given_name?: string | null;
+          is_private_relay?: boolean;
+          kind?: string;
+          provider?: string;
+          subject?: string;
+          ticket_hash?: string;
+          updated_at?: string;
+          used_at?: string | null;
+        };
+        Relationships: [];
+      };
       consents: {
         Row: {
           created_at: string;
@@ -548,20 +1331,45 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      can_use_food: { Args: { food: string }; Returns: boolean };
-      first_name_from_metadata: { Args: { meta: Json }; Returns: string };
-      has_active_consent: { Args: { consent_type: string }; Returns: boolean };
-      log_meal: {
-        Args: { p_items: Json; p_logged_at: string; p_name: string; p_saved_meal_id: string | null };
+      auth_active_pause: {
+        Args: { p_device_hash: string; p_email_norm: string; p_ip_hash: string; p_now?: string };
         Returns: string;
       };
+      auth_before_user_created_hook: { Args: { event: Json }; Returns: Json };
+      auth_consume_permit: { Args: { p_purpose: string; p_user_id: string }; Returns: boolean };
+      auth_custom_access_token_hook: { Args: { event: Json }; Returns: Json };
+      auth_housekeeping: { Args: { p_now?: string }; Returns: undefined };
+      auth_kick_jobs: { Args: Record<PropertyKey, never>; Returns: undefined };
+      auth_pause_interval: { Args: { level: number }; Returns: string };
+      auth_record_wrong_password: {
+        Args: {
+          p_device_hash: string;
+          p_email_norm: string;
+          p_ip_hash: string;
+          p_now?: string;
+          p_user_id: string;
+        };
+        Returns: string;
+      };
+      auth_run_due_deletions: { Args: { p_now?: string }; Returns: number };
+      auth_send_email_hook: { Args: { event: Json }; Returns: Json };
+      can_use_food: { Args: { food: string }; Returns: boolean };
+      check_request: { Args: Record<PropertyKey, never>; Returns: undefined };
+      first_name_from_metadata: { Args: { meta: Json }; Returns: string };
+      has_active_consent: { Args: { consent_type: string }; Returns: boolean };
+      lock_down_server_table: { Args: { t: unknown }; Returns: undefined };
+      log_meal: {
+        Args: { p_items: Json; p_logged_at: string; p_name: string; p_saved_meal_id: string };
+        Returns: string;
+      };
+      normalise_email: { Args: { email: string }; Returns: string };
       save_meal: {
         Args: {
           p_components: Json;
-          p_id: string | null;
+          p_id: string;
           p_in_daily_plan: boolean;
           p_name: string;
-          p_usual_time: string | null;
+          p_usual_time: string;
         };
         Returns: string;
       };

@@ -46,3 +46,6 @@ yarn-error.*
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Docker-free local auth stack (scripts/local-auth)
+.local-auth/

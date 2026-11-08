@@ -37,3 +37,39 @@ export function stepNumber(steps: readonly OnboardingStep[], current: Onboarding
 }
 
 export const stepHref = (step: OnboardingStep) => `/onboarding/${step}` as const;
+
+/** What onboarding has saved so far (user_settings + the health-data consent). */
+export interface OnboardingProgress {
+  healthConsent: boolean | null;
+  settings: {
+    appleHealthChoice: string | null;
+    screenTimeChoice: string | null;
+    notificationsPromptedAt: string | null;
+    onboardingCompletedAt: string | null;
+  } | null;
+}
+
+/**
+ * Where a relaunch mid-onboarding picks up: the step after the last answer that was saved.
+ * Later answers win (a Screen Time choice means 0c and 0d are behind us). Answers that save
+ * nothing — "Not now" on 0c, Skip on 0f — are asked again, which changes nothing.
+ * Null once onboarding is finished (0g saved): it never shows again.
+ */
+export function resumeStep(
+  platform: AppPlatform,
+  progress: OnboardingProgress,
+): OnboardingStep | null {
+  const s = progress.settings;
+  if (s?.onboardingCompletedAt) return null;
+  const order: OnboardingStep[] = ['consent', 'apple-health', 'screen-time', 'nudges', 'finish'];
+  const saved: Partial<Record<OnboardingStep, boolean>> = {
+    consent: progress.healthConsent === true,
+    'apple-health': Boolean(s?.appleHealthChoice),
+    'screen-time': Boolean(s?.screenTimeChoice),
+    nudges: Boolean(s?.notificationsPromptedAt),
+  };
+  const last = [...order].reverse().find((step) => saved[step]);
+  if (!last) return 'consent';
+  const steps = onboardingSteps(platform, { healthConsent: progress.healthConsent });
+  return steps.find((step) => order.indexOf(step) > order.indexOf(last)) ?? 'finish';
+}
