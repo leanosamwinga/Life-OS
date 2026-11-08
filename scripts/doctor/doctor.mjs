@@ -304,7 +304,11 @@ if (appEnv?.EXPO_PUBLIC_SUPABASE_URL) {
           )
         : fail(
             byAddress.name,
-            `${appEnv.EXPO_PUBLIC_SUPABASE_URL} doesn't answer here${r ? ` (HTTP ${r.status})` : ''} — for the Docker-free stack start it with LOCAL_STACK_HOST=0.0.0.0 npm run local-auth`,
+            `${appEnv.EXPO_PUBLIC_SUPABASE_URL} doesn't answer here${r ? ` (HTTP ${r.status})` : ''} — ${
+              isDocker
+                ? `start Supabase first (\`${SUPABASE} start\`), then \`${SUPABASE} functions serve --env-file supabase/functions/.env\``
+                : 'start the Docker-free stack with LOCAL_STACK_HOST=0.0.0.0 npm run local-auth'
+            }`,
           ),
     );
   }
