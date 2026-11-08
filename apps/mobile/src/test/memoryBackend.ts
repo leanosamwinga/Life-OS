@@ -4,12 +4,20 @@
  */
 import {
   portionMacros,
+  summariseBatch,
   toFood,
+  type CooksAs,
   type MealComponent,
   type MealLog,
   type WaterLog,
 } from '@life-os/core';
-import { logMealItems, type RosterMeal, type StoredFood } from '@/lib/backend/foods';
+import {
+  batchIssueMessage,
+  logMealItems,
+  type RosterMeal,
+  type SavedBatch,
+  type StoredFood,
+} from '@/lib/backend/foods';
 import {
   applyPatch,
   defaultUserSettings,
@@ -33,8 +41,11 @@ export interface MemoryState {
     name: string;
     inDailyPlan: boolean;
     usualTime: string | null;
+    starred?: boolean;
     components: { foodId: string; grams: number }[];
   }[];
+  /** Batches are foods (with `batch` set); their ingredients by batch id. */
+  batchIngredients: Record<string, { foodId: string; grams: number; cooksAs: CooksAs }[]>;
   mealLogs: MealLog[];
   water: WaterLog[];
   lastPortions: Record<string, { grams: number; loggedAt: string }>;
@@ -69,6 +80,7 @@ export function createMemoryBackend(
     mealLogs: [],
     water: [],
     lastPortions: {},
+    batchIngredients: {},
     ...init,
   };
   let seq = 0;
@@ -99,8 +111,10 @@ export function createMemoryBackend(
       );
     }
   };
+  /** Like RLS on foods: batches are health data, hidden without consent. */
+  const visible = (f: StoredFood) => !f.batch || state.healthConsent;
   const food = (id: string) => {
-    const r = state.foods.find((f) => f.id === id);
+    const r = state.foods.find((f) => f.id === id && visible(f));
     return r ? toFood(r) : null;
   };
   const toRoster = (m: MemoryState['savedMeals'][number]): RosterMeal => {
@@ -117,9 +131,20 @@ export function createMemoryBackend(
       name: m.name,
       inDailyPlan: m.inDailyPlan,
       usualTime: m.usualTime,
+      starred: Boolean(m.starred),
       components,
       missingComponents: missing,
     };
+  };
+  const toBatch = (rec: StoredFood): SavedBatch => {
+    const ingredients: SavedBatch['ingredients'] = [];
+    let missing = 0;
+    for (const i of state.batchIngredients[rec.id] ?? []) {
+      const f = food(i.foodId);
+      if (f) ingredients.push({ food: f, grams: i.grams, cooksAs: i.cooksAs });
+      else missing++;
+    }
+    return { food: toFood(rec) as SavedBatch['food'], ingredients, missingIngredients: missing };
   };
   const inRange = (t: string, r: { from: string; to: string }) =>
     Date.parse(t) >= Date.parse(r.from) && Date.parse(t) < Date.parse(r.to);
@@ -175,6 +200,7 @@ export function createMemoryBackend(
         throw new UserFacingError('Plan meals need a usual time.');
       const row = {
         id: input.id ?? newId('meal'),
+        starred: state.savedMeals.find((m) => m.id === input.id)?.starred ?? false,
         name: input.name.trim(),
         inDailyPlan: input.inDailyPlan,
         usualTime: input.inDailyPlan ? input.usualTime : null,
@@ -193,6 +219,90 @@ export function createMemoryBackend(
       state.mealLogs = state.mealLogs.map((l) =>
         l.savedMealId === id ? { ...l, savedMealId: null } : l,
       );
+    },
+    async listBatches() {
+      await call('listBatches');
+      requireConsent();
+      return state.foods.filter((f) => f.batch && f.userId === state.user!.id).map(toBatch);
+    },
+    async saveBatch(input) {
+      await call('saveBatch');
+      requireConsent();
+      if (!input.name.trim()) throw new UserFacingError('Give the batch a name.');
+      // Same checks as the save_batch SQL function: current foods, recomputed numbers.
+      const ingredients = input.ingredients.map((i) => {
+        const f = food(i.food.id);
+        if (!f) throw new UserFacingError('Unknown food.');
+        if (f.batch) throw new UserFacingError('A batch can’t go in another batch.');
+        return { ...i, food: f };
+      });
+      const s = summariseBatch(ingredients, input.weighedG);
+      if (!s.per100g) throw new UserFacingError(batchIssueMessage(s.issue ?? 'missing'));
+      const existing = input.id ? state.foods.find((f) => f.id === input.id && f.batch) : null;
+      if (input.id && !existing) throw new UserFacingError('Batch not found.');
+      const id = input.id ?? newId('batch');
+      const rec: StoredFood = {
+        id,
+        userId: state.user!.id,
+        source: 'user',
+        barcode: null,
+        name: input.name.trim(),
+        brand: null,
+        kcalPer100g: s.per100g.kcal,
+        proteinPer100g: s.per100g.protein,
+        carbsPer100g: s.per100g.carbs,
+        fatPer100g: s.per100g.fat,
+        fibrePer100g: null,
+        sugarPer100g: null,
+        saltPer100g: null,
+        packGrams: null,
+        servingGrams: null,
+        remembered: true,
+        batch: {
+          cookedWeightG: s.cookedWeightG,
+          weighed: s.weighed,
+          cookedAt: new Date().toISOString(),
+          starred: existing?.batch?.starred ?? false,
+        },
+      };
+      state.foods = existing
+        ? state.foods.map((f) => (f.id === id ? rec : f))
+        : [...state.foods, rec];
+      state.batchIngredients[id] = ingredients.map((i) => ({
+        foodId: i.food.id,
+        grams: i.grams,
+        cooksAs: i.cooksAs,
+      }));
+      return id;
+    },
+    async deleteBatch(id) {
+      await call('deleteBatch');
+      requireConsent();
+      if (state.savedMeals.some((m) => m.components.some((c) => c.foodId === id))) {
+        throw new UserFacingError(
+          'This batch is in a saved meal. Take it out of that meal first, then delete the batch.',
+        );
+      }
+      state.foods = state.foods.filter((f) => f.id !== id);
+      delete state.batchIngredients[id];
+      delete state.lastPortions[id];
+      state.mealLogs = state.mealLogs.map((l) => ({
+        ...l,
+        items: l.items.map((i) => (i.foodId === id ? { ...i, foodId: null } : i)),
+      }));
+    },
+    async setStarred(target, starred) {
+      await call('setStarred');
+      requireConsent();
+      if (target.kind === 'meal') {
+        state.savedMeals = state.savedMeals.map((m) =>
+          m.id === target.id ? { ...m, starred } : m,
+        );
+      } else {
+        state.foods = state.foods.map((f) =>
+          f.id === target.id && f.batch ? { ...f, batch: { ...f.batch, starred } } : f,
+        );
+      }
     },
     async listMealLogs(range) {
       await call('listMealLogs');
@@ -258,12 +368,13 @@ export function createMemoryBackend(
       return state.foods.filter(
         (f) =>
           f.remembered !== false &&
+          visible(f) &&
           (f.userId === null || f.userId === state.user?.id) &&
           (f.name ?? '').toLowerCase().includes(q),
       );
     },
     async getFoods(ids) {
-      return state.foods.filter((f) => ids.includes(f.id));
+      return state.foods.filter((f) => ids.includes(f.id) && visible(f));
     },
     async listRecentFoods(limit) {
       await call('listRecentFoods');

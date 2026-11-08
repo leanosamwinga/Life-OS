@@ -1,4 +1,12 @@
-import { logMealItems, mealLogFromRow, savedMealFromRow, escapeLike, type FoodRow } from './foods';
+import {
+  batchFromRow,
+  logMealItems,
+  mealLogFromRow,
+  saveBatchIngredients,
+  savedMealFromRow,
+  escapeLike,
+  type FoodRow,
+} from './foods';
 
 const row = (over: Partial<FoodRow>): FoodRow => ({
   id: 'food-1',
@@ -18,6 +26,11 @@ const row = (over: Partial<FoodRow>): FoodRow => ({
   pack_g: null,
   serving_g: null,
   remembered: true,
+  is_batch: false,
+  cooked_weight_g: null,
+  cooked_weight_weighed: null,
+  cooked_at: null,
+  starred: false,
   created_at: '2026-11-01T00:00:00Z',
   updated_at: '2026-11-01T00:00:00Z',
   ...over,
@@ -32,6 +45,7 @@ describe('backend row mapping', () => {
       in_daily_plan: true,
       usual_time: '16:00:00',
       sort_order: 0,
+      starred: true,
       saved_meal_components: [
         {
           food_id: 'b',
@@ -44,6 +58,7 @@ describe('backend row mapping', () => {
       ],
     });
     expect(meal.usualTime).toBe('16:00');
+    expect(meal.starred).toBe(true);
     expect(meal.components.map((c) => [c.food.id, c.grams])).toEqual([
       ['a', 200],
       ['b', 80],
@@ -89,5 +104,69 @@ describe('backend row mapping', () => {
 
   it('escapes LIKE wildcards', () => {
     expect(escapeLike('50%_off\\')).toBe('50\\%\\_off\\\\');
+  });
+
+  it('maps a batch: per-100 g food with batch details, ingredients in order with their ratios', () => {
+    const b = batchFromRow({
+      ...row({
+        id: 'batch-1',
+        user_id: 'u1',
+        source: 'user',
+        barcode: null,
+        name: 'Egg fried rice',
+        kcal_per_100g: 136,
+        protein_per_100g: 4,
+        carbs_per_100g: 23.2,
+        fat_per_100g: 2.6,
+        is_batch: true,
+        cooked_weight_g: 1310,
+        cooked_weight_weighed: true,
+        cooked_at: '2026-11-08T12:00:00+00:00',
+        starred: true,
+      }),
+      batch_ingredients: [
+        {
+          food_id: 'eggs',
+          grams: '120.0',
+          cooks_as: 'as_added',
+          cooked_ratio: '1.00',
+          position: 1,
+          foods: row({ id: 'eggs', name: 'Test eggs, large' }),
+        },
+        {
+          food_id: 'rice',
+          grams: '360.0',
+          cooks_as: 'rice',
+          cooked_ratio: '2.50',
+          position: 0,
+          foods: row({ id: 'rice', name: 'Sample rice, dry' }),
+        },
+        {
+          food_id: 'gone',
+          grams: '10.0',
+          cooks_as: 'nonsense',
+          cooked_ratio: '1.00',
+          position: 2,
+          foods: null,
+        },
+      ],
+    })!;
+    expect(b.food.batch).toEqual({
+      cookedWeightG: 1310,
+      weighed: true,
+      cookedAt: '2026-11-08T12:00:00.000Z',
+      starred: true,
+    });
+    expect(b.food.per100g.kcal).toBe(136);
+    expect(b.ingredients.map((i) => [i.food.id, i.grams, i.cooksAs])).toEqual([
+      ['rice', 360, 'rice'],
+      ['eggs', 120, 'as_added'],
+    ]);
+    expect(b.missingIngredients).toBe(1);
+    expect(saveBatchIngredients(b.ingredients)).toEqual([
+      { food_id: 'rice', grams: 360, cooks_as: 'rice', cooked_ratio: 2.5 },
+      { food_id: 'eggs', grams: 120, cooks_as: 'as_added', cooked_ratio: 1 },
+    ]);
+    expect(batchFromRow({ ...row({}), batch_ingredients: [] })).toBeNull();
   });
 });
