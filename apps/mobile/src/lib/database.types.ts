@@ -789,6 +789,61 @@ export type Database = {
         };
         Relationships: [];
       };
+      batch_ingredients: {
+        Row: {
+          batch_id: string;
+          cooked_ratio: number;
+          cooks_as: string;
+          created_at: string;
+          food_id: string;
+          grams: number;
+          id: string;
+          position: number;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          batch_id: string;
+          cooked_ratio?: number;
+          cooks_as?: string;
+          created_at?: string;
+          food_id: string;
+          grams: number;
+          id?: string;
+          position?: number;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Update: {
+          batch_id?: string;
+          cooked_ratio?: number;
+          cooks_as?: string;
+          created_at?: string;
+          food_id?: string;
+          grams?: number;
+          id?: string;
+          position?: number;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'batch_ingredients_batch_fkey';
+            columns: ['batch_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'foods';
+            referencedColumns: ['id', 'user_id'];
+          },
+          {
+            foreignKeyName: 'batch_ingredients_food_id_fkey';
+            columns: ['food_id'];
+            isOneToOne: false;
+            referencedRelation: 'foods';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       consents: {
         Row: {
           created_at: string;
@@ -864,10 +919,14 @@ export type Database = {
           barcode: string | null;
           brand: string | null;
           carbs_per_100g: number | null;
+          cooked_at: string | null;
+          cooked_weight_g: number | null;
+          cooked_weight_weighed: boolean | null;
           created_at: string;
           fat_per_100g: number | null;
           fibre_per_100g: number | null;
           id: string;
+          is_batch: boolean;
           kcal_per_100g: number | null;
           name: string | null;
           off_fetched_at: string | null;
@@ -877,6 +936,7 @@ export type Database = {
           salt_per_100g: number | null;
           serving_g: number | null;
           source: string;
+          starred: boolean;
           sugar_per_100g: number | null;
           updated_at: string;
           user_id: string | null;
@@ -886,10 +946,14 @@ export type Database = {
           barcode?: string | null;
           brand?: string | null;
           carbs_per_100g?: number | null;
+          cooked_at?: string | null;
+          cooked_weight_g?: number | null;
+          cooked_weight_weighed?: boolean | null;
           created_at?: string;
           fat_per_100g?: number | null;
           fibre_per_100g?: number | null;
           id?: string;
+          is_batch?: boolean;
           kcal_per_100g?: number | null;
           name?: string | null;
           off_fetched_at?: string | null;
@@ -899,6 +963,7 @@ export type Database = {
           salt_per_100g?: number | null;
           serving_g?: number | null;
           source: string;
+          starred?: boolean;
           sugar_per_100g?: number | null;
           updated_at?: string;
           user_id?: string | null;
@@ -907,10 +972,14 @@ export type Database = {
           barcode?: string | null;
           brand?: string | null;
           carbs_per_100g?: number | null;
+          cooked_at?: string | null;
+          cooked_weight_g?: number | null;
+          cooked_weight_weighed?: boolean | null;
           created_at?: string;
           fat_per_100g?: number | null;
           fibre_per_100g?: number | null;
           id?: string;
+          is_batch?: boolean;
           kcal_per_100g?: number | null;
           name?: string | null;
           off_fetched_at?: string | null;
@@ -920,6 +989,7 @@ export type Database = {
           salt_per_100g?: number | null;
           serving_g?: number | null;
           source?: string;
+          starred?: boolean;
           sugar_per_100g?: number | null;
           updated_at?: string;
           user_id?: string | null;
@@ -1107,6 +1177,7 @@ export type Database = {
           in_daily_plan: boolean;
           name: string;
           sort_order: number;
+          starred: boolean;
           updated_at: string;
           user_id: string;
           usual_time: string | null;
@@ -1118,6 +1189,7 @@ export type Database = {
           in_daily_plan?: boolean;
           name: string;
           sort_order?: number;
+          starred?: boolean;
           updated_at?: string;
           user_id?: string;
           usual_time?: string | null;
@@ -1128,6 +1200,7 @@ export type Database = {
           in_daily_plan?: boolean;
           name?: string;
           sort_order?: number;
+          starred?: boolean;
           updated_at?: string;
           user_id?: string;
           usual_time?: string | null;
@@ -1363,6 +1436,17 @@ export type Database = {
         Returns: string;
       };
       normalise_email: { Args: { email: string }; Returns: string };
+      save_batch: {
+        Args: {
+          p_cooked_weight_g: number;
+          p_id: string;
+          p_ingredients: Json;
+          p_name: string;
+          p_per_100g: Json;
+          p_weighed: boolean;
+        };
+        Returns: string;
+      };
       save_meal: {
         Args: {
           p_components: Json;

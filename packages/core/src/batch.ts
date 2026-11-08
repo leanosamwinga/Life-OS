@@ -162,12 +162,12 @@ export function batchPer100g(totals: Macros, cookedWeightG: number): Macros {
   if (!Number.isFinite(cookedWeightG) || cookedWeightG <= 0) {
     throw new RangeError(`cookedWeightG must be positive (got ${cookedWeightG})`);
   }
-  const f = 100 / cookedWeightG;
+  // × 100 first, then ÷, as the save_batch SQL does.
   return roundMacros({
-    kcal: totals.kcal * f,
-    protein: totals.protein * f,
-    carbs: totals.carbs * f,
-    fat: totals.fat * f,
+    kcal: (totals.kcal * 100) / cookedWeightG,
+    protein: (totals.protein * 100) / cookedWeightG,
+    carbs: (totals.carbs * 100) / cookedWeightG,
+    fat: (totals.fat * 100) / cookedWeightG,
   });
 }
 
