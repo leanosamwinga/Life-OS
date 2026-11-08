@@ -146,8 +146,13 @@ spec said, what Supabase allows, what was built, and why. "Open" items need a de
    kept in a UK/EU region for the privacy policy), **Cloudflare Workers** via `expo-server`'s adapter
    (UK/EU data localisation is an enterprise feature), or a **small Node server in London** with
    `expo-server`'s Node adapter. Recommendation: a Node server in the same region as Supabase, so
-   tokens and IPs never leave the UK.
+   tokens and IPs never leave the UK. **Phase 7**, with web Apple/Google (they need a real HTTPS
+   address and an Apple Services ID; until then a development web build says so instead of 0b-8g).
 2. **Email provider** (decision 11): needs a UK/EU region, a DPA, SPF/DKIM/DMARC `p=reject`, and
-   registration with Apple's Private Email Relay. Anything that implements `EmailSender`.
-3. **Breach dataset size** on the hosted database (Q-BREACH).
-4. **App Attest module** (Q-DEVICECHECK-IOS).
+   registration with Apple's Private Email Relay. Anything that implements `EmailSender`. **Phase 7**
+   (before TestFlight).
+3. **Breach dataset size** on the hosted database (Q-BREACH). **Phase 7.**
+4. **App Attest module** (Q-DEVICECHECK-IOS). **Phase 7** (device checks on for TestFlight).
+5. **Android Apple/Google screens** (Q-ANDROID). With the Android release, after phase 7.
+
+Phase 2 sign-off status for every criterion: `docs/PHASE2-SIGNOFF.md`.

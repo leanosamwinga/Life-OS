@@ -260,9 +260,16 @@ against a local Postgres 16 with pg_cron and pgTAP, applies the migrations, runs
 and writes `.local-auth/env` (git-ignored, local-only keys). Then:
 
 - `npm run test:integration` — the linking gate and every sign-in flow (auth-api in Node);
-- `npm run test:e2e` — acts like the phone: the app's own sign-in and data code through the gateway
-  (sign up → code from Mailpit → Data API → onboarding → log meal → water → refresh → sign out).
-  Against `npx supabase start` instead: `E2E_API_URL=http://127.0.0.1:54321 E2E_ANON_KEY=<publishable key>
+- `npm run test:e2e` — acts like the phone: the app's own sign-in and data code through the gateway,
+  with several phones (each its own device): sign up → code from Mailpit → onboarding → log meal →
+  water; Apple and Google; wrong method; forgot password; new-device code; signed-in devices;
+  change password; delete and keep; export; consent off; an unknown barcode. What each sign-off
+  criterion rests on is in `docs/PHASE2-SIGNOFF.md`.
+
+The stack also starts local fakes (`scripts/local-auth/fakes.mjs`): a fake Apple and Google (keys
+made on each start; `auth-api` here trusts only them) and an Open Food Facts that knows no
+barcodes. `LOCAL_FAKES=off npm run local-auth` leaves them out (Apple and Google are then off).
+Against `npx supabase start` instead: `E2E_API_URL=http://127.0.0.1:54321 E2E_ANON_KEY=<publishable key>
 E2E_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run test:e2e`.
 
 `LOCAL_AUTH_HOOKS=off npm run local-auth` starts it the way an old `config.toml` would (no Auth

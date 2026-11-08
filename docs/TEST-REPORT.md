@@ -3,6 +3,56 @@
 - Run started: Sat 7 Nov 2026, 00:45 (Europe/London). Branch `claude/phase2-sign-in-v3`.
 - Environment: Docker client present but no daemon (`/var/run/docker.sock` missing) → Supabase CLI stack cannot run. Plan: Supabase Auth (GoTrue) release binary + local Postgres 16 + Mailpit binary.
 
+## Phase 2 sign-off run (Sun 8 Nov 2026)
+
+What each acceptance criterion rests on is in `docs/PHASE2-SIGNOFF.md`. This run added:
+
+- **Local fakes on the Docker-free stack** (`scripts/local-auth/fakes.mjs`, on by default,
+  `LOCAL_FAKES=off` to leave out): JWKS for a fake Apple and Google from RSA keys generated on each
+  start (same issuers and audiences as the integration harness; private halves in
+  `.local-auth/fakes.json`, git-ignored) and an Open Food Facts stand-in that answers every barcode
+  "not found". `food-lookup` reads `OPEN_FOOD_FACTS_URL` (default the real one). So the e2e test
+  runs Apple and Google through the real `auth-api` in Deno, with no real account.
+- **e2e phones are separate devices.** Each is a fresh copy of the app's modules (own device ID,
+  Keychain and network address, `vi.resetModules`), so second-device flows are real: sign out one,
+  sign out everywhere, step-up on a new device, other devices signed out after a password change or
+  reset. The fake Apple sheet signs SHA-256(nonce) like Apple; the fake Google page returns a code
+  that the test's fetch exchanges for an ID token like Google's token endpoint.
+- **e2e: 19 tests** (was 7): B1, B3/C2 server side, B6 ×2, B7, B8, E1 ×2, E2/F2, E4, F1, F3, G1,
+  G2, H1–H7, the reset → 0b-8i server side. Three runs back to back, all green (~31 s each).
+
+What the tests found and what was fixed:
+
+| Found                                                                                               | Fix                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G3: relaunching mid-onboarding always went back to 0c                                               | `resumeStep` picks up after the last saved answer; `/onboarding` redirects there; 0g saved → never again (`jest` phase2-screens, 5 failed before the fix) |
+| I3: Health worked out "today" once and never rolled over at midnight                                | `useNow` (Today and Health): every minute and when the app comes back to the foreground                                                                   |
+| A3: an empty `APPLE_BUNDLE_ID` was only a warning, so Apple failed on the phone with a green doctor | ✗ with the Expo Go fix; ids left in `supabase/.env` are ✗ "moved: copy it to supabase/functions/.env"                                                     |
+| A2: fixes said `supabase …`, which isn't installed on the Mac                                       | every fix says `npx supabase …`; a test fails if a bare `supabase` command appears                                                                        |
+| CI didn't run the doctor tests or `deno check` on auth-api                                          | both added to `.github/workflows/ci.yml`                                                                                                                  |
+
+No server-side bug turned up: every new e2e flow (wrong method, reset, step-up, devices, change
+password, export, consent, unknown barcode, "Ate it", tampered macros) passed on its first run;
+two assertions were tightened so they fail for the right reason (consent refusals must be the
+"Health data is off" refusal; the tampered meal must be refused as a macro mismatch).
+
+### Checks (Sun 8 Nov 2026)
+
+| Check                                                   | Result                                                |
+| ------------------------------------------------------- | ----------------------------------------------------- |
+| `npm run lint` · `format:check` · `typecheck`           | ✅                                                    |
+| `npm test` (core · functions · scripts · mobile)        | ✅ 53 · 42 · 13 · 146                                 |
+| `npm run test:db` (Postgres 16 + pgTAP, fresh database) | ✅                                                    |
+| `npm run test:integration` (real Supabase Auth)         | ✅ 42                                                 |
+| `npm run test:e2e`, three runs back to back             | ✅ 19 · 19 · 19                                       |
+| `deno check` food-lookup and auth-api                   | ✅                                                    |
+| `npx expo export` ios · android · web                   | ✅                                                    |
+| `npm run doctor -- --simulator` against the local stack | ✅ all ✓ (phone mode: ✗ on `127.0.0.1`, as it should) |
+| CI on PR #7 (lint/typecheck/unit, Deno check, database) | ✅                                                    |
+
+Not run here: anything that needs the iPhone, Apple's or Google's real sign-in, or the internet
+(a real Open Food Facts product) — the 📱 items in `docs/PHASE2-SIGNOFF.md`.
+
 ## Phase 2 end to end on the real stack (Sat 7 Nov 2026)
 
 Why: sign-in v3 passed its tests but failed on a phone (Expo Go, `supabase start`): "Couldn't load

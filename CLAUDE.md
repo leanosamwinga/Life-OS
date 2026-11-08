@@ -38,10 +38,13 @@ supabase/tests         pgTAP tests (*.test.sql)
 supabase/seed.sql      fake local seed data
 scripts/test-db.sh     runs supabase/tests on plain Postgres via scripts/db/supabase-shim.sql
 scripts/local-auth     Docker-free local stack: Postgres 16, Supabase Auth, PostgREST, edge functions in Deno, Mailpit,
-                       and a Kong-like gateway on :54321 (pinned, checksum-checked binaries)
+                       a Kong-like gateway on :54321 (pinned, checksum-checked binaries) and local fakes (fake
+                       Apple/Google JWKS, Open Food Facts stand-in; LOCAL_FAKES=off to leave out)
 scripts/doctor         `npm run doctor`: checks the local setup for running on a phone
-e2e                    phone-like end-to-end test (the app's own AuthClient + backend in Node) on the real stack
-docs                   sign-in spec, decisions, Supabase mapping, SPEC-QUESTIONS, TEST-REPORT, PRIVACY-POLICY-CHANGES
+e2e                    phone-like end-to-end test (the app's own AuthClient + backend in Node) on the real stack;
+                       each phone is a fresh module graph (own device ID, Keychain, IP)
+docs                   sign-in spec, decisions, Supabase mapping, SPEC-QUESTIONS, TEST-REPORT, PRIVACY-POLICY-CHANGES,
+                       PHASE2-SIGNOFF (acceptance criteria → the test that proves each)
 ```
 
 ## Commands
@@ -51,9 +54,10 @@ npm install
 npm run lint && npm run typecheck && npm test   # what CI runs
 npm run test:db                                 # DATABASE_URL=… (plain Postgres + pgTAP) or Supabase CLI + Docker
 npm run mobile                                  # expo start
-supabase start && supabase db reset             # local backend
+npx supabase start && npx supabase db reset     # local backend (the CLI is used through npx)
 npm run local-auth && npm run test:integration   # sign-in tests against a real Supabase Auth (no Docker)
 npm run local-auth && npm run test:e2e           # phone-like end-to-end test of Phase 2 on the real stack
+npm run test:scripts                            # doctor checks + README command blocks (CI)
 npm run doctor                                  # local setup check before running on a phone
 npx deno check --config supabase/functions/food-lookup/deno.json supabase/functions/food-lookup/index.ts
 npx deno check --config supabase/functions/auth-api/deno.json supabase/functions/auth-api/index.ts
@@ -91,7 +95,9 @@ npx deno check --config supabase/functions/auth-api/deno.json supabase/functions
 - UI: greyscale tokens in `apps/mobile/src/theme.ts`, system font, ≥44 pt touch targets, accessibility role + label on every control.
 - **No secrets in the repo.** Only `*.env.example` files are tracked. `EXPO_PUBLIC_*` values ship in the app bundle — only the anon key goes there. The service role key lives only in the edge runtime.
 - Sample/seed/test data must be obviously fake (example.test emails, 000… barcodes, generic names) — never real personal data.
-- After switching branches: `supabase stop && supabase start && supabase db reset` (config.toml is only read at start), then `npm run doctor`.
+- After switching branches: `npx supabase stop`, `npx supabase start`, `npx supabase db reset` (config.toml is only read at start), then `npm run doctor`.
+- Commands for the owner (README, doctor fixes, PR notes) use `npx supabase …` (the CLI isn't installed on the Mac) and their code blocks contain only commands — no comment lines (zsh). `scripts/doctor/readme.test.mjs` checks the README.
+- Development-only notes (`__DEV__`) explain local set-up instead of a confusing screen (Google in Expo Go, web Apple/Google without ids, 0b-8i after a db reset); release builds keep the wireframes' copy.
 - Workflow: branch from `main` (`claude/<topic>`), small logical commits, push the branch, open a PR. **Never push to or merge into `main`.** Run lint, typecheck and all tests before opening a PR; list anything that couldn't run.
 
 ## Phase plan
