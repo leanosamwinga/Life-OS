@@ -15,7 +15,7 @@ export default function EmailConfirmedScreen() {
           label="Continue"
           onPress={() => {
             postSignIn.clear();
-            router.replace('/onboarding/consent');
+            router.replace('/onboarding');
           }}
         />
       }

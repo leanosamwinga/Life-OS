@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -17,6 +17,7 @@ import {
 import { Avatar, Card, OutlineButton, Overline, Row, Screen } from '@/components/ui';
 import { FormMessage, SecondaryButton } from '@/components/forms';
 import { useDay } from '@/features/data/useDay';
+import { useNow } from '@/features/data/useNow';
 import { useSession } from '@/lib/session';
 import { Ring } from '@/components/Ring';
 import {
@@ -34,15 +35,6 @@ import { buildTimeline, nowIndex, type TimelineItem } from '@/features/today/tim
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
 
 /** Re-render every minute so the "Now" line moves. */
-function useNow(): Date {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(id);
-  }, []);
-  return now;
-}
-
 const formatSleep = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 
 /** Ring value for a metric with no target yet, or not tracked until a later phase. */

@@ -64,9 +64,7 @@ function RootStack() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected
         guard={!connected || onboarded}
-        redirectTo={
-          pending ? '/deletion' : active ? (landing ?? '/onboarding/consent') : '/welcome'
-        }
+        redirectTo={pending ? '/deletion' : active ? (landing ?? '/onboarding') : '/welcome'}
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="log-meal" options={{ presentation: 'modal' }} />
