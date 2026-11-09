@@ -17,14 +17,17 @@ import type { AmountUnit, Instant, LocalDate, LocalTime } from './types.ts';
 // 7i Pick a time
 // ---------------------------------------------------------------------------
 
-/** The two days 7i offers, today first. */
+/**
+ * The two days 7i offers in time order: Yesterday on the left, Today on the right (a deliberate
+ * change from the 7i wireframe, which had Today first).
+ */
 export function pickerDays(
   now: Date | Instant,
 ): { label: 'Today' | 'Yesterday'; date: LocalDate }[] {
   const w = logWindow(now);
   return [
-    { label: 'Today', date: w.today },
     { label: 'Yesterday', date: w.yesterday },
+    { label: 'Today', date: w.today },
   ];
 }
 
@@ -205,3 +208,56 @@ export const wheelValues = (max: number): number[] => Array.from({ length: max +
 
 /** "06:40" from wheel numbers. */
 export const wheelTime = (h: number, m: number): LocalTime => hhmm(h * 60 + m);
+
+// ---------------------------------------------------------------------------
+// Looping wheels (7i): like the iOS alarm picker, 59 → 00 → 01 and 23 → 00 → 01
+// ---------------------------------------------------------------------------
+//
+// A looping wheel draws its numbers several times over (`LOOP_COPIES`) and, once it settles, jumps
+// without animation to the same number in the middle copy, so there is always room to keep going
+// either way. Looping only wraps the number on that wheel: it never carries into the other wheel or
+// changes the day. Whether a number can be chosen is decided by its value alone (`isPickable`), so a
+// number past the latest stays struck through however it was reached.
+
+/** How many times a looping wheel draws its numbers. Odd, so there is a middle copy. */
+export const LOOP_COPIES = 7;
+
+/** How many rows a looping wheel has for `count` numbers. */
+export const loopRows = (count: number, copies = LOOP_COPIES): number => count * copies;
+
+/** The number shown on row `row` of a wheel of `count` numbers (0 … count − 1). */
+export const loopValue = (row: number, count: number): number => ((row % count) + count) % count;
+
+/** The middle copy's row for `value`: where a looping wheel rests. */
+export const loopHome = (value: number, count: number, copies = LOOP_COPIES): number =>
+  Math.floor(copies / 2) * count + value;
+
+/**
+ * The row showing `value` nearest to `fromRow` (ties go down the wheel), kept inside the wheel. Used
+ * to move to a number by the short way round, e.g. 59 → 00 goes one row on, not 59 rows back.
+ */
+export function loopNearest(
+  value: number,
+  fromRow: number,
+  count: number,
+  copies = LOOP_COPIES,
+): number {
+  const base = fromRow - loopValue(fromRow, count) + value;
+  const options = [base - count, base, base + count].filter(
+    (r) => r >= 0 && r < loopRows(count, copies),
+  );
+  return options.reduce((best, r) => (Math.abs(r - fromRow) < Math.abs(best - fromRow) ? r : best));
+}
+
+/** Whether a resting row is far enough from the middle copy to be moved back to it. */
+export const loopNeedsRecentre = (row: number, count: number, copies = LOOP_COPIES): boolean =>
+  Math.floor(row / count) !== Math.floor(copies / 2);
+
+/**
+ * VoiceOver's swipe up / down on a wheel: one step, stopping at the ends (00 and 23 / 59) rather
+ * than wrapping, so a swipe never jumps a whole day's worth of numbers. `null` when it can't move.
+ */
+export function wheelStep(value: number, step: 1 | -1, max: number): number | null {
+  const next = value + step;
+  return next < 0 || next > max ? null : next;
+}
