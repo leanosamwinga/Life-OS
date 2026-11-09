@@ -1454,6 +1454,10 @@ export type Database = {
         Returns: string;
       };
       normalise_email: { Args: { email: string }; Returns: string };
+      replace_logged_meal: {
+        Args: { p_items: Json; p_logged_at: string; p_name: string; p_old_id: string };
+        Returns: string;
+      };
       save_batch: {
         Args: {
           p_cooked_weight_g: number;
