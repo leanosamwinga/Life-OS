@@ -3,7 +3,7 @@
 
 import { formatCount } from './format.ts';
 import { isInLogWindow, londonDateTimeToInstant, logWindow, toLondonDate } from './time.ts';
-import type { Instant, LocalDate, LocalTime } from './types.ts';
+import type { AmountUnit, Food, Instant, LocalDate, LocalTime, MealLogItem } from './types.ts';
 
 // ---------------------------------------------------------------------------
 // "Ate it" (1B): log a plan meal at its usual time if that has passed, else now
@@ -78,3 +78,36 @@ export function viewDate(view: TodayView, now: Date | Instant): LocalDate {
   const w = logWindow(now);
   return view === 'today' ? w.today : w.yesterday;
 }
+
+// ---------------------------------------------------------------------------
+// "Log again" and "Log a corrected copy" (7j): a logged meal's components, by today's foods
+// ---------------------------------------------------------------------------
+
+export interface FromLog {
+  /** Items whose food still exists and has nutrition: same amounts and units, current values. */
+  components: { food: Food; grams: number; unit: AmountUnit }[];
+  /** Items whose food has been deleted (or can't be logged): they can't be re-added. */
+  unavailable: { name: string; grams: number; unit: AmountUnit }[];
+}
+
+/**
+ * A logged meal's items as components to log again, using each food's current per-100 values
+ * (`foods` holds the loggable foods by id). Items whose food is gone are listed separately.
+ */
+export function componentsFromLog(
+  items: readonly MealLogItem[],
+  foods: ReadonlyMap<string, Food>,
+): FromLog {
+  const out: FromLog = { components: [], unavailable: [] };
+  for (const i of items) {
+    const unit = i.unit ?? 'g';
+    const food = i.foodId ? foods.get(i.foodId) : undefined;
+    if (food) out.components.push({ food, grams: i.grams, unit });
+    else out.unavailable.push({ name: i.foodName, grams: i.grams, unit });
+  }
+  return out;
+}
+
+/** The quiet line for a food that can't be re-added. */
+export const unavailableNote = (name: string) =>
+  `${name} is no longer available, so it can’t be added again. Remove it to carry on.`;

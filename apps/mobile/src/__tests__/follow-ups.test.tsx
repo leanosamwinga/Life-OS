@@ -96,6 +96,11 @@ const LUNCH = log(
 const WRAP = log('log-wrap', 'Sample tuna wrap', '2026-11-09T13:35:00.000Z', [
   { food: food(F.wrap), grams: 200 },
 ]);
+// Yesterday (Sun 8 Nov): one meal, and 750 ml of water.
+const YDAY = log('log-yday', 'Sample tuna wrap', '2026-11-08T19:00:00.000Z', [
+  { food: food(F.wrap), grams: 200 },
+]);
+
 function state(over: Partial<MemoryState> = {}): Partial<MemoryState> {
   const base = liveState();
   return {
@@ -114,7 +119,12 @@ function state(over: Partial<MemoryState> = {}): Partial<MemoryState> {
         ],
       },
     ],
-    mealLogs: [OATS_BOWL, LUNCH, WRAP],
+    mealLogs: [OATS_BOWL, LUNCH, WRAP, YDAY],
+    water: [
+      { id: 'w-y', userId: TEST_USER.id, ml: 750, loggedAt: '2026-11-08T10:00:00.000Z' },
+      { id: 'w-1', userId: TEST_USER.id, ml: 250, loggedAt: '2026-11-09T08:00:00.000Z' },
+      { id: 'w-2', userId: TEST_USER.id, ml: 500, loggedAt: '2026-11-09T12:00:00.000Z' },
+    ],
     lastPortions: {
       [F.oats.id]: { grams: 60, loggedAt: '2026-11-08T07:00:00.000Z' },
       [F.shake.id]: { grams: 330, unit: 'ml', loggedAt: '2026-11-08T07:00:00.000Z' },
@@ -133,9 +143,9 @@ const press = (name: string | RegExp) => fireEvent.press(screen.getByRole('butto
 const a11yValue = (testID: string) => screen.getByTestId(testID).props.accessibilityValue.text;
 const swipe = (testID: string, actionName: 'increment' | 'decrement') =>
   fireEvent(screen.getByTestId(testID), 'accessibilityAction', { nativeEvent: { actionName } });
-/** Titles of the Today timeline, in order. */
-const timelineTitles = () =>
-  within(screen.getByTestId('timeline'))
+/** Titles of a Today timeline, in order. */
+const timelineTitles = (id = 'timeline') =>
+  within(screen.getByTestId(id))
     .queryAllByText(/./)
     .map((t) => t.props.children)
     .filter(
@@ -280,5 +290,295 @@ describe('B. Daily targets', () => {
     expectTargetsVisible();
     await press('Save targets');
     await screen.findByTestId('screen-onboarding-finish');
+  });
+});
+
+const logsNamed = (name: string) => mockBackend.state.mealLogs.filter((l) => l.name === name);
+const consentOff = () => ({ ...state(), healthConsent: false });
+
+describe('C. Yesterday on Today', () => {
+  it('“‹ Yesterday” shows yesterday’s meals and totals, with no Now line or Ate it; Today › goes back', async () => {
+    await start(state());
+    await screen.findByTestId('timeline');
+    expect(screen.getByLabelText(/^Now, 13:40/)).toBeTruthy();
+    await press('See yesterday');
+    await screen.findByTestId('timeline-yesterday');
+    expect(timelineTitles('timeline-yesterday')).toEqual(['Sample tuna wrap']);
+    expect(screen.getByText('Yesterday · Sun 8 Nov')).toBeTruthy();
+    expect(screen.queryByLabelText(/^Now,/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Ate it/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Log meal' })).toBeNull();
+    expect(screen.getByLabelText('Yesterday’s calories: 410 of 2,450')).toBeTruthy();
+    expect(screen.getByLabelText('Yesterday’s water: 750 ml of 3 L')).toBeTruthy();
+    await press('Back to today');
+    await screen.findByTestId('timeline');
+    expect(timelineTitles()).toEqual([
+      'Test oats bowl',
+      'Lunch · Sample chicken rice bowl',
+      'Sample tuna wrap',
+    ]);
+  });
+
+  it('yesterday’s meals open in 7j and can be edited', async () => {
+    await start(state());
+    await press('See yesterday');
+    await openMeal('log-yday');
+    expect(screen.getByRole('button', { name: 'Edit meal' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Log a corrected copy' })).toBeTruthy();
+    await press('Edit meal');
+    await screen.findByTestId('screen-7k');
+    await fireEvent.changeText(screen.getByLabelText('Meal name'), 'Sample tuna wrap, late');
+    await press(/^Save/);
+    await waitFor(() => expect(logsNamed('Sample tuna wrap, late')).toHaveLength(1));
+  });
+
+  it('a meal moved to yesterday shows on yesterday’s timeline', async () => {
+    await start(state());
+    await openMeal('log-oats');
+    await press('Edit meal');
+    await screen.findByTestId('screen-7k');
+    await press(/^Time eaten|Change/);
+    await screen.findByTestId('sheet-7i');
+    await fireEvent.press(screen.getByRole('tab', { name: 'Yesterday, Sun 8 Nov' }));
+    await fireEvent.press(screen.getByTestId('wheel-hour-21'));
+    await fireEvent.press(screen.getByTestId('time-done'));
+    await waitFor(() => expect(screen.queryByTestId('sheet-7i')).toBeNull());
+    await press(/^Save/);
+    await screen.findByTestId('screen-today');
+    await press('See yesterday');
+    await waitFor(() =>
+      expect(timelineTitles('timeline-yesterday')).toEqual(['Sample tuna wrap', 'Test oats bowl']),
+    );
+  });
+
+  it('consent off: no yesterday control', async () => {
+    await start(consentOff());
+    await screen.findByTestId('today-consent-off');
+    expect(screen.queryByRole('button', { name: 'See yesterday' })).toBeNull();
+  });
+});
+
+describe('E. Log again', () => {
+  it('logs the same components as a new meal now and leaves the original', async () => {
+    await start(state());
+    await openMeal('log-oats');
+    expect(within(screen.getByTestId('log-again')).getByText('Log again')).toBeTruthy();
+    await press('Log again now');
+    await screen.findByTestId('screen-today');
+    const both = logsNamed('Test oats bowl');
+    expect(both).toHaveLength(2);
+    const copy = both.find((l) => l.id !== 'log-oats')!;
+    expect(copy.loggedAt).toMatch(/^2026-11-09T13:40/);
+    expect(copy.items.map((i) => [i.foodName, i.grams, i.unit])).toEqual([
+      ['Test oats', 60, 'g'],
+      ['Sample whey', 30, 'g'],
+    ]);
+    expect(both.find((l) => l.id === 'log-oats')!.loggedAt).toBe(OATS_BOWL.loggedAt);
+  });
+
+  it('“Other time…” uses the 7i sheet (opening on Today)', async () => {
+    await start(state());
+    await openMeal('log-oats');
+    await press('Log again at another time');
+    await screen.findByTestId('sheet-7i');
+    expect(
+      screen.getByRole('tab', { name: 'Today, Mon 9 Nov' }).props.accessibilityState.selected,
+    ).toBe(true);
+    await fireEvent.press(screen.getByRole('tab', { name: 'Yesterday, Sun 8 Nov' }));
+    await fireEvent.press(screen.getByTestId('wheel-hour-21'));
+    await fireEvent.press(screen.getByTestId('wheel-minute-15'));
+    await fireEvent.press(screen.getByTestId('time-done'));
+    await screen.findByTestId('screen-today');
+    const copy = logsNamed('Test oats bowl').find((l) => l.id !== 'log-oats')!;
+    expect(copy.loggedAt).toBe('2026-11-08T21:15:00.000Z');
+  });
+
+  it('a deleted food goes to Build meal, where it shows as no longer available', async () => {
+    const s = state();
+    await start({ ...s, foods: s.foods!.filter((f) => f.id !== F.whey.id) });
+    await openMeal('log-oats');
+    await press('Log again now');
+    await screen.findByTestId('screen-build-meal');
+    expect(screen.getByTestId('unavailable-item')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Sample whey is no longer available, so it can’t be added again. Remove it to carry on.',
+      ),
+    ).toBeTruthy();
+    const done = screen.getByRole('button', { name: /^Done · log meal/ });
+    expect(done.props.accessibilityState.disabled).toBe(true);
+    await press('Remove Sample whey');
+    await press(/^Done · log meal \(233 kcal\)/);
+    await screen.findByTestId('screen-today');
+    expect(logsNamed('Test oats bowl')).toHaveLength(2);
+  });
+});
+
+describe('D. Log a corrected copy', () => {
+  async function openCorrected(id: string, init = state()) {
+    await start(init);
+    await openMeal(id);
+    await fireEvent.press(screen.getByRole('link', { name: 'Log a corrected copy' }));
+    await screen.findByTestId('screen-build-meal');
+  }
+
+  it('opens Build meal pre-filled: name, time chip and components with amounts and units', async () => {
+    await openCorrected('log-oats');
+    expect(screen.getByLabelText('Meal name').props.value).toBe('Test oats bowl');
+    expect(screen.getByRole('button', { name: 'Time eaten: Today · 06:40. Change' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Test oats, 60 g. Change amount' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sample whey, 30 g. Change amount' })).toBeTruthy();
+    expect(screen.getByTestId('corrected-copy-note')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save to roster only' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: /^Done · log corrected copy \(353 kcal\)/ }),
+    ).toBeTruthy();
+  });
+
+  it('Done logs the corrected meal and deletes the original in one step, keeping the plan link', async () => {
+    await openCorrected('log-lunch');
+    await press('Remove Test basmati rice, cooked');
+    await press(/^Done · log corrected copy/);
+    await screen.findByTestId('screen-today');
+    const logs = logsNamed('Lunch · Sample chicken rice bowl');
+    expect(logs).toHaveLength(1);
+    expect(logs[0]!.id).not.toBe('log-lunch');
+    expect(logs[0]!.savedMealId).toBe('meal-lunch');
+    expect(logs[0]!.loggedAt).toBe(LUNCH.loggedAt);
+    expect(logs[0]!.items.map((i) => i.foodName)).toEqual(['Sample chicken breast, cooked']);
+    expect(mockBackend.state.calls.filter((c) => c === 'replaceLoggedMeal')).toHaveLength(1);
+    expect(mockBackend.state.calls).not.toContain('logMeal');
+    expect(mockBackend.state.calls).not.toContain('deleteMealLog');
+  });
+
+  it('Cancel leaves the original untouched', async () => {
+    await openCorrected('log-oats');
+    await press('Cancel, keep the meal as it is');
+    await screen.findByTestId('screen-7j');
+    expect(mockBackend.state.mealLogs.find((l) => l.id === 'log-oats')).toEqual(OATS_BOWL);
+    expect(mockBackend.state.calls).not.toContain('replaceLoggedMeal');
+  });
+
+  it('a failure changes nothing and says why', async () => {
+    await openCorrected('log-oats');
+    mockBackend.failNext('replaceLoggedMeal', new Error('Couldn’t reach the server.'));
+    await press(/^Done · log corrected copy/);
+    expect(await screen.findByText('Couldn’t reach the server.')).toBeTruthy();
+    expect(mockBackend.state.mealLogs.find((l) => l.id === 'log-oats')).toEqual(OATS_BOWL);
+    expect(logsNamed('Test oats bowl')).toHaveLength(1);
+  });
+
+  it('a deleted food shows as no longer available and must be removed first', async () => {
+    const s = state();
+    await openCorrected('log-oats', { ...s, foods: s.foods!.filter((f) => f.id !== F.whey.id) });
+    expect(screen.getByText(/^Sample whey is no longer available/)).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: /^Done · log corrected copy/ }).props.accessibilityState
+        .disabled,
+    ).toBe(true);
+    await press('Remove Sample whey');
+    await press(/^Done · log corrected copy \(233 kcal\)/);
+    await screen.findByTestId('screen-today');
+    expect(logsNamed('Test oats bowl').map((l) => l.items.length)).toEqual([1]);
+  });
+
+  it('consent off: 7j and the corrected copy say health data is off', async () => {
+    await start(consentOff(), '/meal/log-oats');
+    expect(await screen.findByText(/Health data is off/)).toBeTruthy();
+    await start(consentOff(), '/log-meal/from-log?id=log-oats&mode=correct');
+    expect(await screen.findByText(/Health data is off/)).toBeTruthy();
+  });
+});
+
+describe('F. Ate it at the plan’s time', () => {
+  it('logs at the usual time when it has passed, otherwise now', async () => {
+    await start(state({ mealLogs: [OATS_BOWL] }));
+    await screen.findByTestId('timeline');
+    await press('Ate it: Lunch · Sample chicken rice bowl');
+    await waitFor(() => expect(logsNamed('Lunch · Sample chicken rice bowl')).toHaveLength(1));
+    expect(logsNamed('Lunch · Sample chicken rice bowl')[0]!.loggedAt).toBe(
+      '2026-11-09T12:30:00.000Z',
+    );
+    await press('Ate it: Snack · yoghurt bowl');
+    await waitFor(() => expect(logsNamed('Snack · yoghurt bowl')).toHaveLength(1));
+    expect(logsNamed('Snack · yoghurt bowl')[0]!.loggedAt).toMatch(/^2026-11-09T13:40/);
+  });
+});
+
+describe('H. Undo after deleting a meal', () => {
+  async function deleteOats() {
+    await start(state());
+    await openMeal('log-oats');
+    await fireEvent.press(screen.getByRole('link', { name: 'Delete meal' }));
+    await screen.findByTestId('sheet-7l');
+    await fireEvent.press(
+      within(screen.getByTestId('sheet-7l')).getByRole('button', { name: 'Delete meal' }),
+    );
+    await screen.findByTestId('undo-note');
+  }
+
+  it('hides the meal at once and shows “Meal deleted · Undo”; Undo brings it back', async () => {
+    await deleteOats();
+    expect(screen.getByText('Meal deleted ·')).toBeTruthy();
+    expect(timelineTitles()).not.toContain('Test oats bowl');
+    expect(mockBackend.state.calls).not.toContain('deleteMealLog');
+    await press('Undo delete');
+    expect(screen.queryByTestId('undo-note')).toBeNull();
+    expect(timelineTitles()).toContain('Test oats bowl');
+    await act(async () => {
+      jest.advanceTimersByTime(6000);
+    });
+    expect(mockBackend.state.calls).not.toContain('deleteMealLog');
+    expect(mockBackend.state.mealLogs.some((l) => l.id === 'log-oats')).toBe(true);
+  });
+
+  it('deletes when the note times out (about 5 seconds)', async () => {
+    await deleteOats();
+    await act(async () => {
+      jest.advanceTimersByTime(4900);
+    });
+    expect(mockBackend.state.calls).not.toContain('deleteMealLog');
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+    await waitFor(() => expect(screen.queryByTestId('undo-note')).toBeNull());
+    expect(mockBackend.state.mealLogs.some((l) => l.id === 'log-oats')).toBe(false);
+  });
+
+  it('deletes straight away when the note is dismissed', async () => {
+    await deleteOats();
+    await press('Dismiss');
+    await waitFor(() =>
+      expect(mockBackend.state.mealLogs.some((l) => l.id === 'log-oats')).toBe(false),
+    );
+  });
+
+  it('a plan meal shows as not eaten while the note is up', async () => {
+    await start(state());
+    await openMeal('log-lunch');
+    await fireEvent.press(screen.getByRole('link', { name: 'Delete meal' }));
+    await fireEvent.press(
+      within(screen.getByTestId('sheet-7l')).getByRole('button', { name: 'Delete meal' }),
+    );
+    await screen.findByTestId('undo-note');
+    expect(
+      screen.getByRole('button', { name: 'Ate it: Lunch · Sample chicken rice bowl' }),
+    ).toBeTruthy();
+    await press('Undo delete');
+    expect(
+      screen.queryByRole('button', { name: 'Ate it: Lunch · Sample chicken rice bowl' }),
+    ).toBeNull();
+  });
+
+  it('if the delete fails, the meal comes back with an error', async () => {
+    await deleteOats();
+    mockBackend.failNext('deleteMealLog', new Error('Couldn’t reach the server.'));
+    await press('Dismiss');
+    expect(
+      await screen.findByText(
+        'Couldn’t delete “Test oats bowl”, so it’s back. Couldn’t reach the server.',
+      ),
+    ).toBeTruthy();
+    expect(timelineTitles()).toContain('Test oats bowl');
   });
 });

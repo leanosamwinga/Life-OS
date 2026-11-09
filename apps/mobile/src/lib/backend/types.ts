@@ -191,8 +191,18 @@ export interface Backend {
   updateLoggedMeal(edit: LoggedMealEdit): Promise<void>;
   /** 7l: delete a logged meal; a plan meal it came from shows as not eaten again. */
   deleteMealLog(id: string): Promise<void>;
+  /**
+   * 7j "Log a corrected copy" (`replace_logged_meal`): log `input` as a new meal and delete
+   * `oldId`, in one transaction. The new meal keeps the old one's plan link (`input.savedMealId`
+   * is ignored); macros are recomputed and refused on a mismatch, as in `logMeal`. If anything
+   * fails, nothing changes. Returns the new meal's id.
+   */
+  replaceLoggedMeal(oldId: string, input: LogMealInput): Promise<string>;
   listWaterLogs(range: TimeRange): Promise<WaterLog[]>;
+  /** A whole number of ml from 1 to 5,000, logged now. */
   addWater(ml: number): Promise<void>;
+  /** Today's water: delete one entry (owner only, with consent; RLS). */
+  deleteWater(id: string): Promise<void>;
   /** Global cache and the user's own foods whose name matches. */
   searchFoods(query: string): Promise<StoredFood[]>;
   getFoods(ids: readonly string[]): Promise<StoredFood[]>;

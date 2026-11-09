@@ -52,6 +52,13 @@ export interface MealDraft {
   batch: SavedBatch | null;
   /** "I weighed it", as typed. Empty uses the estimate. */
   weighed: string;
+  /**
+   * 7j "Log a corrected copy": the logged meal this replaces. Done logs the draft and deletes it
+   * in one step (`replace_logged_meal`), keeping its plan link.
+   */
+  replaces: string | null;
+  /** Items of the meal being logged again whose food has been deleted: shown so they can be removed. */
+  unavailable: { key: string; name: string; grams: number; unit: AmountUnit }[];
 }
 
 export type LogMealTab = 'plan' | 'saved';
@@ -115,10 +122,13 @@ export interface LogMealValue {
   draft: MealDraft;
   draftTotals: Macros;
   startDraft(
-    d?: Partial<Omit<MealDraft, 'components'>> & {
+    d?: Partial<Omit<MealDraft, 'components' | 'unavailable'>> & {
       components?: readonly (MealComponent & Partial<Pick<DraftComponent, 'cooksAs' | 'origin'>>)[];
+      unavailable?: readonly Omit<MealDraft['unavailable'][number], 'key'>[];
     },
   ): void;
+  /** Take a no-longer-available item out of the draft. */
+  removeUnavailable(key: string): void;
   /** 7g: last time's ingredients pre-filled; the weighed field starts empty (a new pot). */
   startCookAgain(batch: SavedBatch): void;
   updateDraft(patch: Partial<Omit<MealDraft, 'components'>>): void;
@@ -150,6 +160,8 @@ const blankDraft = (): MealDraft => ({
   usualTime: '',
   batch: null,
   weighed: '',
+  replaces: null,
+  unavailable: [],
 });
 
 /** The ingredients of a batch draft, with a ratio for each (guessed from the name if unset). */
@@ -250,7 +262,10 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
         ...blankDraft(),
         ...d,
         components: (d.components ?? []).map((c) => ({ ...c, key: key() })),
+        unavailable: (d.unavailable ?? []).map((u) => ({ ...u, key: key() })),
       }),
+    removeUnavailable: (k) =>
+      setDraft((d) => ({ ...d, unavailable: d.unavailable.filter((u) => u.key !== k) })),
     startCookAgain: (batch) =>
       setDraft({
         ...blankDraft(),

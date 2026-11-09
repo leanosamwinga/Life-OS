@@ -158,7 +158,7 @@ export function deleteSummary(args: {
   const d = dayName(args.day, args.today);
   return {
     title: `Delete ${args.name}?`,
-    body: `It comes off ${formatDateUK(args.day)}. This can’t be undone; you can log it again.`,
+    body: `It comes off ${formatDateUK(args.day)}. You can undo it straight after on Today.`,
     nowLabel: `${d} now`,
     now: `${formatKcal(args.dayTotal)} kcal`,
     down: `${formatKcal(args.kcal)} kcal · P ${args.protein.toFixed(1)} g`,

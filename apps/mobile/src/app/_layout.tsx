@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/forms';
 import { getBackend } from '@/lib/backend/current';
 import { postSignIn } from '@/features/auth/hooks';
+import { PendingDeleteProvider } from '@/features/today/PendingDelete';
 import { SessionProvider, useSession } from '@/lib/session';
 import { colors, space, type } from '@/theme';
 
@@ -16,7 +17,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <SessionProvider backend={getBackend()}>
-        <RootStack />
+        <PendingDeleteProvider>
+          <RootStack />
+        </PendingDeleteProvider>
       </SessionProvider>
     </SafeAreaProvider>
   );

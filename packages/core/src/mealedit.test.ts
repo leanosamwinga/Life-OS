@@ -164,7 +164,7 @@ describe('7k and 7l', () => {
       }),
     ).toEqual({
       title: 'Delete Test oats bowl?',
-      body: 'It comes off Mon 9 Nov. This can’t be undone; you can log it again.',
+      body: 'It comes off Mon 9 Nov. You can undo it straight after on Today.',
       nowLabel: 'Today now',
       now: '1,458 kcal',
       down: '353 kcal · P 32.1 g',

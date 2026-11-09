@@ -1,13 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import {
-  FormMessage,
-  FormScreen,
-  PrimaryButton,
-  TextField,
-  formStyles,
-} from '@/components/forms';
+import { FormMessage, FormScreen, PrimaryButton, TextField, formStyles } from '@/components/forms';
 import { SheetHeader } from '@/features/log-meal/parts';
 import {
   parseTargets,

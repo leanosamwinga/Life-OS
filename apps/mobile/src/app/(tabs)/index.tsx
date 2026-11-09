@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
+  ateItAt,
   dayProgress,
   formatCount,
   formatDateUK,
@@ -12,12 +13,15 @@ import {
   snapshotComponents,
   toLondonDate,
   toLondonTime,
+  viewDate,
   type MealLog,
+  type TodayView,
 } from '@life-os/core';
 import { Avatar, Card, OutlineButton, Overline, Row, Screen } from '@/components/ui';
 import { FormMessage, SecondaryButton } from '@/components/forms';
 import { useDay } from '@/features/data/useDay';
 import { useNow } from '@/features/data/useNow';
+import { usePendingDelete } from '@/features/today/PendingDelete';
 import { useSession } from '@/lib/session';
 import { Ring } from '@/components/Ring';
 import {
@@ -44,7 +48,15 @@ export default function TodayScreen() {
   const now = useNow();
   const today = toLondonDate(now);
   const session = useSession();
-  const day = useDay(today);
+  const undo = usePendingDelete();
+  // C: "‹ Yesterday" shows yesterday's timeline (the edit window); nothing older.
+  const [chosenView, setView] = useState<TodayView>('today');
+  const canSeeYesterday = session.status === 'signedIn' && session.healthConsent;
+  const view: TodayView = canSeeYesterday ? chosenView : 'today';
+  const yesterday = view === 'yesterday';
+  const shownDate = viewDate(view, now);
+  // H: a meal waiting on "Undo" is hidden (a plan meal shows as not eaten meanwhile).
+  const day = useDay(shownDate, undo.pending ? [undo.pending.id] : []);
   const [extraLogs, setExtraLogs] = useState<MealLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const live = day.live;
@@ -59,24 +71,27 @@ export default function TodayScreen() {
         today,
       );
   const planMeals = live ? day.data.roster.filter((m) => m.inDailyPlan) : samplePlanMeals;
+  // Yesterday: only the meals logged, in time order; no plan, no "Now" line, no "Ate it".
   const timeline = buildTimeline({
     mealLogs: progress.meals,
-    planMeals,
+    planMeals: yesterday ? [] : planMeals,
     calendar: live ? [] : sampleCalendar,
   });
-  const nowAt = nowIndex(timeline, toLondonTime(now));
+  const nowAt = yesterday ? -1 : nowIndex(timeline, toLondonTime(now));
   const nextDay = nextSplitDay(sampleRotation, sampleCompletedThisCycle);
 
   const ateIt = async (savedMealId: string) => {
     const meal = planMeals.find((m) => m.id === savedMealId);
     if (!meal) return;
+    // F: at its usual time today once that has passed, otherwise now.
+    const loggedAt = ateItAt(meal.usualTime, new Date());
     if (live && session.backend) {
       setError(null);
       try {
         await session.backend.logMeal({
           name: meal.name,
           savedMealId: meal.id,
-          loggedAt: new Date().toISOString(),
+          loggedAt,
           components: meal.components,
         });
         session.notifyDataChanged();
@@ -92,7 +107,7 @@ export default function TodayScreen() {
         userId: meal.userId,
         savedMealId: meal.id,
         name: meal.name,
-        loggedAt: new Date().toISOString(),
+        loggedAt,
         items: snapshotComponents(meal.components),
       },
     ]);
@@ -102,17 +117,25 @@ export default function TodayScreen() {
     <Screen
       testID="screen-today"
       title="Today"
-      subtitle={live ? formatDateUK(today) : `${formatDateUK(today)} · rest day`}
+      subtitle={
+        yesterday
+          ? `Yesterday · ${formatDateUK(shownDate)}`
+          : live
+            ? formatDateUK(today)
+            : `${formatDateUK(today)} · rest day`
+      }
       accessory={<Avatar size={60} label={session.displayName ?? 'Profile'} />}
       footer={
-        <Pressable
-          onPress={() => router.push('/log-meal')}
-          accessibilityRole="button"
-          accessibilityLabel="Log meal"
-          style={({ pressed }) => [styles.fab, pressed && { opacity: 0.8 }]}
-        >
-          <Text style={styles.fabText}>+ Log meal</Text>
-        </Pressable>
+        yesterday ? undefined : (
+          <Pressable
+            onPress={() => router.push('/log-meal')}
+            accessibilityRole="button"
+            accessibilityLabel="Log meal"
+            style={({ pressed }) => [styles.fab, pressed && { opacity: 0.8 }]}
+          >
+            <Text style={styles.fabText}>+ Log meal</Text>
+          </Pressable>
+        )
       }
     >
       <View style={styles.rings}>
@@ -123,7 +146,7 @@ export default function TodayScreen() {
           accessibilityLabel={
             day.consentOff
               ? 'Calories: health data is off'
-              : `Calories: ${formatKcal(progress.kcal.consumed)} of ${progress.kcal.target ? formatKcal(progress.kcal.target) : 'no target set'}`
+              : `${yesterday ? 'Yesterday’s calories' : 'Calories'}: ${formatKcal(progress.kcal.consumed)} of ${progress.kcal.target ? formatKcal(progress.kcal.target) : 'no target set'}`
           }
         />
         <Ring
@@ -133,10 +156,10 @@ export default function TodayScreen() {
           accessibilityLabel={
             day.consentOff
               ? 'Water: health data is off'
-              : `Water: ${formatMl(progress.water.consumed)} of ${progress.water.target ? formatMl(progress.water.target) : 'no target set'}`
+              : `${yesterday ? 'Yesterday’s water' : 'Water'}: ${formatMl(progress.water.consumed)} of ${progress.water.target ? formatMl(progress.water.target) : 'no target set'}`
           }
         />
-        {live ? (
+        {yesterday ? null : live ? (
           <>
             <Ring
               fraction={0}
@@ -169,8 +192,11 @@ export default function TodayScreen() {
         )}
       </View>
 
-      {error || day.error ? <FormMessage>{error ?? day.error ?? ''}</FormMessage> : null}
-      {live && !day.targetsSet && !day.consentOff ? (
+      {error || day.error || undo.error ? (
+        <FormMessage>{error ?? undo.error ?? day.error ?? ''}</FormMessage>
+      ) : null}
+      {undo.pending ? <UndoNote onUndo={undo.undo} onDismiss={undo.commit} /> : null}
+      {live && !yesterday && !day.targetsSet && !day.consentOff ? (
         <Row
           label="Set your daily targets"
           subtitle="Calories, protein, carbs, fat and water"
@@ -179,8 +205,20 @@ export default function TodayScreen() {
         />
       ) : null}
 
-      <View style={styles.section}>
-        <Overline>Your day</Overline>
+      <View style={[styles.section, styles.sectionRow]}>
+        <Overline>{yesterday ? 'Yesterday' : 'Your day'}</Overline>
+        {canSeeYesterday ? (
+          <Pressable
+            onPress={() => setView(yesterday ? 'today' : 'yesterday')}
+            accessibilityRole="button"
+            accessibilityLabel={yesterday ? 'Back to today' : 'See yesterday'}
+            hitSlop={8}
+            style={styles.dayLink}
+            testID={yesterday ? 'show-today' : 'show-yesterday'}
+          >
+            <Text style={styles.dayLinkText}>{yesterday ? 'Today ›' : '‹ Yesterday'}</Text>
+          </Pressable>
+        ) : null}
       </View>
       {day.consentOff ? (
         <View style={styles.consentOff} testID="today-consent-off">
@@ -196,6 +234,7 @@ export default function TodayScreen() {
           items={timeline}
           nowAt={nowAt}
           nowLabel={toLondonTime(now)}
+          testID={yesterday ? 'timeline-yesterday' : 'timeline'}
           onAteIt={(id) => void ateIt(id)}
           onOpen={
             live ? (id) => router.push({ pathname: '/meal/[id]', params: { id } }) : undefined
@@ -203,12 +242,14 @@ export default function TodayScreen() {
           emptyText={
             live && day.loading
               ? 'Loading your day…'
-              : 'Nothing planned yet. Log a meal or add plan meals to your roster.'
+              : yesterday
+                ? 'Nothing logged yesterday.'
+                : 'Nothing planned yet. Log a meal or add plan meals to your roster.'
           }
         />
       )}
 
-      {live ? (
+      {yesterday ? null : live ? (
         <Card variant="filled" style={styles.elsewhere}>
           <Row label="Money" pill="Later" muted />
           <Row label="Sunday service" pill="Later" muted />
@@ -245,6 +286,7 @@ function Timeline(props: {
   /** 7j: open a logged meal. Absent for sample data. */
   onOpen?: (mealLogId: string) => void;
   emptyText: string;
+  testID: string;
 }) {
   if (props.items.length === 0) {
     return (
@@ -267,7 +309,35 @@ function Timeline(props: {
     );
   });
   if (props.nowAt === props.items.length) rows.push(<NowLine key="now" label={props.nowLabel} />);
-  return <View testID="timeline">{rows}</View>;
+  return <View testID={props.testID}>{rows}</View>;
+}
+
+/** H: "Meal deleted · Undo", for about five seconds after 7l's "Delete meal". */
+function UndoNote(props: { onUndo: () => void; onDismiss: () => void }) {
+  return (
+    <View style={styles.undo} testID="undo-note" accessibilityLiveRegion="polite">
+      <Text style={styles.undoText} accessibilityRole="text">
+        Meal deleted ·
+      </Text>
+      <Pressable
+        onPress={props.onUndo}
+        accessibilityRole="button"
+        accessibilityLabel="Undo delete"
+        style={styles.undoButton}
+        testID="undo-delete"
+      >
+        <Text style={styles.undoAction}>Undo</Text>
+      </Pressable>
+      <Pressable
+        onPress={props.onDismiss}
+        accessibilityRole="button"
+        accessibilityLabel="Dismiss"
+        style={styles.undoButton}
+      >
+        <Text style={styles.undoDismiss}>×</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 function NowLine({ label }: { label: string }) {
@@ -364,6 +434,27 @@ const MARKER = 36;
 const styles = StyleSheet.create({
   rings: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: space.xl },
   section: { marginBottom: space.sm },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dayLink: { minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, justifyContent: 'center' },
+  dayLinkText: { ...type.callout, color: colors.textSecondary },
+  undo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    paddingLeft: space.lg,
+    marginBottom: space.md,
+  },
+  undoText: { ...type.callout, color: colors.text, flex: 1 },
+  undoButton: {
+    minHeight: MIN_TOUCH,
+    minWidth: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space.md,
+  },
+  undoAction: { ...type.headline, color: colors.text },
+  undoDismiss: { fontSize: 20, color: colors.textSecondary },
   tlRow: {
     flexDirection: 'row',
     alignItems: 'center',

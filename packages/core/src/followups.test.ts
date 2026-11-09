@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   ateItAt,
+  componentsFromLog,
+  snapshotComponents,
+  unavailableNote,
+  type Food,
   isPickable,
   LOOP_COPIES,
   loopHome,
@@ -142,5 +146,48 @@ describe('yesterday on Today', () => {
   it('shows only today or yesterday', () => {
     expect(viewDate('today', NOW)).toBe('2026-11-09');
     expect(viewDate('yesterday', NOW)).toBe('2026-11-08');
+  });
+});
+
+describe('log again and corrected copy', () => {
+  const oats: Food = {
+    id: 'f-oats',
+    name: 'Test oats',
+    per100g: { kcal: 389, protein: 13.5, carbs: 66, fat: 6.9 },
+  } as Food;
+  const shake: Food = {
+    id: 'f-shake',
+    name: 'Sample shake',
+    unit: 'ml',
+    per100g: { kcal: 62, protein: 6.1, carbs: 6.6, fat: 1.2 },
+  } as Food;
+  const items = snapshotComponents([
+    { food: oats, grams: 60 },
+    { food: shake, grams: 330, unit: 'ml' },
+  ]);
+
+  it('keeps amounts and units, and uses the foods as they are now', () => {
+    const newer = { ...oats, per100g: { ...oats.per100g, kcal: 400 } };
+    const r = componentsFromLog(
+      items,
+      new Map([
+        [oats.id, newer],
+        [shake.id, shake],
+      ]),
+    );
+    expect(r.components).toEqual([
+      { food: newer, grams: 60, unit: 'g' },
+      { food: shake, grams: 330, unit: 'ml' },
+    ]);
+    expect(r.unavailable).toEqual([]);
+  });
+
+  it('lists a deleted food separately so it can be removed', () => {
+    const r = componentsFromLog(items, new Map([[oats.id, oats]]));
+    expect(r.components).toHaveLength(1);
+    expect(r.unavailable).toEqual([{ name: 'Sample shake', grams: 330, unit: 'ml' }]);
+    expect(unavailableNote('Sample shake')).toBe(
+      'Sample shake is no longer available, so it can’t be added again. Remove it to carry on.',
+    );
   });
 });

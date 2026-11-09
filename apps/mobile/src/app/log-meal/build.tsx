@@ -6,6 +6,9 @@ import {
   formatAmount,
   formatKcal,
   portionMacros,
+  sumMacros,
+  toLondonDate,
+  unavailableNote,
   type AmountUnit,
   type Food,
 } from '@life-os/core';
@@ -51,6 +54,10 @@ export default function BuildMealScreen() {
   const lm = useLogMeal();
   const { draft, draftTotals: t } = lm;
   const editing = draft.mode === 'edit';
+  // D: "Log a corrected copy" — Done logs this and deletes the original in one step.
+  const correcting = !editing && draft.replaces !== null;
+  const original = correcting ? lm.data.logs.find((l) => l.id === draft.replaces) : undefined;
+  const blocked = draft.unavailable.length > 0;
   // 7b-R: "Save to roster only" — save_meal, never log_meal.
   const saveOnly = !editing && draft.saveOnly;
   const planFields = editing || saveOnly;
@@ -86,6 +93,18 @@ export default function BuildMealScreen() {
       setBusy(false);
     }
   }
+
+  const logCorrected = () =>
+    run(async () => {
+      await backend!.replaceLoggedMeal(draft.replaces!, {
+        name,
+        savedMealId: null,
+        loggedAt: loggedAtFor(lm.slot, lm.today, new Date()),
+        components: draft.components,
+      });
+      session.notifyDataChanged();
+      closeLogMeal();
+    });
 
   const logMeal = () =>
     run(async () => {
@@ -151,8 +170,8 @@ export default function BuildMealScreen() {
       testID="screen-build-meal"
       header={
         <SheetHeader
-          left="‹ Log meal"
-          leftLabel="Back to Log meal"
+          left={correcting ? 'Cancel' : '‹ Log meal'}
+          leftLabel={correcting ? 'Cancel, keep the meal as it is' : 'Back to Log meal'}
           onLeft={() => router.back()}
           right={editing ? 'Edit meal' : saveOnly ? 'Not logging' : slotLabel(lm.slot)}
           rightChip={
@@ -198,12 +217,19 @@ export default function BuildMealScreen() {
                 onPress={() => lm.updateDraft({ saveOnly: false })}
               />
             </>
+          ) : correcting ? (
+            <PrimaryButton
+              label={`Done · log corrected copy (${formatKcal(t.kcal)} kcal)`}
+              busy={busy}
+              disabled={draft.components.length === 0 || blocked}
+              onPress={() => void logCorrected()}
+            />
           ) : (
             <>
               <PrimaryButton
                 label={`Done · log meal (${formatKcal(t.kcal)} kcal)`}
                 busy={busy}
-                disabled={draft.components.length === 0}
+                disabled={draft.components.length === 0 || blocked}
                 onPress={() => void logMeal()}
               />
               <SecondaryButton
@@ -222,6 +248,14 @@ export default function BuildMealScreen() {
         </>
       }
     >
+      {correcting ? (
+        <View style={styles.notePanel} testID="corrected-copy-note">
+          <Text style={styles.noteText}>
+            <Text style={styles.bold}>A corrected copy.</Text> Done logs this and deletes the
+            original; Cancel keeps it as it is.
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.nameBlock}>
         <Overline>Meal name</Overline>
         <TextInput
@@ -237,7 +271,25 @@ export default function BuildMealScreen() {
 
       <View style={styles.card}>
         <Overline>{`Components · ${draft.components.length} added`}</Overline>
-        {draft.components.length === 0 ? (
+        {draft.unavailable.map((u) => (
+          <View key={u.key} style={[styles.compRow, styles.divider]} testID="unavailable-item">
+            <View style={styles.compMain}>
+              <Text style={[styles.compTitle, styles.gone]}>
+                {u.name} · {formatAmount(u.grams, u.unit)}
+              </Text>
+              <Text style={styles.sub}>{unavailableNote(u.name)}</Text>
+            </View>
+            <Pressable
+              onPress={() => lm.removeUnavailable(u.key)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${u.name}`}
+              style={styles.remove}
+            >
+              <Text style={styles.removeText}>×</Text>
+            </Pressable>
+          </View>
+        ))}
+        {draft.components.length === 0 && !blocked ? (
           <Text style={styles.sub}>Nothing yet. Add a suggestion, scan a barcode or search.</Text>
         ) : null}
         {draft.components.map((c, i) => (
@@ -343,14 +395,19 @@ export default function BuildMealScreen() {
         ) : (
           <TodayBar
             label={`${lm.mealDay.word} after this meal`}
-            logged={lm.mealDay.progress.kcal.consumed}
+            logged={
+              lm.mealDay.progress.kcal.consumed -
+              (original && toLondonDate(original.loggedAt) === lm.mealDay.date
+                ? sumMacros(original.items).kcal
+                : 0)
+            }
             meal={t.kcal}
             target={lm.mealDay.progress.kcal.target}
           />
         )}
       </View>
 
-      {planFields ? (
+      {correcting ? null : planFields ? (
         <>
           <ToggleRow
             label="In my daily plan"
@@ -467,4 +524,8 @@ const styles = StyleSheet.create({
   totals: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: space.sm },
   total: { alignItems: 'center', flex: 1 },
   totalValue: { fontSize: 24, fontWeight: '700', color: colors.text },
+  notePanel: { backgroundColor: colors.card, borderRadius: radius.md, padding: space.lg },
+  noteText: { ...type.callout, color: colors.text, lineHeight: 21 },
+  bold: { fontWeight: '700' },
+  gone: { color: colors.textSecondary, textDecorationLine: 'line-through' },
 });
