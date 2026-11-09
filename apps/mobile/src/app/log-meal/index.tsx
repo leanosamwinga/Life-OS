@@ -6,7 +6,6 @@ import {
   formatKcal,
   formatTimeUK,
   componentsFromLog,
-  pickerStart,
   sumMacros,
   toFood,
   toLondonDate,
@@ -25,13 +24,13 @@ import { useLogMeal, type LogMealTab } from '@/features/log-meal/LogMealContext'
 import { closeLogMeal } from '@/features/log-meal/navigation';
 import { sortSaved } from '@/features/log-meal/saved';
 import { Chip, FoodName, Segmented, SheetHeader, StarToggle } from '@/features/log-meal/parts';
+import { componentCount } from '@/features/log-meal/draft';
 import {
-  chipLabel,
   loggedAtFor,
-  sameSlot,
-  slotInWindow,
-  slotLabel,
-  slotOptions,
+  otherTimeChoice,
+  pickerFrom as pickerStartFor,
+  timeChip,
+  whenChoices,
 } from '@/features/log-meal/slots';
 import { TimeSheet } from '@/features/log-meal/TimeSheet';
 import type { RosterMeal, SavedBatch } from '@/lib/backend/foods';
@@ -93,11 +92,14 @@ export default function LogMealIndex() {
     .slice(0, 5);
 
   const loggedAt = () => loggedAtFor(lm.slot, lm.today, new Date());
-  const pickerFrom =
-    lm.slot.name === 'Custom' && lm.slot.date
-      ? { date: lm.slot.date, time: lm.slot.time }
-      : pickerStart(new Date(), picker ?? new Date());
+  const pickerFrom = pickerStartFor(lm.slot, picker ?? new Date());
   const openPicker = () => setPicker(new Date());
+  const other = otherTimeChoice(lm.slot, lm.today);
+
+  /** 7a-C: anything that starts a new draft or logs something else asks before the kept meal goes. */
+  const guarded = (fn: () => void | Promise<void>) => async (): Promise<void> => {
+    if (await lm.confirmNewDraft()) await fn();
+  };
 
   async function run(id: string, fn: () => Promise<void>) {
     if (!backend) return;
@@ -226,7 +228,9 @@ export default function LogMealIndex() {
         <StarToggle name={item.name} starred={item.starred} onToggle={() => toggleStar(item)} />
         <Pressable
           style={styles.rowMain}
-          onPress={() => (item.kind === 'batch' ? cookAgain(item.batch) : edit(item.meal))}
+          onPress={() =>
+            void guarded(() => (item.kind === 'batch' ? cookAgain(item.batch) : edit(item.meal)))()
+          }
           accessibilityRole="button"
           accessibilityLabel={
             item.kind === 'batch' ? `Cook ${item.name} again` : `Edit ${item.name}`
@@ -238,7 +242,11 @@ export default function LogMealIndex() {
         <OutlineButton
           label={busy === item.id ? '…' : 'Log'}
           accessibilityLabel={`Log ${item.name}`}
-          onPress={() => (item.kind === 'batch' ? logBatch(item.batch) : void logRoster(item.meal))}
+          onPress={() =>
+            void guarded(() =>
+              item.kind === 'batch' ? logBatch(item.batch) : logRoster(item.meal),
+            )()
+          }
         />
       </View>
     );
@@ -256,27 +264,20 @@ export default function LogMealIndex() {
       <Text style={styles.soFar}>{soFar}</Text>
       <Overline>When</Overline>
       <View style={styles.when} testID="when-chips">
-        {slotOptions(lm.data.roster, formatTimeUK(new Date())).map((s) => {
-          const ok = slotInWindow(s, lm.today, new Date());
-          return (
-            <Chip
-              key={s.name}
-              label={chipLabel(s)}
-              a11yLabel={ok ? chipLabel(s) : `${chipLabel(s)}, more than an hour from now`}
-              selected={sameSlot(s, lm.slot)}
-              disabled={!ok}
-              onPress={() => lm.setSlot(s)}
-            />
-          );
-        })}
+        {whenChoices(lm.data.roster, lm.slot, lm.today, new Date()).map((c) => (
+          <Chip
+            key={c.slot.name}
+            label={c.label}
+            a11yLabel={c.a11yLabel}
+            selected={c.selected}
+            disabled={c.disabled}
+            onPress={() => lm.setSlot(c.slot)}
+          />
+        ))}
         <Chip
-          label={lm.slot.name === 'Custom' ? `${slotLabel(lm.slot, lm.today)} ▾` : 'Other time…'}
-          a11yLabel={
-            lm.slot.name === 'Custom'
-              ? `Time eaten: ${slotLabel(lm.slot, lm.today)}. Change`
-              : 'Other time'
-          }
-          selected={lm.slot.name === 'Custom'}
+          label={other.selected ? timeChip(lm.slot, lm.today).label : 'Other time…'}
+          a11yLabel={other.selected ? timeChip(lm.slot, lm.today).a11yLabel : 'Other time'}
+          selected={other.selected}
           onPress={openPicker}
           testID="other-time"
         />
@@ -291,6 +292,26 @@ export default function LogMealIndex() {
           setPicker(null);
         }}
       />
+
+      {lm.kept ? (
+        <View style={styles.kept} testID="kept-draft">
+          <View style={styles.keptMain}>
+            <Overline>Not logged yet</Overline>
+            <Text style={styles.keptName}>{lm.kept.name}</Text>
+            <Text style={styles.rowSub}>
+              {`${componentCount(lm.kept.count)} · ${formatKcal(lm.kept.kcal)} kcal`}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => router.push('/log-meal/build')}
+            accessibilityRole="button"
+            accessibilityLabel={`Continue your meal, ${lm.kept.name}`}
+            style={styles.continue}
+          >
+            <Text style={styles.continueText}>Continue</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.tabs}>
         <Segmented
@@ -380,7 +401,7 @@ export default function LogMealIndex() {
                 <View key={m.id} style={styles.row}>
                   <Pressable
                     style={styles.rowMain}
-                    onPress={() => edit(m)}
+                    onPress={() => void guarded(() => edit(m))()}
                     accessibilityRole="button"
                     accessibilityLabel={`Edit ${m.name}`}
                   >
@@ -395,7 +416,7 @@ export default function LogMealIndex() {
                     <Text style={styles.doneLabel}>Done</Text>
                   ) : m.id === firstToLog ? (
                     <Pressable
-                      onPress={() => void logRoster(m)}
+                      onPress={() => void guarded(() => logRoster(m))()}
                       disabled={busy !== null || m.components.length === 0}
                       accessibilityRole="button"
                       accessibilityLabel={`Log ${m.name}`}
@@ -407,7 +428,7 @@ export default function LogMealIndex() {
                     <OutlineButton
                       label={busy === m.id ? '…' : 'Log'}
                       accessibilityLabel={`Log ${m.name}`}
-                      onPress={() => void logRoster(m)}
+                      onPress={() => void guarded(() => logRoster(m))()}
                     />
                   )}
                 </View>
@@ -437,7 +458,7 @@ export default function LogMealIndex() {
                     <OutlineButton
                       label={busy === l.id ? '…' : 'Log again'}
                       accessibilityLabel={`Log again: ${l.name}`}
-                      onPress={() => void logAgain(l)}
+                      onPress={() => void guarded(() => logAgain(l))()}
                     />
                   </View>
                 );
@@ -452,19 +473,26 @@ export default function LogMealIndex() {
           <SecondaryButton
             strong
             label="+ Build a meal from scratch"
-            onPress={() => {
-              lm.startDraft({ name: lm.tab === 'plan' ? query.trim() : '' });
-              router.push('/log-meal/build');
-            }}
+            onPress={() =>
+              void guarded(() => {
+                lm.startDraft({ name: lm.tab === 'plan' ? query.trim() : '' });
+                router.push('/log-meal/build');
+              })()
+            }
             style={styles.buildButton}
           />
           <SecondaryButton
             strong
             label="+ Cooked a batch"
-            onPress={newBatch}
+            onPress={() => void guarded(newBatch)()}
             style={styles.buildButton}
           />
         </View>
+        {lm.kept ? (
+          <Text style={[formStyles.footnote, styles.center]} testID="build-kept-note">
+            {`Starts a new meal. You’ll be asked before ${lm.kept.name} is discarded.`}
+          </Text>
+        ) : null}
         <Text style={[formStyles.footnote, styles.center]}>
           A batch is one pot you cook once, then log by the gram.
         </Text>
@@ -566,6 +594,25 @@ const styles = StyleSheet.create({
   buildButton: { flex: 1, minHeight: 64, paddingHorizontal: space.sm },
   center: { textAlign: 'center' },
   tabs: { marginTop: space.lg },
+  kept: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: space.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  keptMain: { flex: 1, gap: 2 },
+  keptName: { ...type.headline, fontWeight: '700', color: colors.text },
+  continue: {
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.fill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueText: { ...type.headline, color: colors.inverseText },
   tapHint: { marginTop: space.md },
   empty: {
     marginTop: space.md,

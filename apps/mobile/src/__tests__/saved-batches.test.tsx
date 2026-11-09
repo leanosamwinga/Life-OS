@@ -245,7 +245,8 @@ describe('7b-R Build meal — save without logging', () => {
     await press('+ Build a meal from scratch');
     await screen.findByTestId('screen-build-meal');
     await press('Add Chicken breast, raw, 150 g');
-    expect(screen.getByText('Breakfast · 08:00')).toBeTruthy();
+    // 7b-T2: the time is a chip in log mode.
+    expect(screen.getByText('Breakfast · 08:00 ▾')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Done · log meal (159 kcal)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Save to roster only' })).toBeTruthy();
     expect(screen.getByRole('switch', { name: 'Save to my roster' })).toBeTruthy();

@@ -25,6 +25,8 @@ import type { RosterMeal, SavedBatch, StoredFood } from '@/lib/backend/foods';
 import { targetsForProgress } from '@/lib/backend/settings';
 import type { RecentFood } from '@/lib/backend/types';
 import { useSession } from '@/lib/session';
+import { confirmDiscard } from './confirm';
+import { keptDraft, type KeptDraft } from './draft';
 import { defaultSlot, slotDate, type MealSlot } from './slots';
 
 export interface DraftComponent extends MealComponent {
@@ -121,6 +123,18 @@ export interface LogMealValue {
 
   draft: MealDraft;
   draftTotals: Macros;
+  /**
+   * 7a-C: the meal being built, kept when going back to 7a (memory only, never across restarts).
+   * Null for an empty draft, a batch, a roster edit or a corrected copy.
+   */
+  kept: KeptDraft | null;
+  /** Throw the draft away (after logging is done by closing Log meal; "Save to roster only"). */
+  clearDraft(): void;
+  /**
+   * Before anything starts a new draft or logs something else: with a kept meal, ask "Discard …?".
+   * Resolves true to go ahead (the kept meal is then discarded), false for "Keep it".
+   */
+  confirmNewDraft(): Promise<boolean>;
   startDraft(
     d?: Partial<Omit<MealDraft, 'components' | 'unavailable'>> & {
       components?: readonly (MealComponent & Partial<Pick<DraftComponent, 'cooksAs' | 'origin'>>)[];
@@ -234,6 +248,8 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
   const seq = useRef(0);
   const key = () => `c${++seq.current}`;
 
+  const kept = keptDraft(draft, slot);
+
   const value: LogMealValue = {
     today,
     now,
@@ -257,6 +273,14 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
     setTab,
     draft,
     draftTotals: useMemo(() => sumMacros(draft.components), [draft.components]),
+    kept,
+    clearDraft: () => setDraft(blankDraft()),
+    confirmNewDraft: async () => {
+      if (!kept) return true;
+      if (!(await confirmDiscard(kept))) return false;
+      setDraft(blankDraft());
+      return true;
+    },
     startDraft: (d = {}) =>
       setDraft({
         ...blankDraft(),
