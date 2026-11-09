@@ -884,6 +884,7 @@ export type Database = {
           food_id: string;
           grams: number;
           logged_at: string;
+          unit: string;
           updated_at: string;
           user_id: string;
         };
@@ -893,6 +894,7 @@ export type Database = {
           food_id: string;
           grams: number;
           logged_at?: string;
+          unit?: string;
           updated_at?: string;
           user_id?: string;
         };
@@ -901,6 +903,7 @@ export type Database = {
           food_id?: string;
           grams?: number;
           logged_at?: string;
+          unit?: string;
           updated_at?: string;
           user_id?: string;
         };
@@ -929,6 +932,7 @@ export type Database = {
           is_batch: boolean;
           kcal_per_100g: number | null;
           name: string | null;
+          nutrition_unit: string;
           off_fetched_at: string | null;
           pack_g: number | null;
           protein_per_100g: number | null;
@@ -956,6 +960,7 @@ export type Database = {
           is_batch?: boolean;
           kcal_per_100g?: number | null;
           name?: string | null;
+          nutrition_unit?: string;
           off_fetched_at?: string | null;
           pack_g?: number | null;
           protein_per_100g?: number | null;
@@ -982,6 +987,7 @@ export type Database = {
           is_batch?: boolean;
           kcal_per_100g?: number | null;
           name?: string | null;
+          nutrition_unit?: string;
           off_fetched_at?: string | null;
           pack_g?: number | null;
           protein_per_100g?: number | null;
@@ -1009,6 +1015,7 @@ export type Database = {
           meal_log_id: string;
           position: number;
           protein_g: number;
+          unit: string;
           updated_at: string;
           user_id: string;
         };
@@ -1025,6 +1032,7 @@ export type Database = {
           meal_log_id: string;
           position?: number;
           protein_g: number;
+          unit?: string;
           updated_at?: string;
           user_id?: string;
         };
@@ -1040,6 +1048,7 @@ export type Database = {
           meal_log_id?: string;
           position?: number;
           protein_g?: number;
+          unit?: string;
           updated_at?: string;
           user_id?: string;
         };
@@ -1063,6 +1072,7 @@ export type Database = {
       meal_logs: {
         Row: {
           created_at: string;
+          edited_at: string | null;
           id: string;
           logged_at: string;
           name: string;
@@ -1073,6 +1083,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           created_at?: string;
+          edited_at?: string | null;
           id?: string;
           logged_at?: string;
           name: string;
@@ -1082,6 +1093,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          edited_at?: string | null;
           id?: string;
           logged_at?: string;
           name?: string;
@@ -1129,6 +1141,7 @@ export type Database = {
           id: string;
           position: number;
           saved_meal_id: string;
+          unit: string;
           updated_at: string;
           user_id: string;
         };
@@ -1140,6 +1153,7 @@ export type Database = {
           id?: string;
           position?: number;
           saved_meal_id: string;
+          unit?: string;
           updated_at?: string;
           user_id?: string;
         };
@@ -1150,6 +1164,7 @@ export type Database = {
           id?: string;
           position?: number;
           saved_meal_id?: string;
+          unit?: string;
           updated_at?: string;
           user_id?: string;
         };
@@ -1427,6 +1442,7 @@ export type Database = {
       auth_run_due_deletions: { Args: { p_now?: string }; Returns: number };
       auth_send_email_hook: { Args: { event: Json }; Returns: Json };
       can_use_food: { Args: { food: string }; Returns: boolean };
+      check_meal_time: { Args: { p_at: string }; Returns: undefined };
       check_request: { Args: Record<PropertyKey, never>; Returns: undefined };
       first_name_from_metadata: { Args: { meta: Json }; Returns: string };
       has_active_consent: { Args: { consent_type: string }; Returns: boolean };
@@ -1456,6 +1472,10 @@ export type Database = {
           p_usual_time: string;
         };
         Returns: string;
+      };
+      update_logged_meal: {
+        Args: { p_id: string; p_logged_at: string; p_name: string; p_units: Json };
+        Returns: undefined;
       };
     };
     Enums: {

@@ -26,7 +26,7 @@ select set_config('request.jwt.claims', '{"sub":"a1a1a1a1-0000-0000-0000-0000000
 
 -- Happy path: 200 g chicken (212 kcal, P 48.0, C 0, F 2.4) + 150 g rice (195 kcal, P 4.1, C 42.0, F 0.5)
 create temp table result as
-select public.log_meal('Chicken rice', null, '2026-11-06T12:30:00Z', $$[
+select public.log_meal('Chicken rice', null, now() - interval '1 hour', $$[
   {"food_id":"f0000000-0000-0000-0000-000000000001","grams":200,"kcal":212,"protein":48.0,"carbs":0,"fat":2.4},
   {"food_id":"f0000000-0000-0000-0000-000000000002","grams":150,"kcal":195,"protein":4.1,"carbs":42.0,"fat":0.5}
 ]$$::jsonb) as id;
@@ -68,11 +68,12 @@ select throws_ok($$select public.log_meal('Zero', null, now(), '[
 ]'::jsonb)$$, '22023', null, 'zero grams rejected');
 
 -- Last portion: an older back-dated log doesn't overwrite, a newer one does
-select lives_ok($$select public.log_meal('Old', null, '2026-11-01T12:00:00Z', '[
+-- (back-dated within the window: yesterday 00:00 is always at least 24 hours ago)
+select lives_ok($$select public.log_meal('Old', null, now() - interval '20 hours', '[
   {"food_id":"f0000000-0000-0000-0000-000000000002","grams":50,"kcal":65,"protein":1.4,"carbs":14,"fat":0.2}
 ]'::jsonb)$$, 'back-dated log works');
 select is((select grams from public.food_portions_last where food_id = 'f0000000-0000-0000-0000-000000000002'), 150.0, 'older log keeps the newer last portion');
-select lives_ok($$select public.log_meal('Own noodles', null, '2026-11-07T12:00:00Z', '[
+select lives_ok($$select public.log_meal('Own noodles', null, now(), '[
   {"food_id":"f0000000-0000-0000-0000-00000000000a","grams":70,"kcal":252,"protein":4.2,"carbs":56,"fat":0.7}
 ]'::jsonb)$$, 'own user food can be logged');
 
