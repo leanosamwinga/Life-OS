@@ -92,20 +92,40 @@ export function TodayBar(props: { logged: number; meal: number; target: number; 
 }
 
 /** Small rounded chip, e.g. "Last time · 60 g". */
-export function Chip(props: { label: string; selected?: boolean; onPress: () => void }) {
+export function Chip(props: {
+  label: string;
+  selected?: boolean;
+  disabled?: boolean;
+  a11yLabel?: string;
+  testID?: string;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       onPress={props.onPress}
+      disabled={props.disabled}
       accessibilityRole="button"
-      accessibilityLabel={props.label}
-      accessibilityState={{ selected: Boolean(props.selected) }}
+      accessibilityLabel={props.a11yLabel ?? props.label}
+      accessibilityState={{
+        selected: Boolean(props.selected),
+        ...(props.disabled ? { disabled: true } : {}),
+      }}
+      testID={props.testID}
       style={({ pressed }) => [
         styles.chip,
         props.selected && styles.chipOn,
         pressed && { opacity: 0.7 },
       ]}
     >
-      <Text style={[styles.chipText, props.selected && styles.chipTextOn]}>{props.label}</Text>
+      <Text
+        style={[
+          styles.chipText,
+          props.selected && styles.chipTextOn,
+          props.disabled && styles.chipTextOff,
+        ]}
+      >
+        {props.label}
+      </Text>
     </Pressable>
   );
 }
@@ -250,6 +270,7 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.fill, borderColor: colors.fill },
   chipText: { ...type.callout, color: colors.text },
   chipTextOn: { color: colors.inverseText },
+  chipTextOff: { color: colors.textTertiary },
   segmented: {
     flexDirection: 'row',
     backgroundColor: colors.card,

@@ -3,6 +3,7 @@ import {
   addDays,
   dayProgress,
   guessCooksAs,
+  latestTimeOn,
   londonDateTimeToInstant,
   sumMacros,
   toLondonDate,
@@ -201,7 +202,10 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
   const loggedPlanIds = new Set(
     progress.meals.map((m) => m.savedMealId).filter(Boolean) as string[],
   );
-  const slot = chosenSlot ?? defaultSlot(data.roster, loggedPlanIds, toLondonTime(now));
+  // A plan slot more than an hour ahead can't be logged yet (core latestTimeOn), so it isn't the default.
+  const slot =
+    chosenSlot ??
+    defaultSlot(data.roster, loggedPlanIds, toLondonTime(now), latestTimeOn(today, now) ?? '23:59');
 
   const [draft, setDraft] = useState<MealDraft>(blankDraft);
   const [pending, setPending] = useState<PendingFood | null>(null);

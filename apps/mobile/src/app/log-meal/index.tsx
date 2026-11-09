@@ -5,6 +5,7 @@ import {
   formatDateUK,
   formatKcal,
   formatTimeUK,
+  pickerStart,
   sumMacros,
   toFood,
   toLondonDate,
@@ -22,8 +23,16 @@ import { OutlineButton, Overline } from '@/components/ui';
 import { useLogMeal, type LogMealTab } from '@/features/log-meal/LogMealContext';
 import { closeLogMeal } from '@/features/log-meal/navigation';
 import { sortSaved } from '@/features/log-meal/saved';
-import { FoodName, Segmented, SheetHeader, StarToggle } from '@/features/log-meal/parts';
-import { loggedAtFor, slotLabel, slotOptions } from '@/features/log-meal/slots';
+import { Chip, FoodName, Segmented, SheetHeader, StarToggle } from '@/features/log-meal/parts';
+import {
+  chipLabel,
+  loggedAtFor,
+  sameSlot,
+  slotInWindow,
+  slotLabel,
+  slotOptions,
+} from '@/features/log-meal/slots';
+import { TimeSheet } from '@/features/log-meal/TimeSheet';
 import type { RosterMeal, SavedBatch } from '@/lib/backend/foods';
 import { useSession } from '@/lib/session';
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
@@ -45,7 +54,8 @@ export default function LogMealIndex() {
   const session = useSession();
   const lm = useLogMeal();
   const [query, setQuery] = useState('');
-  const [pickingSlot, setPickingSlot] = useState(false);
+  // 7i: the moment the picker opened (its limits are an hour from then), or null when closed.
+  const [picker, setPicker] = useState<Date | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Stars change on tap; the server catches up (and wins on the next load).
@@ -82,6 +92,11 @@ export default function LogMealIndex() {
     .slice(0, 5);
 
   const loggedAt = () => loggedAtFor(lm.slot, lm.today, new Date());
+  const pickerFrom =
+    lm.slot.name === 'Custom' && lm.slot.date
+      ? { date: lm.slot.date, time: lm.slot.time }
+      : pickerStart(new Date(), picker ?? new Date());
+  const openPicker = () => setPicker(new Date());
 
   async function run(id: string, fn: () => Promise<void>) {
     if (!backend) return;
@@ -240,39 +255,44 @@ export default function LogMealIndex() {
       testID="screen-log-meal"
       header={<SheetHeader left="Cancel" onLeft={closeLogMeal} title="Log meal" />}
     >
-      <View style={styles.topRow}>
-        <Text style={styles.soFar}>{soFar}</Text>
-        <Pressable
-          onPress={() => setPickingSlot((v) => !v)}
-          accessibilityRole="button"
-          accessibilityLabel={`Logging for ${slotLabel(lm.slot)}. Change`}
-          accessibilityState={{ expanded: pickingSlot }}
-          style={styles.slot}
-        >
-          <Text style={styles.slotText}>{slotLabel(lm.slot)} ▾</Text>
-        </Pressable>
-      </View>
-      {pickingSlot ? (
-        <View style={styles.slotList}>
-          {slotOptions(lm.data.roster, formatTimeUK(new Date())).map((s) => (
-            <Pressable
+      <Text style={styles.soFar}>{soFar}</Text>
+      <Overline>When</Overline>
+      <View style={styles.when} testID="when-chips">
+        {slotOptions(lm.data.roster, formatTimeUK(new Date())).map((s) => {
+          const ok = slotInWindow(s, lm.today, new Date());
+          return (
+            <Chip
               key={s.name}
-              onPress={() => {
-                lm.setSlot(s);
-                setPickingSlot(false);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={slotLabel(s)}
-              accessibilityState={{ selected: s.name === lm.slot.name }}
-              style={styles.slotOption}
-            >
-              <Text style={[styles.slotOptionText, s.name === lm.slot.name && styles.bold]}>
-                {slotLabel(s)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
+              label={chipLabel(s)}
+              a11yLabel={ok ? chipLabel(s) : `${chipLabel(s)}, more than an hour from now`}
+              selected={sameSlot(s, lm.slot)}
+              disabled={!ok}
+              onPress={() => lm.setSlot(s)}
+            />
+          );
+        })}
+        <Chip
+          label={lm.slot.name === 'Custom' ? `${slotLabel(lm.slot, lm.today)} ▾` : 'Other time…'}
+          a11yLabel={
+            lm.slot.name === 'Custom'
+              ? `Time eaten: ${slotLabel(lm.slot, lm.today)}. Change`
+              : 'Other time'
+          }
+          selected={lm.slot.name === 'Custom'}
+          onPress={openPicker}
+          testID="other-time"
+        />
+      </View>
+      <TimeSheet
+        visible={picker !== null}
+        now={picker ?? new Date()}
+        start={pickerFrom}
+        onCancel={() => setPicker(null)}
+        onDone={(date, time) => {
+          lm.setSlot({ name: 'Custom', date, time });
+          setPicker(null);
+        }}
+      />
 
       <View style={styles.tabs}>
         <Segmented
@@ -501,30 +521,14 @@ function ConsentOff() {
 }
 
 const styles = StyleSheet.create({
-  topRow: {
+  soFar: { ...type.callout, color: colors.textSecondary, marginBottom: space.md },
+  when: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.md,
-  },
-  soFar: { ...type.callout, color: colors.textSecondary, flex: 1 },
-  slot: {
-    minHeight: MIN_TOUCH,
-    paddingHorizontal: space.lg,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'center',
-  },
-  slotText: { ...type.headline, color: colors.text },
-  slotList: {
+    flexWrap: 'wrap',
+    gap: space.sm,
     marginTop: space.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
+    marginBottom: space.lg,
   },
-  slotOption: { minHeight: MIN_TOUCH, justifyContent: 'center', paddingHorizontal: space.lg },
-  slotOptionText: { ...type.body, color: colors.text },
   bold: { fontWeight: '700' },
   search: {
     marginTop: space.xs,

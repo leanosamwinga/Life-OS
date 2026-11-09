@@ -82,7 +82,15 @@ describe('Log meal (7a, 7b)', () => {
     await start(liveState(), '/log-meal');
     await screen.findByText('Protein shake');
     expect(screen.getByText('300 of 2,450 kcal so far')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Logging for Snack · 16:00/ })).toBeTruthy();
+    // 7a-T: Now is chosen — Snack 16:00 is more than an hour away, so it can't be logged yet.
+    expect(
+      screen.getByRole('button', { name: 'Now · 13:40' }).props.accessibilityState.selected,
+    ).toBe(true);
+    expect(
+      screen.getByRole('button', { name: 'Snack 16:00, more than an hour from now' }).props
+        .accessibilityState.disabled,
+    ).toBe(true);
+    expect(screen.getByRole('button', { name: 'Other time' })).toBeTruthy();
     expect(screen.getByText('Done')).toBeTruthy();
     expect(screen.getByText('Logged 08:00 · 300 kcal')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Log again: Chicken stir-fry' })).toBeTruthy();
@@ -94,8 +102,7 @@ describe('Log meal (7a, 7b)', () => {
   it('7a: "Log" logs a roster meal at the chosen slot time and closes', async () => {
     await start(liveState(), '/log-meal');
     await screen.findByText('Protein shake');
-    await press(/Logging for/);
-    await press('Lunch · 12:30');
+    await press('Lunch 12:30');
     await press('Log Protein shake');
     expect(await screen.findByTestId('screen-today')).toBeTruthy();
     const log = mockBackend.state.mealLogs.at(-1)!;
@@ -153,12 +160,12 @@ describe('Log meal (7a, 7b)', () => {
     await press('Done · log meal (159 kcal)');
     await screen.findByTestId('screen-today');
     const saved = mockBackend.state.savedMeals.find((m) => m.name === 'Chicken stir-fry')!;
-    expect(saved.components).toEqual([{ foodId: FOODS.chicken.id, grams: 150 }]);
+    expect(saved.components).toEqual([{ foodId: FOODS.chicken.id, grams: 150, unit: 'g' }]);
     const log = mockBackend.state.mealLogs.at(-1)!;
     expect(log).toMatchObject({
       name: 'Chicken stir-fry',
       savedMealId: saved.id,
-      loggedAt: '2026-11-06T16:00:00.000Z',
+      loggedAt: expect.stringMatching(/^2026-11-06T13:40/),
     });
   });
 
