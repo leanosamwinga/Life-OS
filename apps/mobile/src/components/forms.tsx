@@ -103,7 +103,7 @@ export function LinkButton(props: {
       hitSlop={6}
       style={({ pressed }) => [
         styles.link,
-        (props.plain || props.align === 'left') && styles.linkLeft,
+        (props.align === 'left' || (props.plain && props.align !== 'center')) && styles.linkLeft,
         pressed && styles.pressed,
       ]}
     >
@@ -129,6 +129,8 @@ export function TextField(
     big?: boolean;
     suffix?: string;
     error?: string | null;
+    /** The screen shows its own label; the field keeps `label` for VoiceOver. */
+    hideLabel?: boolean;
   } & Pick<
     TextInputProps,
     | 'placeholder'
@@ -142,10 +144,10 @@ export function TextField(
     | 'testID'
   >,
 ) {
-  const { label, big, suffix, error, ...input } = props;
+  const { label, big, suffix, error, hideLabel, ...input } = props;
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      {hideLabel ? null : <Text style={styles.fieldLabel}>{label}</Text>}
       <View
         style={[styles.inputWrap, big && styles.inputWrapBig, error ? styles.inputError : null]}
       >
@@ -339,7 +341,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
   },
   secondaryStrong: { borderWidth: 2, borderColor: colors.fill },
-  secondaryText: { ...type.headline, color: colors.text },
+  secondaryText: { ...type.headline, color: colors.text, textAlign: 'center' },
   disabled: { opacity: 0.4 },
   pressed: { opacity: 0.7 },
   link: { minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
@@ -365,7 +367,8 @@ const styles = StyleSheet.create({
   },
   inputWrapBig: { minHeight: 76, borderWidth: 2, borderColor: colors.fill },
   inputError: { borderColor: colors.text, borderStyle: 'dashed' },
-  input: { flex: 1, ...type.body, color: colors.text, paddingVertical: space.sm },
+  // minWidth 0: on the web an <input> otherwise refuses to shrink below its default width.
+  input: { flex: 1, minWidth: 0, ...type.body, color: colors.text, paddingVertical: space.sm },
   inputBig: { fontSize: 40, fontWeight: '700' },
   suffix: { ...type.body, color: colors.textSecondary },
   suffixBig: { fontSize: 22 },

@@ -1,14 +1,18 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { PRIVACY_POLICY_VERSION, toFood } from '@life-os/core';
+import { PRIVACY_POLICY_VERSION, summariseBatch, toFood } from '@life-os/core';
 import type { AuthClient } from '../auth/client';
 import type { LifeOsClient } from '../supabase';
 import {
+  batchFromRow,
+  batchIssueMessage,
   escapeLike,
   foodRecordFromRow,
   logMealItems,
   mealLogFromRow,
+  saveBatchIngredients,
   saveMealComponents,
   savedMealFromRow,
+  type BatchRow,
   type FoodRow,
   type MealLogRow,
   type SavedMealRow,
@@ -116,7 +120,7 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
       const { data, error } = await client
         .from('saved_meals')
         .select(
-          'id, user_id, name, in_daily_plan, usual_time, sort_order, saved_meal_components(food_id, grams, position, foods(*))',
+          'id, user_id, name, in_daily_plan, usual_time, sort_order, starred, saved_meal_components(food_id, grams, position, foods(*))',
         )
         .order('sort_order')
         .order('created_at');
@@ -136,6 +140,53 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
     },
     async deleteSavedMeal(id) {
       const { error } = await client.from('saved_meals').delete().eq('id', id);
+      if (error) friendly(error);
+    },
+    async listBatches() {
+      const { data, error } = await client
+        .from('foods')
+        .select(
+          '*, batch_ingredients!batch_ingredients_batch_fkey(food_id, grams, cooks_as, cooked_ratio, position, foods!batch_ingredients_food_id_fkey(*))',
+        )
+        .eq('is_batch', true)
+        .order('name');
+      if (error) friendly(error);
+      return (data as unknown as BatchRow[]).flatMap((r) => batchFromRow(r) ?? []);
+    },
+    async saveBatch(input) {
+      // Core's numbers; save_batch recomputes them from the foods and refuses any mismatch.
+      const s = summariseBatch(input.ingredients, input.weighedG);
+      if (!s.per100g) throw new UserFacingError(batchIssueMessage(s.issue ?? 'missing'));
+      const { data, error } = await client.rpc('save_batch', {
+        p_id: sqlNull(input.id),
+        p_name: input.name,
+        p_cooked_weight_g: s.cookedWeightG,
+        p_weighed: s.weighed,
+        p_per_100g: {
+          kcal: s.per100g.kcal,
+          protein: s.per100g.protein,
+          carbs: s.per100g.carbs,
+          fat: s.per100g.fat,
+        },
+        p_ingredients: saveBatchIngredients(input.ingredients),
+      });
+      if (error) friendly(error);
+      return data as string;
+    },
+    async deleteBatch(id) {
+      const { error } = await client.from('foods').delete().eq('id', id).eq('is_batch', true);
+      if (error?.code === '23503') {
+        throw new UserFacingError(
+          'This batch is in a saved meal. Take it out of that meal first, then delete the batch.',
+        );
+      }
+      if (error) friendly(error);
+    },
+    async setStarred(target, starred) {
+      const { error } =
+        target.kind === 'meal'
+          ? await client.from('saved_meals').update({ starred }).eq('id', target.id)
+          : await client.from('foods').update({ starred }).eq('id', target.id);
       if (error) friendly(error);
     },
     async listMealLogs({ from, to }) {

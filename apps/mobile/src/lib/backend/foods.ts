@@ -1,7 +1,12 @@
 import {
+  cookedRatio,
+  isCooksAs,
   portionMacros,
   roundGrams,
   toFood,
+  type BatchIngredient,
+  type BatchInfo,
+  type CookedWeightIssue,
   type Food,
   type FoodRecord,
   type MealComponent,
@@ -35,6 +40,16 @@ export function foodRecordFromRow(row: FoodRow): StoredFood {
     packGrams: n(row.pack_g),
     servingGrams: n(row.serving_g),
     remembered: row.remembered,
+    ...(row.is_batch ? { batch: batchInfoFromRow(row) } : {}),
+  };
+}
+
+function batchInfoFromRow(row: FoodRow): BatchInfo {
+  return {
+    cookedWeightG: Number(row.cooked_weight_g),
+    weighed: Boolean(row.cooked_weight_weighed),
+    cookedAt: new Date(row.cooked_at ?? row.updated_at).toISOString(),
+    starred: row.starred,
   };
 }
 
@@ -52,6 +67,7 @@ export interface SavedMealRow {
   in_daily_plan: boolean;
   usual_time: string | null;
   sort_order: number;
+  starred: boolean;
   saved_meal_components: ComponentRow[];
 }
 
@@ -75,10 +91,64 @@ export function savedMealFromRow(row: SavedMealRow): RosterMeal {
     name: row.name,
     inDailyPlan: row.in_daily_plan,
     usualTime: row.usual_time ? row.usual_time.slice(0, 5) : null,
+    starred: row.starred,
     components,
     missingComponents: missing,
   };
 }
+
+/** A batch (7f–7h): the food you log, plus the ingredients it was cooked from last time. */
+export interface SavedBatch {
+  food: Food & { batch: BatchInfo };
+  ingredients: BatchIngredient[];
+  /** Ingredients whose food is gone or incomplete (shown, never invented). */
+  missingIngredients: number;
+}
+
+export interface BatchIngredientRow {
+  food_id: string;
+  grams: number | string;
+  cooks_as: string;
+  cooked_ratio: number | string;
+  position: number;
+  foods: FoodRow | null;
+}
+
+export type BatchRow = FoodRow & { batch_ingredients: BatchIngredientRow[] };
+
+export function batchFromRow(row: BatchRow): SavedBatch | null {
+  const food = toFood(foodRecordFromRow(row));
+  if (!food?.batch) return null;
+  const ingredients: BatchIngredient[] = [];
+  let missing = 0;
+  for (const i of [...row.batch_ingredients].sort((a, b) => a.position - b.position)) {
+    const f = i.foods ? toFood(foodRecordFromRow(i.foods)) : null;
+    if (f) {
+      ingredients.push({
+        food: f,
+        grams: Number(i.grams),
+        cooksAs: isCooksAs(i.cooks_as) ? i.cooks_as : 'as_added',
+      });
+    } else missing++;
+  }
+  return { food: food as SavedBatch['food'], ingredients, missingIngredients: missing };
+}
+
+/** Why a batch can't be saved yet, in words for people. */
+export function batchIssueMessage(issue: CookedWeightIssue): string {
+  if (issue === 'too_light') return 'That’s lighter than what went in the pot. Check the scales.';
+  if (issue === 'too_heavy') return 'That’s over 50 kg. Check the scales.';
+  return 'Add at least one ingredient.';
+}
+
+/** Ingredients for `save_batch`: grams to 1 dp, the chosen ratio and its key. */
+export const saveBatchIngredients = (ingredients: readonly BatchIngredient[]) =>
+  ingredients.map((i) => ({
+    food_id: i.food.id,
+    grams: roundGrams(i.grams),
+    cooks_as: i.cooksAs,
+    cooked_ratio: cookedRatio(i.cooksAs),
+  }));
 
 export interface MealLogRow {
   id: string;

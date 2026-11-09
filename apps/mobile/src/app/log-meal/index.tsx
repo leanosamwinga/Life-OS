@@ -19,15 +19,26 @@ import {
   formStyles,
 } from '@/components/forms';
 import { OutlineButton, Overline } from '@/components/ui';
-import { useLogMeal } from '@/features/log-meal/LogMealContext';
+import { useLogMeal, type LogMealTab } from '@/features/log-meal/LogMealContext';
 import { closeLogMeal } from '@/features/log-meal/navigation';
-import { SheetHeader } from '@/features/log-meal/parts';
+import { sortSaved } from '@/features/log-meal/saved';
+import { FoodName, Segmented, SheetHeader, StarToggle } from '@/features/log-meal/parts';
 import { loggedAtFor, slotLabel, slotOptions } from '@/features/log-meal/slots';
-import type { RosterMeal } from '@/lib/backend/foods';
+import type { RosterMeal, SavedBatch } from '@/lib/backend/foods';
 import { useSession } from '@/lib/session';
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
 
 const matches = (q: string, name: string) => !q || name.toLowerCase().includes(q.toLowerCase());
+
+const TABS = ['Plan & recent', 'Saved'] as const;
+const TAB_OF: Record<(typeof TABS)[number], LogMealTab> = {
+  'Plan & recent': 'plan',
+  Saved: 'saved',
+};
+
+type SavedItem =
+  | { kind: 'meal'; id: string; name: string; starred: boolean; meal: RosterMeal }
+  | { kind: 'batch'; id: string; name: string; starred: boolean; batch: SavedBatch };
 
 /** 7a Log meal — roster or new. */
 export default function LogMealIndex() {
@@ -37,6 +48,8 @@ export default function LogMealIndex() {
   const [pickingSlot, setPickingSlot] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Stars change on tap; the server catches up (and wins on the next load).
+  const [stars, setStars] = useState<Record<string, boolean>>({});
   const backend = session.backend;
 
   if (session.status === 'signedIn' && !session.healthConsent) {
@@ -136,6 +149,88 @@ export default function LogMealIndex() {
     router.push('/log-meal/build');
   };
 
+  const savedItems = sortSaved<SavedItem>([
+    ...lm.data.roster.map((m) => ({
+      kind: 'meal' as const,
+      id: m.id,
+      name: m.name,
+      starred: stars[m.id] ?? Boolean(m.starred),
+      meal: m,
+    })),
+    ...lm.data.batches.map((b) => ({
+      kind: 'batch' as const,
+      id: b.food.id,
+      name: b.food.name,
+      starred: stars[b.food.id] ?? b.food.batch.starred,
+      batch: b,
+    })),
+  ]).filter((i) => matches(query, i.name));
+  const starred = savedItems.filter((i) => i.starred);
+  const rest = savedItems.filter((i) => !i.starred);
+  const nothingSaved = lm.data.roster.length === 0 && lm.data.batches.length === 0;
+
+  const toggleStar = (item: SavedItem) => {
+    if (!backend) return;
+    const next = !item.starred;
+    setStars((s) => ({ ...s, [item.id]: next }));
+    setError(null);
+    backend.setStarred({ kind: item.kind, id: item.id }, next).then(
+      () => session.notifyDataChanged(),
+      (err: unknown) => {
+        setStars((s) => ({ ...s, [item.id]: !next }));
+        setError(err instanceof Error ? err.message : 'Couldn’t change that star.');
+      },
+    );
+  };
+
+  const cookAgain = (b: SavedBatch) => {
+    lm.startCookAgain(b);
+    router.push('/log-meal/batch');
+  };
+  const logBatch = (b: SavedBatch) => {
+    lm.setPending({ food: b.food, grams: lm.lastGrams(b.food.id), from: 'batch' });
+    router.push('/log-meal/batch-log');
+  };
+  const newBatch = () => {
+    lm.startDraft({ kind: 'batch' });
+    router.push('/log-meal/batch');
+  };
+
+  const savedRow = (item: SavedItem) => {
+    const sub =
+      item.kind === 'batch'
+        ? `${formatKcal(item.batch.food.per100g.kcal)} kcal per 100 g · cooked ${formatDateUK(item.batch.food.batch.cookedAt)}`
+        : (() => {
+            const t = sumMacros(item.meal.components);
+            const lead =
+              item.meal.inDailyPlan && item.meal.usualTime
+                ? `In plan · ${item.meal.usualTime}`
+                : `${item.meal.components.length} component${item.meal.components.length === 1 ? '' : 's'}`;
+            return `${lead} · ${formatKcal(t.kcal)} kcal · P ${Math.round(t.protein)}`;
+          })();
+    return (
+      <View key={`${item.kind}-${item.id}`} style={styles.row}>
+        <StarToggle name={item.name} starred={item.starred} onToggle={() => toggleStar(item)} />
+        <Pressable
+          style={styles.rowMain}
+          onPress={() => (item.kind === 'batch' ? cookAgain(item.batch) : edit(item.meal))}
+          accessibilityRole="button"
+          accessibilityLabel={
+            item.kind === 'batch' ? `Cook ${item.name} again` : `Edit ${item.name}`
+          }
+        >
+          <FoodName name={item.name} batch={item.kind === 'batch'} style={styles.rowTitle} />
+          <Text style={styles.rowSub}>{sub}</Text>
+        </Pressable>
+        <OutlineButton
+          label={busy === item.id ? '…' : 'Log'}
+          accessibilityLabel={`Log ${item.name}`}
+          onPress={() => (item.kind === 'batch' ? logBatch(item.batch) : void logRoster(item.meal))}
+        />
+      </View>
+    );
+  };
+
   const soFar = p.kcal.target
     ? `${formatKcal(p.kcal.consumed)} of ${formatKcal(p.kcal.target)} kcal so far`
     : `${formatKcal(p.kcal.consumed)} kcal so far`;
@@ -179,113 +274,181 @@ export default function LogMealIndex() {
         </View>
       ) : null}
 
-      <TextInput
-        value={query}
-        onChangeText={setQuery}
-        placeholder="Search your meals and foods"
-        placeholderTextColor={colors.textTertiary}
-        accessibilityLabel="Search your meals and foods"
-        style={styles.search}
-        returnKeyType="search"
-      />
+      <View style={styles.tabs}>
+        <Segmented
+          options={TABS}
+          value={lm.tab === 'saved' ? 'Saved' : 'Plan & recent'}
+          onChange={(t) => lm.setTab(TAB_OF[t])}
+        />
+      </View>
+
+      {lm.tab === 'saved' && nothingSaved && lm.status !== 'loading' ? null : (
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={
+            lm.tab === 'saved' ? 'Search saved meals and batches' : 'Search your meals and foods'
+          }
+          placeholderTextColor={colors.textTertiary}
+          accessibilityLabel={
+            lm.tab === 'saved' ? 'Search saved meals and batches' : 'Search your meals and foods'
+          }
+          style={styles.search}
+          returnKeyType="search"
+        />
+      )}
 
       {error || lm.error ? <FormMessage>{error ?? lm.error ?? ''}</FormMessage> : null}
 
-      <View style={styles.section}>
-        <Overline>Your roster</Overline>
-      </View>
-      {lm.status === 'loading' && lm.data.roster.length === 0 ? (
-        <Text style={formStyles.body}>Loading…</Text>
-      ) : roster.length === 0 ? (
-        <Text style={formStyles.body}>
-          {query
-            ? 'No roster meals match.'
-            : 'No saved meals yet. Build one and switch on “Save to my roster”.'}
-        </Text>
-      ) : (
-        roster.map((m) => {
-          const log = m.inDailyPlan ? loggedToday.get(m.id) : undefined;
-          const total = sumMacros(m.components);
-          return (
-            <View key={m.id} style={styles.row}>
-              <Pressable
-                style={styles.rowMain}
-                onPress={() => edit(m)}
-                accessibilityRole="button"
-                accessibilityLabel={`Edit ${m.name}`}
-              >
-                <Text style={[styles.rowTitle, log && styles.done]}>{m.name}</Text>
-                <Text style={styles.rowSub}>
-                  {log
-                    ? `Logged ${formatTimeUK(log.loggedAt)} · ${formatKcal(sumMacros(log.items).kcal)} kcal`
-                    : `${m.components.length} component${m.components.length === 1 ? '' : 's'} · ${formatKcal(total.kcal)} kcal · P ${Math.round(total.protein)}`}
-                </Text>
-              </Pressable>
-              {log ? (
-                <Text style={styles.doneLabel}>Done</Text>
-              ) : m.id === firstToLog ? (
-                <Pressable
-                  onPress={() => void logRoster(m)}
-                  disabled={busy !== null || m.components.length === 0}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Log ${m.name}`}
-                  style={styles.logDark}
-                >
-                  <Text style={styles.logDarkText}>{busy === m.id ? '…' : 'Log'}</Text>
-                </Pressable>
-              ) : (
-                <OutlineButton
-                  label={busy === m.id ? '…' : 'Log'}
-                  accessibilityLabel={`Log ${m.name}`}
-                  onPress={() => void logRoster(m)}
-                />
-              )}
+      {lm.tab === 'saved' ? (
+        nothingSaved ? (
+          lm.status === 'loading' ? (
+            <Text style={formStyles.body}>Loading…</Text>
+          ) : (
+            <View style={styles.empty} testID="saved-empty">
+              <Text style={styles.emptyTitle} accessibilityRole="header">
+                Nothing saved yet
+              </Text>
+              <Text style={styles.emptyBody}>
+                Meals you save to your roster and batches you cook show up here. Star one to keep it
+                at the top.
+              </Text>
             </View>
-          );
-        })
-      )}
-
-      {recent.length ? (
+          )
+        ) : (
+          <>
+            {starred.length ? (
+              <>
+                <View style={styles.section}>
+                  <Overline>Starred</Overline>
+                </View>
+                {starred.map(savedRow)}
+              </>
+            ) : null}
+            {rest.length ? (
+              <>
+                <View style={styles.section}>
+                  <Overline>A–Z</Overline>
+                </View>
+                {rest.map(savedRow)}
+              </>
+            ) : null}
+            {savedItems.length === 0 ? (
+              <Text style={formStyles.body}>Nothing saved matches.</Text>
+            ) : null}
+            <Text style={[formStyles.footnote, styles.tapHint]}>
+              Tap a meal to edit it. Tap a batch to cook it again.
+            </Text>
+          </>
+        )
+      ) : (
         <>
           <View style={styles.section}>
-            <Overline>Eaten recently · not in roster</Overline>
+            <Overline>Your roster</Overline>
           </View>
-          {recent.map((l) => {
-            const day =
-              toLondonDate(l.loggedAt) === lm.today
-                ? 'Today'
-                : formatDateUK(l.loggedAt).split(' ')[0];
-            return (
-              <View key={l.id} style={styles.row}>
-                <View style={styles.rowMain}>
-                  <Text style={styles.rowTitle}>{l.name}</Text>
-                  <Text style={styles.rowSub}>
-                    {day} · {l.items.length} component{l.items.length === 1 ? '' : 's'} ·{' '}
-                    {formatKcal(sumMacros(l.items).kcal)} kcal
-                  </Text>
+          {lm.status === 'loading' && lm.data.roster.length === 0 ? (
+            <Text style={formStyles.body}>Loading…</Text>
+          ) : roster.length === 0 ? (
+            <Text style={formStyles.body}>
+              {query
+                ? 'No roster meals match.'
+                : 'No saved meals yet. Build one and switch on “Save to my roster”.'}
+            </Text>
+          ) : (
+            roster.map((m) => {
+              const log = m.inDailyPlan ? loggedToday.get(m.id) : undefined;
+              const total = sumMacros(m.components);
+              return (
+                <View key={m.id} style={styles.row}>
+                  <Pressable
+                    style={styles.rowMain}
+                    onPress={() => edit(m)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${m.name}`}
+                  >
+                    <Text style={[styles.rowTitle, log && styles.done]}>{m.name}</Text>
+                    <Text style={styles.rowSub}>
+                      {log
+                        ? `Logged ${formatTimeUK(log.loggedAt)} · ${formatKcal(sumMacros(log.items).kcal)} kcal`
+                        : `${m.components.length} component${m.components.length === 1 ? '' : 's'} · ${formatKcal(total.kcal)} kcal · P ${Math.round(total.protein)}`}
+                    </Text>
+                  </Pressable>
+                  {log ? (
+                    <Text style={styles.doneLabel}>Done</Text>
+                  ) : m.id === firstToLog ? (
+                    <Pressable
+                      onPress={() => void logRoster(m)}
+                      disabled={busy !== null || m.components.length === 0}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Log ${m.name}`}
+                      style={styles.logDark}
+                    >
+                      <Text style={styles.logDarkText}>{busy === m.id ? '…' : 'Log'}</Text>
+                    </Pressable>
+                  ) : (
+                    <OutlineButton
+                      label={busy === m.id ? '…' : 'Log'}
+                      accessibilityLabel={`Log ${m.name}`}
+                      onPress={() => void logRoster(m)}
+                    />
+                  )}
                 </View>
-                <OutlineButton
-                  label={busy === l.id ? '…' : 'Log again'}
-                  accessibilityLabel={`Log again: ${l.name}`}
-                  onPress={() => void logAgain(l)}
-                />
+              );
+            })
+          )}
+
+          {recent.length ? (
+            <>
+              <View style={styles.section}>
+                <Overline>Eaten recently · not in roster</Overline>
               </View>
-            );
-          })}
+              {recent.map((l) => {
+                const day =
+                  toLondonDate(l.loggedAt) === lm.today
+                    ? 'Today'
+                    : formatDateUK(l.loggedAt).split(' ')[0];
+                return (
+                  <View key={l.id} style={styles.row}>
+                    <View style={styles.rowMain}>
+                      <Text style={styles.rowTitle}>{l.name}</Text>
+                      <Text style={styles.rowSub}>
+                        {day} · {l.items.length} component{l.items.length === 1 ? '' : 's'} ·{' '}
+                        {formatKcal(sumMacros(l.items).kcal)} kcal
+                      </Text>
+                    </View>
+                    <OutlineButton
+                      label={busy === l.id ? '…' : 'Log again'}
+                      accessibilityLabel={`Log again: ${l.name}`}
+                      onPress={() => void logAgain(l)}
+                    />
+                  </View>
+                );
+              })}
+            </>
+          ) : null}
         </>
-      ) : null}
+      )}
 
       <View style={styles.build}>
-        <SecondaryButton
-          strong
-          label="+ Build a meal from scratch"
-          onPress={() => {
-            lm.startDraft({ name: query.trim() });
-            router.push('/log-meal/build');
-          }}
-        />
-        <Text style={formStyles.footnote}>
-          Add components one by one: suggestions, barcode or manual.
+        <View style={styles.buildRow}>
+          <SecondaryButton
+            strong
+            label="+ Build a meal from scratch"
+            onPress={() => {
+              lm.startDraft({ name: lm.tab === 'plan' ? query.trim() : '' });
+              router.push('/log-meal/build');
+            }}
+            style={styles.buildButton}
+          />
+          <SecondaryButton
+            strong
+            label="+ Cooked a batch"
+            onPress={newBatch}
+            style={styles.buildButton}
+          />
+        </View>
+        <Text style={[formStyles.footnote, styles.center]}>
+          A batch is one pot you cook once, then log by the gram.
         </Text>
       </View>
     </FormScreen>
@@ -364,7 +527,7 @@ const styles = StyleSheet.create({
   slotOptionText: { ...type.body, color: colors.text },
   bold: { fontWeight: '700' },
   search: {
-    marginTop: space.lg,
+    marginTop: space.xs,
     minHeight: 52,
     borderRadius: radius.md,
     backgroundColor: colors.card,
@@ -397,6 +560,23 @@ const styles = StyleSheet.create({
   },
   logDarkText: { ...type.headline, color: colors.inverseText },
   build: { marginTop: space.xl, gap: space.md },
+  buildRow: { flexDirection: 'row', gap: space.md },
+  buildButton: { flex: 1, minHeight: 64, paddingHorizontal: space.sm },
+  center: { textAlign: 'center' },
+  tabs: { marginTop: space.lg },
+  tapHint: { marginTop: space.md },
+  empty: {
+    marginTop: space.md,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: space.xl,
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  emptyTitle: { ...type.title, color: colors.text, textAlign: 'center' },
+  emptyBody: { ...type.callout, color: colors.textSecondary, textAlign: 'center' },
   consent: { marginTop: space.xl, gap: space.md },
   consentTitle: { ...type.title, color: colors.text },
 });

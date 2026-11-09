@@ -15,16 +15,20 @@
 import { createHash } from 'node:crypto';
 import {
   dayProgress,
+  guessCooksAs,
   portionMacros,
+  summariseBatch,
   toFood,
   toLondonDate,
   type DailyTargets,
+  type BatchIngredient,
   type Food,
   type MealComponent,
 } from '@life-os/core';
 import { SignJWT, importJWK } from 'jose';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { sortSaved } from '../apps/mobile/src/features/log-meal/saved';
 import { buildTimeline } from '../apps/mobile/src/features/today/timeline';
 import type { AuthUser } from '../apps/mobile/src/lib/backend/types';
 import { fakeProviders } from './stubs/providers';
@@ -127,7 +131,10 @@ const rawData = (s: Stack, token: string, path: string, init: RequestInit = {}) 
       'Content-Type': 'application/json',
       ...(init.headers as Record<string, string>),
     },
-  }).then(async (r) => ({ status: r.status, body: (await r.json()) as { code?: string } }));
+  }).then(async (r) => {
+    const text = await r.text();
+    return { status: r.status, body: (text ? JSON.parse(text) : null) as { code?: string } };
+  });
 
 /** auth-api straight from a device, to read exactly what it answers. */
 const rawAuth = (s: Stack, path: string, body: unknown, deviceId = 'e2e-raw-device-0001') =>
@@ -840,5 +847,296 @@ describe.skipIf(!stack)('phone end to end on the real stack', () => {
     expect(tampered.status).toBe(400);
     expect(JSON.stringify(tampered.body)).toMatch(/nutrition for .* has changed/);
     expect((await b.listMealLogs(range)).filter((m) => m.name === 'Tampered')).toEqual([]);
+  });
+
+  // ------------------------------------------------------- Log meal: Saved tab and batches (L)
+
+  /** Wireframe 7f's rice and eggs, as the user's own foods (complete, so loggable). */
+  async function ownIngredients(p: Phone) {
+    const make = async (name: string, per100g: Food['per100g']) =>
+      toFood(await p.backend.saveUserFood({ name, per100g, remembered: true }))!;
+    const rice = await make('E2E rice, dry', { kcal: 350, protein: 7, carbs: 78, fat: 0.6 });
+    const eggs = await make('E2E eggs, large', { kcal: 143, protein: 12.6, carbs: 0.7, fat: 9.5 });
+    const ing = (food: Food, grams: number): BatchIngredient => ({
+      food,
+      grams,
+      cooksAs: guessCooksAs(food.name),
+    });
+    return { rice, eggs, ing };
+  }
+
+  const wideRange = () => ({
+    from: new Date(Date.now() - 36 * 3600_000).toISOString(),
+    to: new Date(Date.now() + 36 * 3600_000).toISOString(),
+  });
+
+  it('L1: "Save to roster only" saves through save_meal with the plan switch and usual time and writes no meal log', async () => {
+    const { p } = await signUp(s, 'save-only');
+    const b = p.backend;
+    await b.setHealthConsent(true);
+    const { rice } = await ownIngredients(p);
+    const id = await b.saveMeal({
+      id: null,
+      name: 'Rice for later',
+      inDailyPlan: true,
+      usualTime: '19:00',
+      components: [{ food: rice, grams: 75 }],
+    });
+    const meal = (await b.listSavedMeals()).find((m) => m.id === id)!;
+    expect(meal).toMatchObject({ inDailyPlan: true, usualTime: '19:00', starred: false });
+    expect(await b.listMealLogs(wideRange())).toEqual([]);
+    if (sql) {
+      const [row] = await sql<{ n: number }[]>`
+        select count(*)::int as n from public.meal_logs ml
+        join public.saved_meals sm on sm.user_id = ml.user_id where sm.id = ${id}`;
+      expect(row?.n).toBe(0);
+    }
+  });
+
+  it('L2–L7: batch create → server per-100 g = core; tampering refused; log 100 g; as a component; cook again; stars', async () => {
+    const { p } = await signUp(s, 'batch');
+    const b = p.backend;
+    await b.setHealthConsent(true);
+    const { rice, eggs, ing } = await ownIngredients(p);
+    expect(guessCooksAs(rice.name)).toBe('rice');
+
+    // L2: estimated (360 × 2.5 + 120 = 1,020 g), then weighed 1,310 g.
+    const pot = [ing(rice, 360), ing(eggs, 120)];
+    const id = await b.saveBatch({
+      id: null,
+      name: 'E2E egg fried rice',
+      ingredients: pot,
+      weighedG: null,
+    });
+    let [batch] = await b.listBatches();
+    const est = summariseBatch(pot, null);
+    expect(batch!.food.id).toBe(id);
+    expect(batch!.food.per100g).toMatchObject(est.per100g!);
+    expect(est.per100g).toEqual({ kcal: 140, protein: 4, carbs: 27.6, fat: 1.3 });
+    expect(batch!.food.batch).toMatchObject({
+      cookedWeightG: 1020,
+      weighed: false,
+      starred: false,
+    });
+    expect(batch!.ingredients.map((i) => [i.food.id, i.grams, i.cooksAs])).toEqual([
+      [rice.id, 360, 'rice'],
+      [eggs.id, 120, 'as_added'],
+    ]);
+    await b.saveBatch({ id, name: 'E2E egg fried rice', ingredients: pot, weighedG: 1310 });
+    [batch] = await b.listBatches();
+    expect(batch!.food.per100g).toMatchObject(summariseBatch(pot, 1310).per100g!);
+    expect(batch!.food.per100g).toMatchObject({ kcal: 109, protein: 3.1, carbs: 21.5, fat: 1 });
+    expect(batch!.food.batch).toMatchObject({ cookedWeightG: 1310, weighed: true });
+
+    // L3: the server doesn't trust client maths, and batch rows only change through save_batch.
+    const token = p.tokens()!.accessToken;
+    const args = {
+      p_id: null,
+      p_name: 'Tampered batch',
+      p_cooked_weight_g: 1310,
+      p_weighed: true,
+      p_per_100g: { kcal: 99, protein: 3.1, carbs: 21.5, fat: 1 },
+      p_ingredients: [
+        { food_id: rice.id, grams: 360, cooks_as: 'rice', cooked_ratio: 2.5 },
+        { food_id: eggs.id, grams: 120, cooks_as: 'as_added', cooked_ratio: 1 },
+      ],
+    };
+    const tampered = await rawData(s, token, 'rpc/save_batch', {
+      method: 'POST',
+      body: JSON.stringify(args),
+    });
+    expect(tampered.status).toBe(400);
+    expect(JSON.stringify(tampered.body)).toMatch(/nutrition for this batch has changed/);
+    const badEstimate = await rawData(s, token, 'rpc/save_batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...args,
+        p_weighed: false,
+        p_cooked_weight_g: 900,
+        p_per_100g: { kcal: 159, protein: 4.5, carbs: 31.3, fat: 1.5 },
+      }),
+    });
+    expect(badEstimate.status).toBe(400);
+    const direct = await rawData(s, token, `foods?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ kcal_per_100g: 10 }),
+    });
+    expect(direct.body.code).toBe('42501');
+    const sneak = await rawData(s, token, 'batch_ingredients', {
+      method: 'POST',
+      body: JSON.stringify({ batch_id: id, food_id: eggs.id, grams: 500 }),
+    });
+    expect(sneak.body.code).toBe('42501');
+    expect((await b.listBatches()).map((x) => x.food.name)).toEqual(['E2E egg fried rice']);
+
+    // L4: log 100 g of the batch on its own (7h).
+    const batchFood = (await b.listBatches())[0]!.food;
+    const range = wideRange();
+    const firstLog = await b.logMeal({
+      name: batchFood.name,
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [{ food: batchFood, grams: 100 }],
+    });
+    const logged = (await b.listMealLogs(range)).find((l) => l.id === firstLog)!;
+    expect(logged.items[0]!.macros).toEqual({ kcal: 109, protein: 3.1, carbs: 21.5, fat: 1 });
+    expect((await b.listRecentFoods(5)).find((r) => r.food.id === id)?.grams).toBe(100);
+
+    // L5: the batch as one component of a meal (7b-B).
+    const mealLog = await b.logMeal({
+      name: 'Rice & eggs',
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [
+        { food: batchFood, grams: 350 },
+        { food: eggs, grams: 60 },
+      ],
+    });
+    const meal = (await b.listMealLogs(range)).find((l) => l.id === mealLog)!;
+    expect(meal.items.map((i) => [i.foodId, i.macros.kcal])).toEqual([
+      [id, portionMacros(batchFood, 350).kcal],
+      [eggs.id, 86],
+    ]);
+    const rosterId = await b.saveMeal({
+      id: null,
+      name: 'Rice & eggs',
+      inDailyPlan: false,
+      usualTime: null,
+      components: [{ food: batchFood, grams: 350 }],
+    });
+
+    // L6: cook again with one egg fewer — future logs use the new numbers, past logs don't change.
+    const again = [ing(rice, 360), ing(eggs, 60)];
+    await b.saveBatch({ id, name: 'E2E egg fried rice', ingredients: again, weighedG: null });
+    const cooked = (await b.listBatches())[0]!;
+    expect(cooked.food.per100g).toMatchObject(summariseBatch(again, null).per100g!);
+    expect(cooked.food.per100g).toMatchObject({ kcal: 140, protein: 3.4, carbs: 29.3, fat: 0.8 });
+    expect(cooked.food.batch).toMatchObject({ cookedWeightG: 960, weighed: false });
+    const logsAfter = await b.listMealLogs(range);
+    expect(logsAfter.find((l) => l.id === firstLog)!.items[0]!.macros.kcal).toBe(109);
+    expect(logsAfter.find((l) => l.id === mealLog)!.items[0]!.macros.kcal).toBe(
+      portionMacros(batchFood, 350).kcal,
+    );
+    const secondLog = await b.logMeal({
+      name: cooked.food.name,
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [{ food: cooked.food, grams: 100 }],
+    });
+    expect(
+      (await b.listMealLogs(range)).find((l) => l.id === secondLog)!.items[0]!.macros.kcal,
+    ).toBe(140);
+    // A stale client still holding the old per-100 g is refused, as with any food.
+    await expect(
+      b.logMeal({
+        name: 'stale',
+        savedMealId: null,
+        loggedAt: new Date().toISOString(),
+        components: [{ food: batchFood, grams: 100 }],
+      }),
+    ).rejects.toThrow(/has changed/);
+
+    // L7: stars — starred first, then A–Z, across meals and batches.
+    await b.saveMeal({
+      id: null,
+      name: 'Apple crumble',
+      inDailyPlan: false,
+      usualTime: null,
+      components: [{ food: rice, grams: 10 }],
+    });
+    await b.setStarred({ kind: 'meal', id: rosterId }, true);
+    await b.setStarred({ kind: 'batch', id }, true);
+    const relaunched = p.relaunch().backend;
+    const items = [
+      ...(await relaunched.listSavedMeals()).map((m) => ({
+        name: m.name,
+        starred: Boolean(m.starred),
+      })),
+      ...(await relaunched.listBatches()).map((x) => ({
+        name: x.food.name,
+        starred: x.food.batch.starred,
+      })),
+    ];
+    expect(sortSaved(items).map((i) => `${i.starred ? '★' : '☆'} ${i.name}`)).toEqual([
+      '★ E2E egg fried rice',
+      '★ Rice & eggs',
+      '☆ Apple crumble',
+    ]);
+    await b.setStarred({ kind: 'batch', id }, false);
+    expect((await b.listBatches())[0]!.food.batch.starred).toBe(false);
+    // A batch that is in a saved meal can't be deleted out from under it.
+    await expect(b.deleteBatch(id)).rejects.toThrow(/in a saved meal/);
+  });
+
+  it('L8, L9: another user sees none of it; consent off refuses batch writes and hides batches', async () => {
+    const a = await signUp(s, 'batch-owner');
+    await a.p.backend.setHealthConsent(true);
+    const { rice, ing } = await ownIngredients(a.p);
+    const pot = [ing(rice, 200)];
+    const id = await a.p.backend.saveBatch({
+      id: null,
+      name: 'E2E private batch',
+      ingredients: pot,
+      weighedG: null,
+    });
+    await a.p.backend.setStarred({ kind: 'batch', id }, true);
+
+    // L8: B can't see, search, star, cook or log A's batch.
+    const other = await signUp(s, 'batch-other');
+    const ob = other.p.backend;
+    await ob.setHealthConsent(true);
+    expect(await ob.listBatches()).toEqual([]);
+    expect(await ob.searchFoods('E2E private batch')).toEqual([]);
+    expect(await ob.getFoods([id])).toEqual([]);
+    const otherToken = other.p.tokens()!.accessToken;
+    expect((await rawData(s, otherToken, 'batch_ingredients?select=id')).body).toEqual([]);
+    await ob.setStarred({ kind: 'batch', id }, false);
+    await expect(
+      ob.saveBatch({
+        id,
+        name: 'Mine now',
+        ingredients: [{ food: (await ownIngredients(other.p)).rice, grams: 200, cooksAs: 'rice' }],
+        weighedG: null,
+      }),
+    ).rejects.toThrow(/not found/i);
+    const [batchFood] = (await a.p.backend.listBatches()).map((x) => x.food);
+    await expect(
+      ob.logMeal({
+        name: 'steal',
+        savedMealId: null,
+        loggedAt: new Date().toISOString(),
+        components: [{ food: batchFood!, grams: 100 }],
+      }),
+    ).rejects.toThrow();
+    expect((await a.p.backend.listBatches())[0]!.food.batch.starred).toBe(true);
+
+    // L9: A withdraws consent — batch writes refused, batches hidden; back on, all still there.
+    await a.p.backend.setHealthConsent(false);
+    await expect(
+      a.p.backend.saveBatch({ id: null, name: 'No consent', ingredients: pot, weighedG: null }),
+    ).rejects.toThrow(/Health data is off/);
+    await expect(
+      a.p.backend.saveBatch({ id, name: 'No consent', ingredients: pot, weighedG: null }),
+    ).rejects.toThrow(/Health data is off/);
+    const token = a.p.tokens()!.accessToken;
+    const raw = await rawData(s, token, 'rpc/save_batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_id: null,
+        p_name: 'raw',
+        p_cooked_weight_g: 500,
+        p_weighed: false,
+        p_per_100g: summariseBatch(pot, null).per100g,
+        p_ingredients: [{ food_id: rice.id, grams: 200, cooks_as: 'rice', cooked_ratio: 2.5 }],
+      }),
+    });
+    expect(raw.body.code).toBe('42501');
+    expect(await a.p.backend.searchFoods('E2E private batch')).toEqual([]);
+    await a.p.backend.setStarred({ kind: 'batch', id }, false);
+    await a.p.backend.setHealthConsent(true);
+    const back = await a.p.backend.listBatches();
+    expect(back.map((x) => [x.food.name, x.food.batch.starred])).toEqual([
+      ['E2E private batch', true],
+    ]);
   });
 });

@@ -1,7 +1,63 @@
-# Sign-in v3 — test report
+# Test report
 
 - Run started: Sat 7 Nov 2026, 00:45 (Europe/London). Branch `claude/phase2-sign-in-v3`.
 - Environment: Docker client present but no daemon (`/var/run/docker.sock` missing) → Supabase CLI stack cannot run. Plan: Supabase Auth (GoTrue) release binary + local Postgres 16 + Mailpit binary.
+
+## Log meal: Saved tab and batches (Sun 8 Nov 2026)
+
+Branch `claude/log-meal-saved-batches`. Criteria L1–L13 and the proof for each are in
+`docs/PHASE2-SIGNOFF.md` › "L · Log meal: Saved tab and batches".
+
+New tests:
+
+- **core** `batch.test.ts` (40): the ratio table; `guessCooksAs` on 27 names (what counts, what
+  doesn't); cooked-weight rounding; the estimate; a correction; impossible weights; whole batch =
+  ingredients summed like a meal; per-100 g estimated and weighed (wireframe 7f: 1,310 g → 136 kcal,
+  and 350 g of it = 7h's 476 kcal); cook again; liquids; half-away-from-zero rounding; empty batch.
+- **pgTAP** `08_batches.test.sql` (42): SECURITY INVOKER, RLS on, nothing for `anon`; the stored
+  per-100 g; tampered, missing and wrong-estimate numbers refused; "as added" must be × 1; too
+  light; incomplete ingredient; batch in a batch; guards on direct writes; stars; weighed; cook
+  again keeps logged snapshots and new logs need the new numbers; a batch in a saved meal; another
+  user sees nothing and can't cook it again or attach ingredients (composite FK); consent off.
+- **jest** `saved-batches.test.tsx` (19): every wireframe state (7a-S ×3, 7b-R ×2, 7b-B, 7f ×3 plus
+  correction, refusal and "save and log some", 7g ×2 plus remove/delete, 7h ×2), star failure,
+  consent off. `csrf.test.ts` (2) and two new row-mapping checks in `foods.test.ts`.
+- **e2e** (3 more, 22 in all): L1; L2–L7 in one flow (create → server per-100 g = core, tampered
+  per-100 g and estimate refused through the Data API, direct writes refused, log 100 g, as a
+  component, cook again, stale client refused, star order after a relaunch, delete blocked while
+  in a saved meal); L8–L9 (another user; consent off and back on).
+
+What looking at it found and what was fixed:
+
+| Found                                                                                                                                                                                                                                                                     | Fix                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Web: every Data API write was refused.** The web server needs `X-CSRF-Token` on non-GET `/api/supabase` calls; only auth-api calls sent it, so the consent check, log meal, save meal… all came back 403 `DEVICE_CHECK_FAILED` in a browser ("Couldn't load your data") | `webDataFetch` adds it (`src/lib/auth/csrf.ts`, shared with the auth client); jest `csrf.test.ts`. Seen and re-checked in Chrome          |
+| The Log meal sheet header shrank to its content ("Ca… Log …", "Cook a…")                                                                                                                                                                                                  | `SheetHeader` fills its row                                                                                                               |
+| Big number fields overflowed sideways on the web (an `<input>` won't shrink below its default width)                                                                                                                                                                      | `minWidth: 0` on the field                                                                                                                |
+| "Save and log some" / "Log it instead" sat on the left; wrapped button labels were left-aligned                                                                                                                                                                           | centred, as drawn                                                                                                                         |
+| Zero macros read "C 0.0"; the wireframes say "C 0"                                                                                                                                                                                                                        | 7b and 7f rows                                                                                                                            |
+| An e2e assertion failed because the running stack had an older copy of the new migration                                                                                                                                                                                  | not a bug: restarted the stack (`npm run local-auth`), which applies migrations fresh; all checks below ran on a fresh stack and database |
+
+The screens were looked at in Chrome (390 × 844) against the local stack: 7a both tabs, 7f
+building and estimated, 7g changed, the ingredient "how much" with "In the pot", 7h.
+
+### Checks (Sun 8 Nov 2026, this branch)
+
+| Check                                                        | Result                                                                            |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `npm run lint` · `format:check` · `typecheck`                | ✅                                                                                |
+| `npm test` (core · functions · scripts · mobile)             | ✅ 93 · 42 · 13 · 168                                                             |
+| `npm run test:db` (Postgres 16 + pgTAP, fresh database)      | ✅ 8 files; `08_batches` 42                                                       |
+| `npm run test:integration` (real Supabase Auth, fresh stack) | ✅ 42                                                                             |
+| `npm run test:e2e`, three runs back to back                  | ✅ 22 · 22 · 22 (~34 s each)                                                      |
+| `deno check` food-lookup and auth-api                        | ✅                                                                                |
+| `npx expo export` ios · web · android                        | ✅                                                                                |
+| `npm run doctor -- --simulator` against the local stack      | ✅ "All good."                                                                    |
+| `database.types.ts`                                          | ✅ regenerated (`npx supabase gen types typescript --db-url`), additive diff only |
+| CI on PR #8 (lint/typecheck/unit, Deno check, database)      | ✅                                                                                |
+
+Not run here: anything that needs the iPhone (L11 look and feel on the phone, L12 VoiceOver and
+largest text) — the checklist in `docs/PHASE2-SIGNOFF.md`.
 
 ## Phase 2 sign-off run (Sun 8 Nov 2026)
 

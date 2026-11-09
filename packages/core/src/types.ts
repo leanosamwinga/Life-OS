@@ -38,6 +38,22 @@ export interface NutrientsPer100g extends Macros {
 export type FoodSource = 'open_food_facts' | 'user';
 
 /**
+ * A food that is one of the user's own cooked batches (wireframes 7f–7h): its per-100 g values
+ * are the ingredients' totals ÷ the cooked weight. Batches have no portions, no "what's left"
+ * and no expiry; they stay until deleted.
+ */
+export interface BatchInfo {
+  /** Cooked weight in grams: the user's own weighing, or the estimate from dry→cooked ratios. */
+  cookedWeightG: number;
+  /** True when the user weighed it ("I weighed it"); false for "≈ estimated". */
+  weighed: boolean;
+  /** When this pot was saved (the last "Cook again"). */
+  cookedAt: Instant;
+  /** Starred batches sort first on the Saved tab. */
+  starred: boolean;
+}
+
+/**
  * A food that is complete enough to log: kcal and macros per 100 g are known.
  * Partial records (e.g. an Open Food Facts product with missing fields) are a
  * `FoodRecord`; see `toFood` for the conversion.
@@ -52,6 +68,8 @@ export interface Food {
   /** Whole pack and one serving in grams, when known (e.g. from Open Food Facts). */
   packGrams?: number | null;
   servingGrams?: number | null;
+  /** Set when this food is one of the user's own batches. */
+  batch?: BatchInfo | null;
 }
 
 /** A food as stored, where any nutrient may be unknown. Never invent missing numbers. */
@@ -73,6 +91,8 @@ export interface FoodRecord {
   /** Whole pack and one serving in grams. Unknown is `null`; absent on older records. */
   packGrams?: number | null;
   servingGrams?: number | null;
+  /** Set when this food is one of the user's own batches. */
+  batch?: BatchInfo | null;
 }
 
 /** One part of a meal: a food and how much of it. */
@@ -91,6 +111,8 @@ export interface SavedMeal {
   inDailyPlan: boolean;
   /** The usual time for a plan meal, e.g. `08:00`. `null` for non-plan meals. */
   usualTime: LocalTime | null;
+  /** Starred meals sort first on the Saved tab. */
+  starred?: boolean;
 }
 
 /**

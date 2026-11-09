@@ -11,6 +11,7 @@ const TABLES: { name: string; owner: string }[] = [
   { name: 'food_portions_last', owner: 'user_id' },
   { name: 'saved_meals', owner: 'user_id' },
   { name: 'saved_meal_components', owner: 'user_id' },
+  { name: 'batch_ingredients', owner: 'user_id' },
   { name: 'meal_logs', owner: 'user_id' },
   { name: 'meal_log_items', owner: 'user_id' },
   { name: 'water_logs', owner: 'user_id' },

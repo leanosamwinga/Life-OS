@@ -5,6 +5,7 @@ import { formatGrams, formatKcal, portionMacros, type Food } from '@life-os/core
 import {
   FormMessage,
   FormScreen,
+  LinkButton,
   PrimaryButton,
   SecondaryButton,
   TextField,
@@ -12,13 +13,15 @@ import {
 import { Overline, ToggleRow } from '@/components/ui';
 import { useLogMeal } from '@/features/log-meal/LogMealContext';
 import { closeLogMeal } from '@/features/log-meal/navigation';
-import { SheetHeader, TodayBar } from '@/features/log-meal/parts';
+import { FoodName, SheetHeader, TodayBar } from '@/features/log-meal/parts';
 import { defaultMealName, isValidTime, loggedAtFor, slotLabel } from '@/features/log-meal/slots';
 import { useSession } from '@/lib/session';
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
 
+/** Wireframes 7b: "212 kcal · P 48.0 · C 0 · F 2.4" — a zero macro is plain "0". */
+const g1 = (n: number) => (n === 0 ? '0' : n.toFixed(1));
 const macroLine = (m: { kcal: number; protein: number; carbs: number; fat: number }) =>
-  `${formatKcal(m.kcal)} kcal · P ${m.protein.toFixed(1)} · C ${m.carbs.toFixed(1)} · F ${m.fat.toFixed(1)}`;
+  `${formatKcal(m.kcal)} kcal · P ${g1(m.protein)} · C ${g1(m.carbs)} · F ${g1(m.fat)}`;
 
 function confirmDelete(name: string): Promise<boolean> {
   const msg = `“${name}” leaves your roster. Meals you’ve already logged stay in your history.`;
@@ -40,6 +43,9 @@ export default function BuildMealScreen() {
   const lm = useLogMeal();
   const { draft, draftTotals: t } = lm;
   const editing = draft.mode === 'edit';
+  // 7b-R: "Save to roster only" — save_meal, never log_meal.
+  const saveOnly = !editing && draft.saveOnly;
+  const planFields = editing || saveOnly;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const backend = session.backend;
@@ -102,6 +108,20 @@ export default function BuildMealScreen() {
       router.back();
     });
 
+  const saveToRosterOnly = () =>
+    run(async () => {
+      await backend!.saveMeal({
+        id: null,
+        name,
+        inDailyPlan: draft.inDailyPlan,
+        usualTime: draft.inDailyPlan ? draft.usualTime.trim() : null,
+        components: draft.components,
+      });
+      session.notifyDataChanged();
+      lm.setTab('saved');
+      router.dismissTo('/log-meal');
+    });
+
   const deleteMeal = async () => {
     if (!draft.savedMealId || !(await confirmDelete(draft.name))) return;
     await run(async () => {
@@ -119,7 +139,7 @@ export default function BuildMealScreen() {
           left="‹ Log meal"
           leftLabel="Back to Log meal"
           onLeft={() => router.back()}
-          right={editing ? 'Edit meal' : slotLabel(lm.slot)}
+          right={editing ? 'Edit meal' : saveOnly ? 'Not logging' : slotLabel(lm.slot)}
         />
       }
       footer={
@@ -139,13 +159,41 @@ export default function BuildMealScreen() {
                 onPress={() => void deleteMeal()}
               />
             </>
+          ) : saveOnly ? (
+            <>
+              <PrimaryButton
+                label="Save meal"
+                busy={busy}
+                disabled={draft.components.length === 0 || !timeOk}
+                onPress={() => void saveToRosterOnly()}
+              />
+              <LinkButton
+                label="Log it instead"
+                plain
+                align="center"
+                onPress={() => lm.updateDraft({ saveOnly: false })}
+              />
+            </>
           ) : (
-            <PrimaryButton
-              label={`Done · log meal (${formatKcal(t.kcal)} kcal)`}
-              busy={busy}
-              disabled={draft.components.length === 0}
-              onPress={() => void logMeal()}
-            />
+            <>
+              <PrimaryButton
+                label={`Done · log meal (${formatKcal(t.kcal)} kcal)`}
+                busy={busy}
+                disabled={draft.components.length === 0}
+                onPress={() => void logMeal()}
+              />
+              <SecondaryButton
+                strong
+                label="Save to roster only"
+                disabled={busy || draft.components.length === 0}
+                onPress={() =>
+                  lm.updateDraft({
+                    saveOnly: true,
+                    usualTime: draft.usualTime || lm.slot.time,
+                  })
+                }
+              />
+            </>
           )}
         </>
       }
@@ -179,9 +227,12 @@ export default function BuildMealScreen() {
               accessibilityRole="button"
               accessibilityLabel={`${c.food.name}, ${formatGrams(c.grams)}. Change amount`}
             >
-              <Text style={styles.compTitle}>
-                {c.food.name} · {formatGrams(c.grams)}
-              </Text>
+              <FoodName
+                name={c.food.name}
+                batch={Boolean(c.food.batch)}
+                suffix={` · ${formatGrams(c.grams)}`}
+                style={styles.compTitle}
+              />
               <Text style={styles.sub}>{macroLine(portionMacros(c.food, c.grams))}</Text>
             </Pressable>
             <Pressable
@@ -211,16 +262,23 @@ export default function BuildMealScreen() {
                 accessibilityHint="Hold to change grams"
                 style={styles.suggestion}
               >
-                <Text style={styles.suggestionText}>
-                  + {r.food.name} · {formatGrams(r.grams)}
-                </Text>
+                <View style={styles.suggestionName}>
+                  <FoodName
+                    name={`+ ${r.food.name}`}
+                    batch={Boolean(r.food.batch)}
+                    suffix={` · ${formatGrams(r.grams)}`}
+                    style={styles.suggestionText}
+                  />
+                </View>
                 <Text style={styles.sub}>
                   {formatKcal(portionMacros(r.food, r.grams).kcal)} kcal
                 </Text>
               </Pressable>
             ))}
             <Text style={styles.sub}>
-              Amounts are what you had last time. Tap to add, or hold to change grams.
+              {suggestions.some((r) => r.food.batch)
+                ? 'Your batches show up in suggestions and search, like any food.'
+                : 'Amounts are what you had last time. Tap to add, or hold to change grams.'}
             </Text>
           </>
         ) : null}
@@ -256,7 +314,9 @@ export default function BuildMealScreen() {
             </View>
           ))}
         </View>
-        {editing ? null : (
+        {editing ? null : saveOnly ? (
+          <Text style={styles.sub}>Not added to today. Log it from Saved when you eat it.</Text>
+        ) : (
           <TodayBar
             logged={lm.progress.kcal.consumed}
             meal={t.kcal}
@@ -265,13 +325,15 @@ export default function BuildMealScreen() {
         )}
       </View>
 
-      {editing ? (
+      {planFields ? (
         <>
           <ToggleRow
             label="In my daily plan"
             subtitle="Shows on Today at its usual time, with “Ate it”"
             value={draft.inDailyPlan}
-            onValueChange={(v) => lm.updateDraft({ inDailyPlan: v })}
+            onValueChange={(v) =>
+              lm.updateDraft({ inDailyPlan: v, usualTime: draft.usualTime || lm.slot.time })
+            }
             last={!draft.inDailyPlan}
           />
           {draft.inDailyPlan ? (
@@ -350,6 +412,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   suggestionText: { ...type.headline, color: colors.text, flexShrink: 1 },
+  suggestionName: { flexShrink: 1, paddingVertical: space.sm },
   addButtons: { flexDirection: 'row', gap: space.sm, marginTop: space.sm },
   addButton: {
     flex: 1,

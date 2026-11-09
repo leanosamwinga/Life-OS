@@ -13,7 +13,7 @@ import {
 } from '@life-os/core';
 import { FormMessage, FormScreen, PrimaryButton, TextField, formStyles } from '@/components/forms';
 import { ToggleRow } from '@/components/ui';
-import { useLogMeal } from '@/features/log-meal/LogMealContext';
+import { builderPath, useLogMeal } from '@/features/log-meal/LogMealContext';
 import { MacroTiles, SheetHeader } from '@/features/log-meal/parts';
 import { defaultMealName } from '@/features/log-meal/slots';
 import { parseAmount } from '@/features/targets/parse';
@@ -107,7 +107,7 @@ export default function ManualEntryScreen() {
       lm.addComponent(food, grams);
       lm.setManual(null);
       session.notifyDataChanged();
-      router.dismissTo('/log-meal/build');
+      router.dismissTo(builderPath(lm.draft));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Couldn’t save that food.');
       setBusy(false);

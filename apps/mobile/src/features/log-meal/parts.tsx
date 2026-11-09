@@ -110,6 +110,57 @@ export function Chip(props: { label: string; selected?: boolean; onPress: () => 
   );
 }
 
+/** The outlined "BATCH" tag next to a batch's name (7a-S, 7b-B, 7g, 7h). */
+export function BatchBadge() {
+  return (
+    <View style={styles.badge} accessibilityLabel="batch" accessible>
+      <Text style={styles.badgeText}>BATCH</Text>
+    </View>
+  );
+}
+
+/** A name followed by the BATCH tag when the food is a batch; wraps like text. */
+export function FoodName(props: {
+  name: string;
+  batch?: boolean;
+  suffix?: string;
+  style: object;
+  numberOfLines?: number;
+}) {
+  if (!props.batch) {
+    return (
+      <Text style={props.style} numberOfLines={props.numberOfLines}>
+        {props.name}
+        {props.suffix ?? ''}
+      </Text>
+    );
+  }
+  return (
+    <View style={styles.nameRow}>
+      <Text style={props.style}>{props.name}</Text>
+      <BatchBadge />
+      {props.suffix ? <Text style={props.style}>{props.suffix.replace(/^ /, '')}</Text> : null}
+    </View>
+  );
+}
+
+/** Star toggle on the Saved tab. VoiceOver: "Egg fried rice: starred" / "…: not starred". */
+export function StarToggle(props: { name: string; starred: boolean; onToggle: () => void }) {
+  return (
+    <Pressable
+      onPress={props.onToggle}
+      accessibilityRole="button"
+      accessibilityLabel={`${props.name}: ${props.starred ? 'starred' : 'not starred'}`}
+      accessibilityHint={props.starred ? 'Double-tap to unstar' : 'Double-tap to star'}
+      accessibilityState={{ checked: props.starred }}
+      hitSlop={4}
+      style={({ pressed }) => [styles.star, pressed && { opacity: 0.6 }]}
+    >
+      <Text style={styles.starText}>{props.starred ? '★' : '☆'}</Text>
+    </Pressable>
+  );
+}
+
 /** Segmented control (Scan · Search · Manual). */
 export function Segmented<T extends string>(props: {
   options: readonly T[];
@@ -135,11 +186,29 @@ export function Segmented<T extends string>(props: {
 }
 
 const styles = StyleSheet.create({
+  badge: {
+    borderWidth: 1,
+    borderColor: colors.textSecondary,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  badgeText: { ...type.caption, fontWeight: '700', letterSpacing: 1, color: colors.textSecondary },
+  nameRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
+  star: {
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  starText: { fontSize: 24, color: colors.text },
+  // Fills FormScreen's header row (which already has the side padding), so the left action,
+  // title and right detail get their share of the width instead of being squeezed.
   header: {
+    flex: 1,
     minHeight: MIN_TOUCH + 12,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: space.xl,
     gap: space.sm,
   },
   headerSide: { flex: 1, minHeight: MIN_TOUCH, justifyContent: 'center' },

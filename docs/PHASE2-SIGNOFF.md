@@ -1,12 +1,13 @@
 # Phase 2 sign-off
 
-Branch `claude/phase2-sign-in-v3` · PR #7 · updated Sun 8 Nov 2026.
+Branch `claude/phase2-sign-in-v3` · PR #7 (merged) · updated Sun 8 Nov 2026 on
+`claude/log-meal-saved-batches`, which adds [section L](#l--log-meal-saved-tab-and-batches).
 
 Each criterion is one of:
 
 - ✅ **automated** — a test proves it; the test is named (file › test name).
 - 📱 **manual on your phone** — needs a person and a real iPhone. The tests that back it are listed;
-  the steps are in the [morning checklist](#morning-checklist) at the end.
+  the steps are in the [morning checklists](#morning-checklist-phase-2-sign-in) at the end.
 - ☐ **open** — not done yet; says what's needed.
 - ⏭ **deferred** — moved to a named later phase.
 
@@ -56,10 +57,10 @@ a new one goes through 0b-5h with the emailed code.
 
 ## C · Development build
 
-| ID  | Criterion                                                       | Status | Proof / what's needed                                                                                                                                                                                                                                                           |
-| --- | --------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | development build on your phone with your own `APPLE_BUNDLE_ID` | ☐      | Needs your paid Apple Developer account, your bundle id in `apps/mobile/app.json` and `npx expo run:ios --device` (or `npx eas-cli@latest build --profile development`). Nothing here can do that for you. If it isn't done before you merge, it moves to phase 7 (TestFlight). |
-| C2  | Google create / sign in / wrong method / 0b-8h on iPhone        | 📱     | Server side ✅ `e2e` › "B3, C2: …" (Google create, sign out, sign in, 0b-8h one-tap) and "B6: …" (wrong method). Needs C1 first. Checklist step 10.                                                                                                                             |
+| ID  | Criterion                                                       | Status    | Proof / what's needed                                                                                                                                      |
+| --- | --------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | development build on your phone with your own `APPLE_BUNDLE_ID` | ⏭ phase 7 | Needs your paid Apple Developer account, your bundle id in `apps/mobile/app.json` and a development build. Moved to phase 7 (TestFlight) on Sun 8 Nov.     |
+| C2  | Google create / sign in / wrong method / 0b-8h on iPhone        | ⏭ phase 7 | Server side ✅ `e2e` › "B3, C2: …" (Google create, sign out, sign in, 0b-8h one-tap) and "B6: …" (wrong method). Needs C1, so it moves to phase 7 with it. |
 
 ## D · Web
 
@@ -131,29 +132,30 @@ can eat the same thing twice).
 
 | ID  | Criterion                         | Status | Proof                                                                                                                                                                                                                                                                                                |
 | --- | --------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| J1  | VoiceOver                         | 📱     | Every control has a role and label (jest tests find them by role and name). Checklist step 11.                                                                                                                                                                                                       |
-| J2  | largest text size                 | 📱     | Checklist step 12.                                                                                                                                                                                                                                                                                   |
+| J1  | VoiceOver                         | ✅     | Passed on your iPhone, Sun 8 Nov. Every control has a role and label (jest tests find them by role and name).                                                                                                                                                                                        |
+| J2  | largest text size                 | ✅     | Passed on your iPhone, Sun 8 Nov.                                                                                                                                                                                                                                                                    |
 | J3  | all automated checks and CI green | ✅     | Sun 8 Nov 2026: lint, format:check, typecheck, `npm test` (53 + 42 + 13 + 146), test:db, test:integration (42), test:e2e (19, three runs back to back), deno check both functions, expo export ios/android/web, doctor against the local stack; CI on PR #7 green. Details in `docs/TEST-REPORT.md`. |
 
 ## K · Close-out
 
-| ID  | Criterion                                      | Status | Notes                                                                |
-| --- | ---------------------------------------------- | ------ | -------------------------------------------------------------------- |
-| K1  | every ☐ ticked or moved to a named later phase | ☐      | Open: C1 (yours: development build). Everything else is ✅, 📱 or ⏭. |
-| K2  | PR #7 merged by you                            | ☐      | Yours, after the checklist.                                          |
-| K3  | deferred items recorded                        | ✅     | Below and in `docs/SPEC-QUESTIONS.md`.                               |
+| ID  | Criterion                                      | Status | Notes                                                                   |
+| --- | ---------------------------------------------- | ------ | ----------------------------------------------------------------------- |
+| K1  | every ☐ ticked or moved to a named later phase | ✅     | C1 and C2 moved to phase 7 (Sun 8 Nov); J1 and J2 passed on your phone. |
+| K2  | PR #7 merged by you                            | ✅     | Merged Sun 8 Nov.                                                       |
+| K3  | deferred items recorded                        | ✅     | Below and in `docs/SPEC-QUESTIONS.md`.                                  |
 
 **Deferred (K3)**
 
-| Item                                       | Where it's described                  | Phase                                                                        |
-| ------------------------------------------ | ------------------------------------- | ---------------------------------------------------------------------------- |
-| App Attest native module                   | SPEC-QUESTIONS Q-DEVICECHECK-IOS      | 7 (TestFlight: device checks on in production)                               |
-| Real breach dataset on the hosted database | SPEC-QUESTIONS Q-BREACH               | 7 (before anyone but you signs up)                                           |
-| Email provider                             | SPEC-QUESTIONS "Open questions" 2     | 7 (Mailpit is local only; real email is needed for TestFlight)               |
-| Web hosting, web Apple/Google (D3)         | SPEC-QUESTIONS Q-HOSTING              | 7                                                                            |
-| Android Apple/Google screens               | SPEC-QUESTIONS Q-ANDROID (decision 9) | the Android release, after phase 7 (the plan is iOS, then web, then Android) |
+| Item                                            | Where it's described                  | Phase                                                                        |
+| ----------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------- |
+| App Attest native module                        | SPEC-QUESTIONS Q-DEVICECHECK-IOS      | 7 (TestFlight: device checks on in production)                               |
+| Real breach dataset on the hosted database      | SPEC-QUESTIONS Q-BREACH               | 7 (before anyone but you signs up)                                           |
+| Email provider                                  | SPEC-QUESTIONS "Open questions" 2     | 7 (Mailpit is local only; real email is needed for TestFlight)               |
+| Web hosting, web Apple/Google (D3)              | SPEC-QUESTIONS Q-HOSTING              | 7                                                                            |
+| Development build and Google on iPhone (C1, C2) | your Apple Developer account          | 7 (TestFlight)                                                               |
+| Android Apple/Google screens                    | SPEC-QUESTIONS Q-ANDROID (decision 9) | the Android release, after phase 7 (the plan is iOS, then web, then Android) |
 
-## Morning checklist
+## Morning checklist (Phase 2 sign-in)
 
 About 30 minutes. Mac on the same Wi-Fi as the iPhone; Docker Desktop running; Expo Go on the
 iPhone. Mailpit (for codes) is `http://127.0.0.1:54324` on the Mac. "→ 0x" is the screen you
@@ -246,4 +248,126 @@ should see next.
     size. 0a, 0b-5, 0c, Today, 7a and Me: nothing cut off or overlapping; buttons still tappable.
     Back to the default size.
 
-Tick 📱 → ✅ above as you go. C1 open after this → it moves to phase 7, and K1 is done.
+Done: J1 and J2 passed on Sun 8 Nov; C1 and C2 moved to phase 7; K1 and K2 done.
+
+## L · Log meal: Saved tab and batches
+
+Follow-up to 7a–7e, built on `claude/log-meal-saved-batches` from the decisions doc
+(`claude/log-meal-saved-and-batches-decisions.md`, Sun 8 Nov) and the 14 wireframes "Log meal
+Saved & batches". Tests: `jest` = `apps/mobile/src/__tests__/saved-batches.test.tsx`; `core` =
+`packages/core/src/batch.test.ts`; `pgTAP` = `supabase/tests/08_batches.test.sql`; `e2e` as above.
+
+| ID  | Criterion                                                                                                                                                                        | Status | Proof                                                                                                                                                                                                                        |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| L1  | 7b "Save to roster only" saves through `save_meal` with the plan switch and usual time, and writes no meal log                                                                   | ✅     | `e2e` › "L1: …"; `jest` › "7b-R … save-only chosen: plan switch and usual time; saves through save_meal and logs nothing" · "default: …"                                                                                     |
+| L2  | a batch is your own food with per-100 g = ingredient totals ÷ cooked weight; the server's numbers equal core's (estimated and weighed)                                           | ✅     | `e2e` › "L2–L7: …" (`listBatches` = `summariseBatch`, 1,020 g estimated → 140 kcal; weighed 1,310 g → 109 kcal); `pgTAP` 08_batches; `core` › "per 100 g"                                                                    |
+| L3  | the server doesn't trust client maths: tampered per-100 g or estimate refused; batch rows and ingredients can't be changed outside `save_batch`                                  | ✅     | `e2e` › "L2–L7: …" (Data API `rpc/save_batch` 400 "nutrition for this batch has changed"; direct PATCH/POST 42501); `pgTAP` 08_batches (tampered, missing, wrong estimate, "as added" ≠ × 1, too light, guard, composite FK) |
+| L4  | log a batch on its own in grams (7h), last time pre-filled; liquids: 1 ml = 1 g                                                                                                  | ✅     | `e2e` › "L2–L7: …" (100 g → 109 kcal, last time 100 g); `jest` › "7h … solid" · "liquid"                                                                                                                                     |
+| L5  | a batch is a component of a meal like any food, with the BATCH tag (7b-B)                                                                                                        | ✅     | `e2e` › "L2–L7: …" (meal with 350 g of the batch + eggs); `jest` › "7b-B …"                                                                                                                                                  |
+| L6  | cook again (7g): last time's ingredients pre-filled; totals and per-100 g recalculate; meals already logged keep their snapshot; nothing in history is rewritten                 | ✅     | `e2e` › "L2–L7: …" (past log stays 109 kcal, new log 140, stale client refused); `pgTAP` (snapshot kept); `jest` › "7g … unchanged" · "one ingredient changed" · "taken out … deleted"                                       |
+| L7  | Saved tab (7a-S): saved meals and batches together, starred first then A–Z; a star per row, read by VoiceOver as "… : starred" / "… : not starred"                               | ✅     | `e2e` › "L2–L7: …" (stars saved, order after a relaunch); `jest` › "7a-S … Saved — filled" · "Saved — empty" · "Plan & recent" · `sortSaved`                                                                                 |
+| L8  | another user can't see, search, star, cook again or log any of it                                                                                                                | ✅     | `e2e` › "L8, L9: …"; `pgTAP` 08_batches (B sees nothing, can't cook again, can't attach ingredients)                                                                                                                         |
+| L9  | consent off refuses batch writes and hides batches (health data); turned back on, they're all still there                                                                        | ✅     | `e2e` › "L8, L9: …"; `pgTAP` 08_batches; `jest` › "consent off: no Saved tab, no batches loaded"                                                                                                                             |
+| L10 | cooked weight: a small, conservative ratio table; how each ratio was chosen is shown and can be corrected per ingredient; "I weighed it" replaces the estimate; nothing invented | ✅     | `core` › "the ratio table" · "guessCooksAs" (27 names) · "cooked weight" · "explainEstimate"; `jest` › "7f … building → estimated → weighed" · "the ratio is visible and correctable"                                        |
+| L11 | every new wireframe state: layout, hierarchy and copy                                                                                                                            | 📱     | `jest` saved-batches (one or more tests per state, 19 in all); looked at in a browser against the local stack. Checklist below.                                                                                              |
+| L12 | VoiceOver and the largest text size on the new screens                                                                                                                           | 📱     | Role and label on every control (the jest tests find them by role and name). Checklist steps 8–9.                                                                                                                            |
+| L13 | all automated checks and CI green                                                                                                                                                | ✅     | `docs/TEST-REPORT.md` › "Log meal: Saved tab and batches".                                                                                                                                                                   |
+
+**Readings taken** (also in the PR):
+
+- **Ratios.** As briefed, only clear cases: dry rice × 2.5, dry pasta × 2.25, oats × 2.5, dry
+  lentils × 2.5, couscous × 2.25, quinoa × 2.75; raw meat and raw poultry × 0.75, raw fish × 0.8.
+  Everything else counts as its own weight — including eggs and peas, which the wireframe shows at
+  × 0.9, so the wireframe's "≈ 1,240 g" example comes out as ≈ 1,270 g. A dry staple counts unless
+  its name says cooked, tinned, fresh or another product (rice cakes, oat milk, noodles); meat,
+  poultry and fish only when the name says "raw" (shops sell both). Estimates are rounded to the
+  nearest 10 g, as in the wireframes.
+- **Correcting a ratio.** 7f shows "How we worked it out: …" as drawn, plus "Tap an ingredient to
+  change this."; the ingredient's "how much" screen has an "In the pot" row (As added, Dry rice ×
+  2.5, …). The choice is stored per ingredient (`batch_ingredients.cooks_as`, `cooked_ratio`).
+- **"Building" vs "estimated" (7f).** A new batch uses the building layout (grey "Add ingredient"
+  panel, "Batch so far", "≈ … g so far") until it has three ingredients, then the full card with
+  "I weighed it". Cook again always shows the full card.
+- **Counts.** The wireframes show "Test eggs, large · 2 (120 g)" and "2 → 1". The app has no count
+  units, so batches are in grams like everything else ("120 g → 60 g"); soy sauce shows 30 g (1 ml =
+  1 g). "One egg fewer" becomes "Test eggs, large 120 g → 60 g."
+- **Liquid batches** (7h's "1 ml counts as 1 g") are those whose name says soup, broth, stock,
+  smoothie, shake, juice, drink, gravy or sauce. It only changes that line.
+- **Per-100 g rounding.** Stored like every macro: whole kcal and 1 dp (that's what reproduces 7h's
+  "350 g → 476 kcal · P 14.0"). Fibre, sugar and salt stay unknown (`null`) for batches.
+- **Cook again** updates the batch in place (same food, so "last time" amounts and roster meals
+  using it carry on). The weighed field starts empty for the new pot, with "Last time you weighed
+  1,310 g." A batch can't contain another batch. "Delete batch" is a small link at the bottom of 7g
+  (the decisions say batches stay until deleted; no wireframe shows where); a batch used in a saved
+  meal must be taken out of that meal first.
+- **Saved tab rows**: plan meals read "In plan · 19:00 · 850 kcal · P 52", other meals "2 components ·
+  …", batches "136 kcal per 100 g · cooked Sun 8 Nov". Tapping a meal opens it for editing (7b
+  edit, as from the roster), tapping a batch opens 7g. "Log" on a batch opens 7h.
+- **Save to roster only** starts with "In my daily plan" off; turning it on fills the usual time
+  with the slot's time. After saving you land on the Saved tab with the new meal.
+- After "Save and log some" the app goes to 7h for the new batch; "Save batch only" and "Save batch"
+  go back to 7a on the Saved tab ("Updated per 100 g").
+
+### Morning checklist (Saved tab and batches)
+
+About 15 minutes, signed in on your iPhone with health data on. First bring your local database up
+to date (from the repo root):
+
+```bash
+git pull
+npm install
+npx supabase stop
+npx supabase start
+npx supabase db reset
+```
+
+In a second window, and leave it running:
+
+```bash
+npx supabase functions serve --env-file supabase/functions/.env
+```
+
+In a third window:
+
+```bash
+npm run doctor
+npm run mobile -- --clear
+```
+
+`db reset` erases local accounts: create one again (email → code from Mailpit → 0c → … → Today).
+
+1. **Save to roster only (7b-R).** Today → **+ Log meal** → **7a** (Plan & recent tab) → **+ Build a
+   meal from scratch** → **7b**. Name it "Chicken stir-fry", add two foods. ✔ Under "Done · log
+   meal" there's **Save to roster only**. Tap it → header says **Not logging**, the card says "Not
+   added to today. Log it from Saved when you eat it." Turn on **In my daily plan**, set **19:00** →
+   **Save meal** → **7a, Saved tab** with Chicken stir-fry. ✔ Today's kcal ring hasn't moved.
+2. **Saved tab (7a-S).** ✔ Meals and the stir-fry together; **A–Z** heading. Tap the ☆ next to
+   Chicken stir-fry → it moves under **STARRED**. Tap ★ → back into A–Z.
+3. **New batch (7f building).** On 7a tap **+ Cooked a batch** → **7f** ("New batch" top right).
+   Name it "Egg fried rice". **Search** → a rice whose name says dry, e.g. add it from the label as
+   "Rice, dry" (350 kcal, P 7, C 78, F 0.6) → 360 g; ✔ "In the pot" shows **Dry rice × 2.5**
+   selected → **Add ingredient**. Add eggs 120 g. ✔ "BATCH SO FAR" and "≈ 1,020 g so far".
+4. **Estimated → weighed (7f).** Add a third ingredient (e.g. peas 200 g). ✔ "WHOLE BATCH", "≈ … g
+   estimated", "How we worked it out: dry rice × 2.5 (it soaks up water), the rest as added." and
+   "Per 100 g cooked: …". Type **1310** in **I weighed it** → ✔ "1,310 g weighed", "Using your
+   weight. Estimate was ≈ … g." (struck through), per 100 g changes. Clear it → back to the estimate;
+   type 1310 again.
+5. **Save and log some (7h).** **Save and log some** → **7h** "Egg fried rice BATCH · Your batch ·
+   cooked Sun 8 Nov · weighed 1,310 g". Type **350** → ✔ tiles and "350 g × per-100 g values ÷ 100 ·
+   weigh what's on your plate"; **Log it · … kcal** → **Today**: the kcal ring and timeline show it.
+6. **Batch as a component (7b-B).** **+ Log meal** → **+ Build a meal from scratch**. ✔ "+ Egg fried
+   rice BATCH · 350 g" is suggested, with "Your batches show up in suggestions and search, like any
+   food." Tap it, add one more food → **Done · log meal** → Today.
+7. **Cook again (7g).** **+ Log meal** → **Saved** → tap **Egg fried rice** → **7g** ("‹ Saved",
+   "Cook again"). ✔ "INGREDIENTS · SAME AS LAST TIME", "Last time you weighed 1,310 g.". Tap the eggs
+   row → 60 → **Update ingredient** → ✔ the row is shaded "120 g → 60 g", "INGREDIENTS · 1 CHANGED",
+   "Was 1,… kcal …", "Was ≈ … g. Test eggs … 120 g → 60 g." → **Save batch** → Saved tab. ✔ Today's
+   totals from steps 5–6 didn't change.
+8. **VoiceOver (L12).** VoiceOver on. On 7a's Saved tab swipe through: the tabs read "Plan & recent,
+   tab" / "Saved, tab, selected"; each star reads "Egg fried rice: starred, button" (or "not
+   starred"); "Cook Egg fried rice again, button"; "Log Egg fried rice, button". On 7f and 7h every
+   control is read with a name. VoiceOver off.
+9. **Largest text (L12).** Largest text size: 7a Saved tab, 7f, 7g and 7h — nothing cut off or
+   overlapping, buttons still tappable. Back to the default size.
+
+Tick 📱 → ✅ for L11 and L12 when done.

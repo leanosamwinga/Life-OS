@@ -5,6 +5,7 @@
 // Web: calls the same paths on the web server in front of the app (/api/auth/…), which holds
 // the tokens in httpOnly cookies, so this code never sees them (decision 10).
 import type { FederatedProvider } from '@life-os/core';
+import { csrfToken } from './csrf';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import type {
@@ -239,11 +240,8 @@ export class AuthClient implements AuthApi {
       }
     } else {
       // Double-submit CSRF token: the cookie server checks this matches its cookie.
-      const csrf =
-        typeof document !== 'undefined'
-          ? /(?:^|; )(?:__Host-)?lifeos_csrf=([^;]+)/.exec(document.cookie)?.[1]
-          : undefined;
-      if (csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+      const csrf = csrfToken();
+      if (csrf) headers['X-CSRF-Token'] = csrf;
     }
     if (!opts.auth && path.startsWith('/v1/')) {
       Object.assign(headers, await this.o.deviceCheck.headers(method, path, text));

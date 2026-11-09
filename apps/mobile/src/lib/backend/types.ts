@@ -1,5 +1,13 @@
-import type { Food, Instant, LocalTime, MealComponent, MealLog, WaterLog } from '@life-os/core';
-import type { BarcodeLookup, RosterMeal, StoredFood, UserFoodInput } from './foods';
+import type {
+  BatchIngredient,
+  Food,
+  Instant,
+  LocalTime,
+  MealComponent,
+  MealLog,
+  WaterLog,
+} from '@life-os/core';
+import type { BarcodeLookup, RosterMeal, SavedBatch, StoredFood, UserFoodInput } from './foods';
 import type { SettingsPatch, UserSettings } from './settings';
 
 export interface TimeRange {
@@ -22,6 +30,17 @@ export interface SaveMealInput {
   usualTime: LocalTime | null;
   components: readonly MealComponent[];
 }
+
+export interface SaveBatchInput {
+  /** `null` for a new batch (7f); the batch's id to cook it again (7g). */
+  id: string | null;
+  name: string;
+  ingredients: readonly BatchIngredient[];
+  /** "I weighed it": the whole pot in grams. `null` uses the estimate. */
+  weighedG: number | null;
+}
+
+export type StarTarget = { kind: 'meal' | 'batch'; id: string };
 
 /** A food the user has logged before, with the amount they had last time. */
 export interface RecentFood {
@@ -142,6 +161,16 @@ export interface Backend {
   /** Create or update a roster meal and its components in one transaction (`save_meal`). */
   saveMeal(input: SaveMealInput): Promise<string>;
   deleteSavedMeal(id: string): Promise<void>;
+  /** Your batches with last time's ingredients (health data). */
+  listBatches(): Promise<SavedBatch[]>;
+  /**
+   * Create a batch or cook it again (`save_batch`): the server recomputes per-100 g from the
+   * ingredients and the cooked weight and refuses a mismatch. Returns the batch's food id.
+   */
+  saveBatch(input: SaveBatchInput): Promise<string>;
+  deleteBatch(id: string): Promise<void>;
+  /** Star or unstar a saved meal or batch (Saved tab: starred first, then A–Z). */
+  setStarred(target: StarTarget, starred: boolean): Promise<void>;
   listMealLogs(range: TimeRange): Promise<MealLog[]>;
   /** Log a meal atomically (`log_meal`): log + snapshotted items + last portions. */
   logMeal(input: LogMealInput): Promise<string>;
