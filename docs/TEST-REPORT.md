@@ -3,6 +3,69 @@
 - Run started: Sat 7 Nov 2026, 00:45 (Europe/London). Branch `claude/phase2-sign-in-v3`.
 - Environment: Docker client present but no daemon (`/var/run/docker.sock` missing) → Supabase CLI stack cannot run. Plan: Supabase Auth (GoTrue) release binary + local Postgres 16 + Mailpit binary.
 
+## Log meal and water follow-ups (Mon 9 Nov 2026)
+
+Branch `claude/log-meal-and-water-follow-ups`, after PR #9 was merged into main. Criteria N1–N18
+and the proof for each are in `docs/PHASE2-SIGNOFF.md` › "N · Log meal and water follow-ups".
+
+New tests:
+
+- **core** `followups.test.ts` (17): 7i order; looping (rows, 59 → 00 → 01 and back, 23 → 00 and
+  back, the short way round, recentring, the day unchanged, struck-through values still
+  unpickable, VoiceOver stopping at the ends); "Ate it" time (passed, still to come, no usual
+  time, BST, just after midnight); water amounts (0, 1, 5,000, "5,000", "750 ml", 5,001, decimals,
+  text, negative, exponent, empty) and newest first; the yesterday view's date; a logged meal's
+  components by today's foods, with deleted foods listed apart. `mealedit.test.ts` updated for
+  Yesterday | Today and 7l's new line.
+- **pgTAP** `10_log_meal_and_water_follow_ups.test.sql` (35): `replace_logged_meal` is SECURITY
+  INVOKER and not for `anon`; mismatched macros, a time out of the window, an unknown food, no
+  components and an old meal before yesterday are all refused with the original untouched; another
+  user gets "meal not found"; the copy is logged, the old meal and its items deleted, the plan link
+  kept, the name trimmed, the time and recomputed macros right, the plan meal unchanged; water:
+  another user can't see, change or delete yours, you can delete your own, 0 and 5,001 refused;
+  consent off refuses the copy, log again and water, and nothing is deleted.
+- **jest** `follow-ups.test.tsx` (32): 7i order, opening day, minutes and hours looping, struck
+  values when wrapped, VoiceOver ends; Daily targets from Me and from 0g; Today ↔ Yesterday, a
+  yesterday meal edited, a meal moved to yesterday, consent off; Log again now and at another time,
+  a deleted food; corrected copy pre-filled, saved (one `replaceLoggedMeal`, plan link kept),
+  cancelled, failing, with a deleted food, consent off; Ate it at the usual time and now; water
+  quick and custom amounts, refusals, today's list and delete, consent off; undo shown and undone,
+  timed out, dismissed, plan meal not eaten meanwhile, failure. The 7l test in
+  `time-edit-units.test.tsx` now dismisses the note before checking the delete.
+- **scripts** `checks.test.mjs` (+5): repo and branch lines, remotes, nested clone by origin and by
+  package name, nothing when there's none.
+- **e2e** (6 more, 35 in all): U1 a meal moved to yesterday on yesterday's timeline and edited; U2
+  corrected copy — raw Data API tampering and a time out of the window refused with the original
+  intact, then replaced atomically with the plan link kept; U3 log again; U4 "Ate it" at the usual
+  time; U5 custom water logged and deleted, 0 and 5,001 refused; U6–U7 another user and consent off.
+
+What looking at it found and what was fixed (headless Chrome, 390 × 844, web against the local
+stack, signed in as the seeded account: Today, Ate it, 7j, Log again, corrected copy, 7k moved to
+yesterday, the yesterday view, 7l, the undo note, 7i from 7a and 7k with the mouse wheel, Daily
+targets, Health water, both water sheets):
+
+| Found                                                                                      | Fix                                                                              |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| On the web both 7i wheels opened on 00 (the web ignores the scroll view's starting offset) | the wheel scrolls to its row once the rows are laid out; checked again in Chrome |
+| 7j had two dark buttons ("Log again" and "Edit meal") competing                            | "Log again" is an outlined button; "Edit meal" stays the one dark button         |
+| Daily targets: the intro sat tight against the first field's label                         | space under the intro                                                            |
+| "Add water": on the web the field pushed "ml" off the edge                                 | the field can shrink (`minWidth: 0`)                                             |
+
+### Checks (Mon 9 Nov 2026, this branch)
+
+| Check                                                                           | Result                                                                             |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `npm run lint` · `format:check` · `typecheck`                                   | ✅                                                                                 |
+| `npx tsc --noEmit` in apps/mobile with and without `.expo/types` (typed routes) | ✅ both                                                                            |
+| `npm test` (core · functions · scripts · mobile)                                | ✅ 136 · 45 · 18 · 225                                                             |
+| `npm run test:db` (Postgres 16 + pgTAP, fresh database)                         | ✅ 10 files; `10_log_meal_and_water_follow_ups` 35                                 |
+| `npm run test:integration` (real Supabase Auth, fresh stack)                    | ✅ 42                                                                              |
+| `npm run test:e2e`, three runs back to back                                     | ✅ 35 · 35 · 35 (~45 s each)                                                       |
+| `deno check` food-lookup and auth-api                                           | ✅ (Deno 2.9.6)                                                                    |
+| `npx expo export` ios · web · android                                           | ✅                                                                                 |
+| `npm run doctor -- --simulator` against the local stack                         | ✅ "All good." (repo and branch printed first; a nested clone warned when present) |
+| `database.types.ts`                                                             | ✅ regenerated (`npx supabase gen types typescript --db-url`), additive diff only  |
+
 ## Log meal: custom time, edit and delete, g or ml (Mon 9 Nov 2026)
 
 Branch `claude/log-meal-time-edit-units`. Criteria M1–M16 and the proof for each are in

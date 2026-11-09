@@ -508,3 +508,135 @@ npm run mobile -- --clear
     overlapping, buttons still tappable. Back to the default size.
 
 Tick 📱 → ✅ for M14 and M15 when done.
+
+## N · Log meal and water follow-ups
+
+Follow-ups after PR #9, built on `claude/log-meal-and-water-follow-ups` from the decisions in
+CLAUDE.md (custom time, logged meals, g or ml), the wireframes (1B, 2 Health, 7a–7l, -U frames)
+and the code. Most items have no wireframe; they follow the existing screens (SheetHeader,
+BottomSheet, chips, cards, copy tone). Tests: `jest` = `apps/mobile/src/__tests__/follow-ups.test.tsx`
+(and the updated 7l test in `time-edit-units.test.tsx`); `core` = `packages/core/src/followups.test.ts`
+and `mealedit.test.ts`; `pgTAP` = `supabase/tests/10_log_meal_and_water_follow_ups.test.sql`;
+`scripts` = `scripts/doctor/checks.test.mjs`; `e2e` = U1–U7 in `e2e/phone.e2e.test.ts`.
+
+| ID  | Criterion                                                                                                                                                    | Status | Proof                                                                                                                                                                                                  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| N1  | 7i: Yesterday on the left, Today on the right; Today from "Other time…", the meal's own day otherwise                                                        | ✅     | `jest` › "A. … shows Yesterday on the left …" · "opens on Today from “Other time…” …"; `core` › "7i picker order"                                                                                      |
+| N2  | both wheels loop (59 → 00 → 01, 23 → 00 → 01 and back) without changing the other wheel or the day; past the latest stays struck through on Today            | ✅     | `jest` › "minutes loop …" · "hours loop 23 → 00 on Yesterday …" · "on Today, numbers past the latest …"; `core` › "7i looping wheels"; looked at in Chrome (mouse wheel and tap)                       |
+| N3  | VoiceOver swipes stop at 00, 59 / 23 and the latest instead of wrapping                                                                                      | ✅     | `jest` › "VoiceOver swipes stop …"; `core` › "VoiceOver steps stop at the ends …"                                                                                                                      |
+| N4  | Daily targets: in-page SheetHeader ("Cancel", "Daily targets"); intro, fields and "Save targets" visible, from Me and from 0g                                | ✅ 📱  | `jest` › "B. … from Me …" · "from onboarding 0g …"; Chrome 390 × 844. Keyboard up and largest text: checklist steps 2–3                                                                                |
+| N5  | "‹ Yesterday" on Today: yesterday's meals in time order, kcal and water totals, no Now line, no Ate it, back to Today; only yesterday                        | ✅     | `jest` › "C. … “‹ Yesterday” shows …" · "consent off: no yesterday control"; `e2e` › "U1: …"                                                                                                           |
+| N6  | yesterday's meals open in 7j and can be edited, deleted, corrected and logged again; a meal moved to yesterday shows there                                   | ✅     | `jest` › "yesterday’s meals open in 7j …" · "a meal moved to yesterday shows …"; `e2e` › "U1: …"                                                                                                       |
+| N7  | "Log a corrected copy" opens Build meal pre-filled (name, time chip, components with amounts and units), all editable                                        | ✅     | `jest` › "D. … opens Build meal pre-filled …"                                                                                                                                                          |
+| N8  | Done logs the new meal and deletes the old one in one transaction, keeping the plan link; mismatched macros refused; any failure changes nothing; Cancel too | ✅     | `pgTAP` 10 (atomic, window, consent, cross-user, mismatched macros, plan link); `e2e` › "U2: …" (raw Data API tampering refused, original intact); `jest` › "Done logs …" · "Cancel …" · "a failure …" |
+| N9  | a deleted food can't be re-added: shown as no longer available until removed (corrected copy and log again)                                                  | ✅     | `jest` › "a deleted food shows as no longer available …" · "a deleted food goes to Build meal …"; `core` › "log again and corrected copy"; `pgTAP` 10                                                  |
+| N10 | "Log again" logs the same components as a new meal now, or at a 7i time; the original is unchanged                                                           | ✅     | `jest` › "E. …" (three tests); `e2e` › "U3: …"                                                                                                                                                         |
+| N11 | "Ate it" logs at the usual time once it has passed (inside the window), otherwise now                                                                        | ✅     | `core` › "“Ate it” time" (before / after / BST / just after midnight); `jest` › "F. …"; `e2e` › "U4: …"                                                                                                |
+| N12 | water: "+ 250 ml" and "Other amount…" (150 / 330 / 500 ml or any whole number 1–5,000; anything else refused with a message)                                 | ✅     | `core` › "water amounts" (0, 1, 5,000, 5,001, decimals, text); `jest` › "G. …"; `e2e` › "U5: …"; `pgTAP` 10                                                                                            |
+| N13 | tapping the water total lists today's water newest first, each with a delete after a confirmation; the total updates                                         | ✅     | `jest` › "tapping the total lists today’s water …"; `e2e` › "U5: …"                                                                                                                                    |
+| N14 | "Meal deleted · Undo" for about 5 s; delete only when it times out, is dismissed or the app goes to the background; Undo cancels; failure brings it back     | ✅     | `jest` › "H. …" (shown and undone, timed out, dismissed, plan meal not eaten meanwhile, failure)                                                                                                       |
+| N15 | another user can't see or change any of it; consent off refuses all of it                                                                                    | ✅     | `e2e` › "U6, U7: …"; `pgTAP` 10; `jest` consent-off tests in C, D, G                                                                                                                                   |
+| N16 | housekeeping: `redirectTo` typechecks under typed routes; `npm run doctor` prints repo and branch and warns about a nested clone                             | ✅     | `npx tsc --noEmit` with and without `.expo/types`; `scripts` › "doctor: which checkout" (5 tests); doctor run against the local stack                                                                  |
+| N17 | VoiceOver and the largest text size on the new and changed screens                                                                                           | 📱     | Role and label on every control. Checklist steps 10–11.                                                                                                                                                |
+| N18 | all automated checks and CI green                                                                                                                            | ✅     | `docs/TEST-REPORT.md` › "Log meal and water follow-ups".                                                                                                                                               |
+
+**Readings taken** (also in the PR):
+
+- **7i order** is the one deliberate change from the 7i wireframe: Yesterday | Today. Everything
+  else in 7i is as drawn. Where it opens was already right (Today from "Other time…", the meal's own
+  day from 7k and from a custom time on yesterday) and is now tested.
+- **Looping wheels** draw their numbers seven times over and, once settled, jump without animation
+  to the same number in the middle copy (`LOOP_COPIES`, `loopNearest` takes the short way round).
+  This works the same on iPhone and the web (mouse wheel, trackpad, tap a row), so the wheels loop
+  on all platforms. A number past the latest on Today is held to the latest, as before, however it
+  was reached. VoiceOver keeps one adjustable control per wheel that stops at the ends.
+- **Daily targets**: "Cancel" on the left, the title in the middle, nothing on the right (Save
+  stays the button under the fields, as before). With no screen to go back to (a deep link),
+  Cancel and Save go to Today. On iPhone the form scrolls clear of the keyboard
+  (`automaticallyAdjustKeyboardInsets`).
+- **Yesterday view**: "‹ Yesterday" sits at the right of the "YOUR DAY" row; in the yesterday view
+  the row reads "YESTERDAY" with "Today ›". The screen title stays "Today" with "Yesterday · Sun 8
+  Nov" under it. Only the kcal and water rings show (steps and sleep are a later phase); the plan,
+  "+ Log meal" and the Elsewhere card are hidden there. 7j's "‹ Today" goes back to this screen,
+  still on yesterday.
+- **7j**: under the totals, an outlined **Log again** with an **Other time…** chip beside it and the
+  line "Same amounts as a new meal. This one stays as it is.", then the quiet **Log a corrected
+  copy** link (only while the meal can still be changed). **Edit meal** stays the one dark button.
+  Log again goes back to Today. A meal logged again has no plan link (it isn't the plan meal being
+  eaten).
+- **Corrected copy**: Build meal with "Cancel" on the left (back to 7j, nothing changed), the time
+  chip on the right, and a grey note "A corrected copy. Done logs this and deletes the original;
+  Cancel keeps it as it is." Done reads "Done · log corrected copy (… kcal)". "Save to roster only"
+  and "Save to my roster" are left out (the copy keeps the original's link instead). The "… after
+  this meal" bar leaves the original out. Done goes to Today.
+- **The new meal uses each food's current per-100 values**, like any new log. As with `log_meal`,
+  a corrected copy timed earlier than another log doesn't replace that food's "last time" amount.
+- **A deleted food** shows in Build meal greyed and struck through, "Sample whey · 30 g" with "… is
+  no longer available, so it can't be added again. Remove it to carry on." and a × to remove it.
+  Done stays off until it's gone. 7a's "eaten recently" log-again now does the same (it used to
+  drop such foods silently).
+- **Undo**: the note reads "Meal deleted · **Undo** ×" (× is "Dismiss"), above "YOUR DAY". 7l's
+  line changes from "This can't be undone; you can log it again." to "You can undo it straight
+  after on Today.", and its button no longer shows "Deleting…" (it's instant). A failed delete
+  says "Couldn't delete "…", so it's back." and the reason.
+- **Water**: the total is tappable (with ›) and the buttons sit under it: dark "+ 250 ml" and an
+  outlined "Other amount…". "Add water" sheet: Cancel, the quick amounts as chips (a tap fills the
+  field), the field with "ml", "A whole number from 1 to 5,000 ml." and "Add 330 ml". "Today's water"
+  sheet: "750 ml today", rows "12:00 · 500 ml · Delete", newest first; Delete asks in the same sheet
+  ("Delete 500 ml at 12:00?", "It comes off today's water: 750 ml → 250 ml.", **Delete** / **Keep
+  it**). Amounts accept "1,500" and a trailing "ml".
+- **No water function**: `water_logs`' existing policy already limits delete to the owner with
+  consent, so the one migration only adds `replace_logged_meal`.
+- **doctor's nested clone** check matches by origin URL or by the root package name (a clone made
+  from a local path has a different origin).
+
+### Morning checklist (log meal and water follow-ups)
+
+About 15 minutes, signed in on your iPhone with health data on. Bring your local setup up to date
+first (the commands are in the PR). `db reset` erases local accounts: sign in as
+`admin@example.test` or create one again.
+
+1. **7i order and looping.** Today (`screen-today`) → **+ Log meal** → **Other time…** →
+   `sheet-7i`. ✔ **Yesterday** on the left, **Today** on the right and selected. Spin the minute
+   wheel down past 59 → ✔ it carries on at 00, 01 with the hour unchanged. Tap **Yesterday**, spin
+   the hour wheel past 23 → ✔ 00 and still "Yesterday · …". Tap **Today**, spin hours up past 00
+   → ✔ later hours stay struck through and it settles on the latest. **Cancel**.
+2. **Daily targets from Me.** **Me** → **Meal plan & macro targets** → `screen-targets`. ✔ "Cancel"
+   and "Daily targets" at the top, the intro fully readable under them. Tap **Steps** → ✔ with the
+   keyboard up you can scroll to **Save targets**. **Cancel** → `screen-me`.
+3. **Largest text on Daily targets.** Largest text size, open it again → ✔ intro, every field and
+   **Save targets** reachable, nothing under the header. Back to the default size.
+4. **Ate it at the usual time.** On Today tap **Ate it** on a plan meal whose time has passed →
+   ✔ it shows at its usual time, not now.
+5. **Log again.** Tap that meal → `screen-7j`. ✔ An outlined **Log again** with **Other time…**
+   beside it, "Same amounts as a new meal. …", and **Log a corrected copy**. **Log again** → ✔
+   back on Today with a second copy at now; the first is unchanged. Open it again → **Other
+   time…** → `sheet-7i` opens on **Today**; pick a time → **Done** → ✔ a third copy at that time.
+6. **Corrected copy.** Open the plan meal → **Log a corrected copy** → `screen-build-meal`. ✔
+   "Cancel", the time chip, "A corrected copy. …", the components with their amounts. Tap a
+   component → change the amount → back → **Done · log corrected copy** → ✔ Today shows one meal
+   at that time with the new kcal; the plan meal still has no **Ate it**. Try again and tap
+   **Cancel** → ✔ back on 7j, nothing changed.
+7. **Yesterday.** Open a meal → **Edit meal** → **Change ›** → **Yesterday**, 21:30 → **Done** →
+   **Save changes**. On Today tap **‹ Yesterday** → `timeline-yesterday` ✔ "Yesterday · Sun …",
+   kcal and water rings, the meal at 21:30, no Now line, no Ate it, no + Log meal. Tap it → ✔ 7j
+   with Edit, Log again, corrected copy and Delete. **‹ Today**, then **Today ›**.
+8. **Undo.** Open a meal → **Delete meal** → `sheet-7l` ✔ "You can undo it straight after on
+   Today." → **Delete meal** → `undo-note` ✔ "Meal deleted · Undo", the meal gone. **Undo** → ✔
+   back. Delete it again and wait about 5 s → ✔ the note goes and the meal stays gone. (Optional:
+   delete another, then switch apps at once → back in Life OS it's gone.)
+9. **Water.** **Health** → `screen-health` → Water: ✔ "+ 250 ml" and **Other amount…**. **Other
+   amount…** → `sheet-water-amount` → **330 ml** → **Add 330 ml** → ✔ total up by 330. Again: type
+   **5001** → **Add** → ✔ "That's more than 5,000 ml. …"; type **0.5** → ✔ "Use a whole number of
+   ml, with no decimals." **Cancel**. Tap the total → `sheet-water-today` ✔ entries newest first →
+   **Delete** on one → ✔ "Delete … at …?" → **Delete** → ✔ the total goes down.
+10. **VoiceOver (N17).** VoiceOver on. 7i: the tabs read "Yesterday, Sun …, tab" then "Today, Mon
+    …, tab, selected"; each wheel "Hour, 13, adjustable" — swiping stops at 00 and 23 (or the
+    latest). Today: "See yesterday, button"; the note "Meal deleted ·", "Undo delete, button",
+    "Dismiss, button". 7j: "Log again now, button", "Log again at another time, button", "Log a
+    corrected copy, link". Health: "Water: … of …, button", "Other amount of water, button",
+    "Delete 250 ml at 08:00, button". VoiceOver off.
+11. **Largest text (N17).** Largest text size: 7i, Today (both views and the note), 7j, Build meal
+    as a corrected copy, both water sheets — nothing cut off or overlapping. Back to the default.
+
+Tick 📱 → ✅ for N4 and N17 when done.
