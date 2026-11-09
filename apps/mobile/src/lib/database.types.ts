@@ -1444,9 +1444,11 @@ export type Database = {
       can_use_food: { Args: { food: string }; Returns: boolean };
       check_meal_time: { Args: { p_at: string }; Returns: undefined };
       check_request: { Args: Record<PropertyKey, never>; Returns: undefined };
+      delete_logged_meal: { Args: { p_id: string }; Returns: undefined };
       first_name_from_metadata: { Args: { meta: Json }; Returns: string };
       has_active_consent: { Args: { consent_type: string }; Returns: boolean };
       lock_down_server_table: { Args: { t: unknown }; Returns: undefined };
+      lock_logged_meal: { Args: { p_action: string; p_id: string }; Returns: string };
       log_meal: {
         Args: { p_items: Json; p_logged_at: string; p_name: string; p_saved_meal_id: string };
         Returns: string;
@@ -1473,8 +1475,6 @@ export type Database = {
         };
         Returns: string;
       };
-      delete_logged_meal: { Args: { p_id: string }; Returns: undefined };
-      lock_logged_meal: { Args: { p_action: string; p_id: string }; Returns: string };
       update_logged_meal: {
         Args: { p_id: string; p_logged_at: string; p_name: string; p_units: Json };
         Returns: undefined;

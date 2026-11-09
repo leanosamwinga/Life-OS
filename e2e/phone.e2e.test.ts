@@ -14,8 +14,12 @@
 // (docs/PHASE2-SIGNOFF.md).
 import { createHash } from 'node:crypto';
 import {
+  dayEnd,
   dayProgress,
+  formatTimeUK,
   guessCooksAs,
+  logWindow,
+  londonDateTimeToInstant,
   portionMacros,
   summariseBatch,
   toFood,
@@ -1138,5 +1142,302 @@ describe.skipIf(!stack)('phone end to end on the real stack', () => {
     expect(back.map((x) => [x.food.name, x.food.batch.starred])).toEqual([
       ['E2E private batch', true],
     ]);
+  });
+
+  // ---------------------------------------- Log meal: custom time, edit and delete, g or ml (T)
+
+  /** A user with consent, Test oats (their own food) and a plan meal "Lunch · E2E oats bowl". */
+  async function timeUser(tag: string) {
+    const { p } = await signUp(s, tag);
+    const b = p.backend;
+    await b.setHealthConsent(true);
+    const oats = toFood(
+      await b.saveUserFood({
+        name: 'E2E test oats',
+        per100g: { kcal: 389, protein: 13.5, carbs: 66, fat: 6.9 },
+        remembered: true,
+      }),
+    )!;
+    const planId = await b.saveMeal({
+      id: null,
+      name: 'Lunch · E2E oats bowl',
+      inDailyPlan: true,
+      usualTime: '12:30',
+      components: [{ food: oats, grams: 60 }],
+    });
+    const plan = (await b.listSavedMeals()).find((m) => m.id === planId)!;
+    const w = logWindow(new Date());
+    const dayRange = (date: string) => ({
+      from: londonDateTimeToInstant(date, '00:00'),
+      to: dayEnd(date),
+    });
+    const kcalOn = async (date: string) =>
+      dayProgress({ meals: await b.listMealLogs(dayRange(date)) }, targets, date).kcal.consumed;
+    return { p, b, oats, plan, w, dayRange, kcalOn };
+  }
+
+  it('T1: a meal logged at a custom time lands on its London day, in time order', async () => {
+    const { b, oats, w, dayRange, kcalOn } = await timeUser('custom-time');
+    const nowLog = await b.logMeal({
+      name: 'E2E now meal',
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [{ food: oats, grams: 60 }],
+    });
+    // 00:00 today is always inside the window, and earlier than "now".
+    const early = await b.logMeal({
+      name: 'E2E early meal',
+      savedMealId: null,
+      loggedAt: londonDateTimeToInstant(w.today, '00:00'),
+      components: [{ food: oats, grams: 30 }],
+    });
+    const late = await b.logMeal({
+      name: 'E2E yesterday meal',
+      savedMealId: null,
+      loggedAt: londonDateTimeToInstant(w.yesterday, '21:15'),
+      components: [{ food: oats, grams: 100 }],
+    });
+    const today = buildTimeline({
+      mealLogs: await b.listMealLogs(dayRange(w.today)),
+      planMeals: [],
+      calendar: [],
+    }).map((i) => i.id);
+    expect(today).toEqual([early, nowLog]);
+    const yesterday = await b.listMealLogs(dayRange(w.yesterday));
+    expect(yesterday.map((l) => [l.id, formatTimeUK(l.loggedAt)])).toEqual([[late, '21:15']]);
+    expect(await kcalOn(w.today)).toBe(portionMacros(oats, 60).kcal + portionMacros(oats, 30).kcal);
+    expect(await kcalOn(w.yesterday)).toBe(portionMacros(oats, 100).kcal);
+  });
+
+  it('T2: the server refuses a time more than an hour ahead or before yesterday 00:00', async () => {
+    const { p, b, oats, w } = await timeUser('time-limit');
+    const at = (loggedAt: string) =>
+      b.logMeal({
+        name: 'E2E out of window',
+        savedMealId: null,
+        loggedAt,
+        components: [{ food: oats, grams: 60 }],
+      });
+    await expect(at(new Date(Date.now() + 2 * 3600_000).toISOString())).rejects.toThrow(
+      /no more than an hour from now/,
+    );
+    await expect(at(new Date(Date.parse(w.earliest) - 60_000).toISOString())).rejects.toThrow(
+      /from yesterday 00:00 onwards/,
+    );
+    // Straight to the Data API, skipping the app's picker: still refused.
+    const honest = portionMacros(oats, 60);
+    const raw = await rawData(s, p.tokens()!.accessToken, 'rpc/log_meal', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_name: 'E2E raw late',
+        p_saved_meal_id: null,
+        p_logged_at: new Date(Date.now() + 90 * 60_000).toISOString(),
+        p_items: [{ food_id: oats.id, grams: 60, ...honest }],
+      }),
+    });
+    expect(raw.status).toBe(400);
+    expect(raw.body.code).toBe('22023');
+    const all = await b.listMealLogs(wideRange());
+    expect(
+      all.filter((l) => l.name.startsWith('E2E out of window') || l.name === 'E2E raw late'),
+    ).toEqual([]);
+  });
+
+  it('T3, T4: rename and retime change only the log; moving to yesterday moves the totals', async () => {
+    const { b, plan, w, kcalOn } = await timeUser('retime');
+    const id = await b.logMeal({
+      name: plan.name,
+      savedMealId: plan.id,
+      loggedAt: londonDateTimeToInstant(w.today, '00:00'),
+      components: plan.components,
+    });
+    const before = (await b.listMealLogs(wideRange())).find((l) => l.id === id)!;
+    const kcal = before.items[0]!.macros.kcal;
+    expect(await kcalOn(w.today)).toBe(kcal);
+    const yBefore = await kcalOn(w.yesterday);
+
+    await b.updateLoggedMeal({
+      id,
+      name: 'E2E overnight oats',
+      loggedAt: londonDateTimeToInstant(w.yesterday, '21:30'),
+      units: [],
+    });
+    const after = (await b.listMealLogs(wideRange())).find((l) => l.id === id)!;
+    expect(after.name).toBe('E2E overnight oats');
+    expect(formatTimeUK(after.loggedAt)).toBe('21:30');
+    expect(toLondonDate(after.loggedAt)).toBe(w.yesterday);
+    expect(after.items).toEqual(before.items);
+    expect(after.savedMealId).toBe(plan.id);
+    // T4: today down by the meal, yesterday up by it.
+    expect(await kcalOn(w.today)).toBe(0);
+    expect(await kcalOn(w.yesterday)).toBe(yBefore + kcal);
+    // The plan meal it came from is untouched.
+    const planAfter = (await b.listSavedMeals()).find((m) => m.id === plan.id)!;
+    expect([planAfter.name, planAfter.usualTime, planAfter.components.map((c) => c.grams)]).toEqual(
+      ['Lunch · E2E oats bowl', '12:30', [60]],
+    );
+    // A null time keeps the time; a new time out of the window is refused.
+    await b.updateLoggedMeal({ id, name: 'E2E overnight oats', loggedAt: null, units: [] });
+    expect((await b.listMealLogs(wideRange())).find((l) => l.id === id)!.loggedAt).toBe(
+      after.loggedAt,
+    );
+    await expect(
+      b.updateLoggedMeal({
+        id,
+        name: 'E2E overnight oats',
+        loggedAt: new Date(Date.now() + 3 * 3600_000).toISOString(),
+        units: [],
+      }),
+    ).rejects.toThrow(/no more than an hour from now/);
+  });
+
+  it('T5: amounts can’t be changed through the edit function or the Data API, even crafted', async () => {
+    const { p, b, oats } = await timeUser('locked');
+    const id = await b.logMeal({
+      name: 'E2E locked',
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [{ food: oats, grams: 60 }],
+    });
+    const token = p.tokens()!.accessToken;
+    const before = (await b.listMealLogs(wideRange())).find((l) => l.id === id)!;
+    const crafted = await rawData(s, token, 'rpc/update_logged_meal', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_id: id,
+        p_name: 'E2E locked',
+        p_logged_at: null,
+        p_units: [{ position: 0, unit: 'g', grams: 999, kcal: 1 }],
+      }),
+    });
+    expect(crafted.body.code).toBe('42501');
+    expect(JSON.stringify(crafted.body)).toMatch(/amounts can't be changed/);
+    const swapped = await rawData(s, token, 'rpc/update_logged_meal', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_id: id,
+        p_name: 'E2E locked',
+        p_logged_at: null,
+        p_units: [{ position: 0, unit: 'g', food_id: oats.id }],
+      }),
+    });
+    expect(swapped.body.code).toBe('42501');
+    const patchItem = await rawData(s, token, `meal_log_items?meal_log_id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ grams: 999 }),
+    });
+    expect(patchItem.body.code).toBe('42501');
+    const patchLog = await rawData(s, token, `meal_logs?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ logged_at: new Date(Date.now() - 5 * 86400_000).toISOString() }),
+    });
+    expect(patchLog.body.code).toBe('42501');
+    const rawDelete = await rawData(s, token, `meal_logs?id=eq.${id}`, { method: 'DELETE' });
+    expect(rawDelete.body.code).toBe('42501');
+    const after = (await b.listMealLogs(wideRange())).find((l) => l.id === id)!;
+    expect(after).toEqual(before);
+  });
+
+  it('T6: delete works, and a meal from the plan shows as not eaten again', async () => {
+    const { b, plan } = await timeUser('delete');
+    const offered = async () =>
+      buildTimeline({
+        mealLogs: await b.listMealLogs(wideRange()),
+        planMeals: await b.listSavedMeals(),
+        calendar: [],
+      }).some((i) => i.kind === 'meal-planned' && i.savedMealId === plan.id);
+    expect(await offered()).toBe(true);
+    const id = await b.logMeal({
+      name: plan.name,
+      savedMealId: plan.id,
+      loggedAt: new Date().toISOString(),
+      components: plan.components,
+    });
+    expect(await offered()).toBe(false);
+    await b.deleteMealLog(id);
+    expect((await b.listMealLogs(wideRange())).some((l) => l.id === id)).toBe(false);
+    expect(await offered()).toBe(true);
+    expect((await b.listSavedMeals()).some((m) => m.id === plan.id)).toBe(true);
+    await expect(b.deleteMealLog(id)).rejects.toThrow(/already gone/);
+  });
+
+  it('T7, T8: a barcode drink comes back per 100 ml; switching a logged item’s unit changes no numbers', async () => {
+    const { b, oats } = await timeUser('units');
+    // T8: the Open Food Facts stand-in's 330 ml shake.
+    const found = await b.lookupBarcode('0000000000962');
+    expect(found.status).toBe('found');
+    if (found.status !== 'found') return;
+    expect(found.food).toMatchObject({ nutritionUnit: 'ml', packGrams: 330, kcalPer100g: 62 });
+    const shake = toFood(found.food)!;
+    expect(shake.unit).toBe('ml');
+
+    // Logged as 330 g by mistake, then corrected to ml in 7k.
+    const id = await b.logMeal({
+      name: 'E2E shake breakfast',
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [
+        { food: oats, grams: 60 },
+        { food: shake, grams: 330, unit: 'g' },
+      ],
+    });
+    const before = (await b.listMealLogs(wideRange())).find((l) => l.id === id)!;
+    expect(before.items.map((i) => [i.grams, i.unit, i.macros.kcal])).toEqual([
+      [60, 'g', 233],
+      [330, 'g', 205],
+    ]);
+    expect((await b.listRecentFoods(10)).find((r) => r.food.id === shake.id)).toMatchObject({
+      grams: 330,
+      unit: 'g',
+    });
+    await b.updateLoggedMeal({
+      id,
+      name: 'E2E shake breakfast',
+      loggedAt: null,
+      units: [{ position: 1, unit: 'ml' }],
+    });
+    const after = (await b.listMealLogs(wideRange())).find((l) => l.id === id)!;
+    expect(after.items).toEqual([before.items[0], { ...before.items[1], unit: 'ml' }]);
+    expect(after.loggedAt).toBe(before.loggedAt);
+  });
+
+  it('T9, T10: another user can’t see, edit or delete any of it; consent off refuses edits and deletes', async () => {
+    const a = await timeUser('time-owner');
+    const id = await a.b.logMeal({
+      name: 'E2E private meal',
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [{ food: a.oats, grams: 60 }],
+    });
+    const before = (await a.b.listMealLogs(wideRange())).find((l) => l.id === id)!;
+
+    // T9: B sees nothing and can change nothing — through the app or the Data API.
+    const other = await signUp(s, 'time-other');
+    const ob = other.p.backend;
+    await ob.setHealthConsent(true);
+    expect((await ob.listMealLogs(wideRange())).some((l) => l.id === id)).toBe(false);
+    await expect(
+      ob.updateLoggedMeal({ id, name: 'Mine now', loggedAt: null, units: [] }),
+    ).rejects.toThrow(/not found/i);
+    await expect(ob.deleteMealLog(id)).rejects.toThrow(/already gone/);
+    const ot = other.p.tokens()!.accessToken;
+    expect((await rawData(s, ot, `meal_log_items?meal_log_id=eq.${id}&select=grams`)).body).toEqual(
+      [],
+    );
+    expect((await a.b.listMealLogs(wideRange())).find((l) => l.id === id)).toEqual(before);
+
+    // T10: A withdraws consent — edits and deletes refused; back on, the meal is unchanged.
+    await a.b.setHealthConsent(false);
+    await expect(
+      a.b.updateLoggedMeal({ id, name: 'No consent', loggedAt: null, units: [] }),
+    ).rejects.toThrow(/Health data is off/);
+    await expect(a.b.deleteMealLog(id)).rejects.toThrow(/Health data is off/);
+    const raw = await rawData(s, a.p.tokens()!.accessToken, 'rpc/delete_logged_meal', {
+      method: 'POST',
+      body: JSON.stringify({ p_id: id }),
+    });
+    expect(raw.body.code).toBe('42501');
+    await a.b.setHealthConsent(true);
+    expect((await a.b.listMealLogs(wideRange())).find((l) => l.id === id)).toEqual(before);
   });
 });
