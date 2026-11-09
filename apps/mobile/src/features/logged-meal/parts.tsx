@@ -20,7 +20,8 @@ export function UnitToggle(props: {
   onChange: (u: AmountUnit) => void;
   /** What's being measured, for VoiceOver: "Sample protein shake". */
   what: string;
-  size?: 'small' | 'large';
+  /** small: 7k rows; large: beside the big amount field; wide: full width (7e-U). */
+  size?: 'small' | 'large' | 'wide';
   disabled?: boolean;
   testID?: string;
   /** Visible labels (7e-U: "per 100 g" / "per 100 ml"); VoiceOver reads `a11y` with them. */
@@ -28,9 +29,10 @@ export function UnitToggle(props: {
   a11y?: (u: AmountUnit) => string;
 }) {
   const large = props.size === 'large';
+  const wide = props.size === 'wide';
   return (
     <View
-      style={[styles.toggle, large && styles.toggleLarge]}
+      style={[styles.toggle, (large || wide) && styles.toggleLarge]}
       accessibilityRole="radiogroup"
       accessibilityLabel={`Unit for ${props.what}`}
       testID={props.testID}
@@ -45,7 +47,12 @@ export function UnitToggle(props: {
             accessibilityRole="radio"
             accessibilityLabel={props.a11y ? props.a11y(u) : `${props.what} in ${UNIT_WORD[u]}`}
             accessibilityState={{ checked: on, ...(props.disabled ? { disabled: true } : {}) }}
-            style={[styles.option, large && styles.optionLarge, on && styles.optionOn]}
+            style={[
+              styles.option,
+              large && styles.optionLarge,
+              wide && styles.optionWide,
+              on && styles.optionOn,
+            ]}
           >
             <Text style={[styles.optionText, on && styles.optionTextOn]}>
               {props.labels?.[u] ?? u}
@@ -83,7 +90,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.background,
   },
-  optionLarge: { minWidth: 60, flex: 1 },
+  // Beside the big amount field (76 pt with its 2 pt border), as on 7d-U and 7h-U.
+  optionLarge: { minWidth: 52, flex: 1, minHeight: 72 },
+  optionWide: { flex: 1, minHeight: 48 },
   optionOn: { backgroundColor: colors.fill },
   optionText: { ...type.headline, color: colors.text },
   optionTextOn: { color: colors.inverseText },

@@ -87,7 +87,7 @@ export function FoodSearch(props: {
           const name = food?.name ?? record?.name ?? 'Unnamed food';
           const src = food ?? record!;
           const sub = food
-            ? `${sourceLabel(src)} · ${formatKcal(food.per100g.kcal)} kcal per 100 g`
+            ? `${sourceLabel(src)} · ${formatKcal(food.per100g.kcal)} kcal per 100 ${food.unit ?? 'g'}`
             : `${sourceLabel(src)} · missing nutrition values`;
           const incomplete = !food;
           const disabled = incomplete && !props.onIncomplete;

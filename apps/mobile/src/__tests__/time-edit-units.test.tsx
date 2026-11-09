@@ -600,6 +600,8 @@ describe('-U frames: g or ml when adding', () => {
     await fireEvent.changeText(screen.getByLabelText('Meal name'), 'Sample breakfast');
     await press('Scan to add a component');
     await screen.findByTestId('screen-add-component');
+    // Foods you've had say what their values are per.
+    expect(screen.getByText('Barcode · 62 kcal per 100 ml')).toBeTruthy();
     mockScanned = F.shake.barcode!;
     await press('Simulate scan');
     await screen.findByTestId('screen-how-much');

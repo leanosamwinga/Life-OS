@@ -194,7 +194,7 @@ export default function ManualEntryScreen() {
             what="the label"
             value={basis}
             onChange={setBasis}
-            size="large"
+            size="wide"
             labels={perServing ? { g: 'g', ml: 'ml' } : { g: 'per 100 g', ml: 'per 100 ml' }}
             a11y={(u) => (perServing ? `Serving in ${u}` : `Label values per 100 ${u}`)}
             testID="label-basis"
@@ -206,7 +206,7 @@ export default function ManualEntryScreen() {
             value={serving}
             onChangeText={setServing}
             keyboardType="decimal-pad"
-            error={showErrors && !servingGrams ? 'Needed to work out per 100 g' : null}
+            error={showErrors && !servingGrams ? `Needed to work out per 100 ${basis}` : null}
           />
         ) : null}
         <View style={styles.grid}>

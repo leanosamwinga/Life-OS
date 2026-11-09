@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   question: { ...type.headline, color: colors.text, marginBottom: space.sm },
   amountRow: { flexDirection: 'row', gap: space.md, alignItems: 'flex-start' },
   amountField: { flex: 1 },
-  unitToggle: { width: 112, marginTop: 4 },
+  unitToggle: { width: 112 },
   hint: {
     ...type.footnote,
     color: colors.textSecondary,
