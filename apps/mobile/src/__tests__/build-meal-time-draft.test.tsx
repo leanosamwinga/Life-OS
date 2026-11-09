@@ -83,7 +83,16 @@ async function start(init: Partial<MemoryState>, url = '/log-meal') {
 
 const press = (name: string | RegExp) => fireEvent.press(screen.getByRole('button', { name }));
 const chip = () => screen.getByTestId('header-time');
-const chipText = () => within(chip()).getByText(/▾$/).props.children as string;
+/** All the text in a node, nested Text included (the chip's ▾ is a smaller nested Text). */
+const textOf = (n: unknown): string =>
+  typeof n === 'string'
+    ? n
+    : Array.isArray(n)
+      ? n.map(textOf).join('')
+      : n && typeof n === 'object' && 'props' in n
+        ? textOf((n as { props: { children?: unknown } }).props.children)
+        : '';
+const chipText = () => textOf(within(chip()).getByText(/ · .*▾$/).props.children);
 const component = (label: string) =>
   screen.getByRole('button', { name: `${label}. Change amount` });
 

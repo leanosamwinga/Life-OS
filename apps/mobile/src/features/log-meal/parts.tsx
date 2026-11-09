@@ -9,7 +9,7 @@ export function SheetHeader(props: {
   onLeft: () => void;
   title?: string;
   right?: string;
-  /** 7b-T: the chosen time as an outlined chip that opens the picker. */
+  /** 7b-T2: the time eaten as an outlined chip ("Now · 13:40 ▾") that opens 7b-W. */
   rightChip?: { label: string; a11yLabel: string; onPress: () => void };
 }) {
   return (
@@ -40,7 +40,14 @@ export function SheetHeader(props: {
             testID="header-time"
           >
             <Text style={styles.headerChipText} numberOfLines={1}>
-              {props.rightChip.label}
+              {props.rightChip.label.endsWith(' ▾') ? (
+                <>
+                  {props.rightChip.label.slice(0, -1)}
+                  <Text style={styles.caret}>▾</Text>
+                </>
+              ) : (
+                props.rightChip.label
+              )}
             </Text>
           </Pressable>
         ) : props.right ? (
@@ -259,6 +266,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerChipText: { ...type.callout, fontWeight: '600', color: colors.text },
+  // 7b-T2: the ▾ a little smaller than the time.
+  caret: { fontSize: 11 },
   tiles: { flexDirection: 'row', gap: space.sm },
   tilesGrey: {},
   tile: {
