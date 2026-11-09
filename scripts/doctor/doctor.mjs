@@ -9,7 +9,7 @@
 // Docker-free `npm run local-auth` stack. Every fix it prints spells the CLI `npx supabase …`.
 /* eslint-disable no-console -- a command-line tool that prints its report */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
@@ -17,6 +17,8 @@ import {
   SUPABASE,
   checkAppEnv,
   checkFunctionsEnv,
+  checkNestedClones,
+  findNestedClones,
   checkLegacySupabaseEnv,
   checkPhoneUrl,
   fail,
@@ -25,6 +27,7 @@ import {
   pass,
   supabaseStatus,
   warn,
+  whereLines,
 } from './checks.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -37,6 +40,39 @@ const report = (r) => {
   results.push(r);
   console.log(line(r));
 };
+
+// ---------------------------------------------------------------- 0. which checkout?
+let branch = null;
+try {
+  branch = sh('git', ['-C', ROOT, 'rev-parse', '--abbrev-ref', 'HEAD'], 5000).trim();
+} catch {
+  /* not a git checkout */
+}
+for (const l of whereLines(ROOT, branch)) console.log(l);
+console.log('');
+const nested = checkNestedClones(
+  findNestedClones(ROOT, {
+    list: (dir) => {
+      try {
+        return readdirSync(dir, { withFileTypes: true }).map((e) => ({
+          name: e.name,
+          dir: e.isDirectory() || e.name === '.git',
+        }));
+      } catch {
+        return [];
+      }
+    },
+    read: (p) => {
+      try {
+        return readFileSync(p, 'utf8');
+      } catch {
+        return null;
+      }
+    },
+  }),
+  ROOT,
+);
+if (nested) report(nested);
 
 async function http(url, init = {}, ms = 4000) {
   const ctrl = new AbortController();

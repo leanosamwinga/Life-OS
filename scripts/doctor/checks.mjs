@@ -205,3 +205,86 @@ export function line(r) {
   const mark = r.ok === true ? '✓' : r.ok === false ? '✗' : '!';
   return `${mark} ${r.name} — ${r.detail}`;
 }
+
+// ---------------------------------------------------------------- where am I?
+
+/** The first lines doctor prints: which checkout and branch it's looking at. */
+export function whereLines(root, branch) {
+  return [
+    `Repo: ${root.replace(/\/$/, '')}`,
+    `Branch: ${branch || 'unknown (not a git checkout?)'}`,
+  ];
+}
+
+/** `https://github.com/Owner/Repo.git`, `git@github.com:owner/repo` → `github.com/owner/repo`. */
+export function normaliseRemote(url) {
+  if (!url) return null;
+  return url
+    .trim()
+    .replace(/^[a-z+]+:\/\//i, '')
+    .replace(/^[^@/]+@/, '')
+    .replace(':', '/')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
+/** The origin URL in a `.git/config` file's text, or null. */
+export function originFromGitConfig(text) {
+  const m = /\[remote "origin"\][^[]*?\burl\s*=\s*(\S+)/.exec(text ?? '');
+  return m ? m[1] : null;
+}
+
+const SKIP_DIRS = new Set(['node_modules', '.git']);
+
+/**
+ * Folders under `root` (up to `maxDepth` levels) that are another clone of this repo: a `.git`
+ * inside them and the same origin, or a package.json named like the root's (a clone made from a
+ * local path has a different origin).
+ * `fs` is injected for tests: `list(dir)` → [{ name, dir }], `read(path)` → text or null.
+ */
+export function findNestedClones(root, fs, maxDepth = 4) {
+  const base = root.replace(/\/$/, '');
+  const ownOrigin = normaliseRemote(originFromGitConfig(fs.read(`${base}/.git/config`)));
+  const ownName = packageName(fs.read(`${base}/package.json`));
+  const found = [];
+  const walk = (dir, depth) => {
+    if (depth > maxDepth) return;
+    for (const e of fs.list(dir)) {
+      if (!e.dir || SKIP_DIRS.has(e.name)) continue;
+      const path = `${dir}/${e.name}`;
+      const hasGit = fs.list(path).some((c) => c.name === '.git');
+      if (hasGit) {
+        const origin = normaliseRemote(originFromGitConfig(fs.read(`${path}/.git/config`)));
+        const name = packageName(fs.read(`${path}/package.json`));
+        const same =
+          Boolean(origin && ownOrigin && origin === ownOrigin) || Boolean(name && name === ownName);
+        if (same) {
+          found.push(path.slice(base.length + 1));
+          continue;
+        }
+      }
+      walk(path, depth + 1);
+    }
+  };
+  walk(base, 1);
+  return found;
+}
+
+function packageName(text) {
+  try {
+    return text ? (JSON.parse(text).name ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A warning for each nested clone (doctor may be running in the wrong one). */
+export function checkNestedClones(found, root) {
+  if (found.length === 0) return null;
+  const base = root.replace(/\/$/, '');
+  return warn(
+    'nested clone',
+    `${found.join(', ')} ${found.length === 1 ? 'is another clone' : 'are other clones'} of this repo inside ${base} — run commands from the one you mean, and move the nested one out`,
+  );
+}

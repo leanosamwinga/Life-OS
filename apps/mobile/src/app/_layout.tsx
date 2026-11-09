@@ -91,10 +91,7 @@ function RootStack() {
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
       <Stack.Protected guard={active} redirectTo="/welcome">
-        <Stack.Screen
-          name="targets"
-          options={{ presentation: 'modal', headerShown: true, title: 'Daily targets' }}
-        />
+        <Stack.Screen name="targets" options={{ presentation: 'modal' }} />
       </Stack.Protected>
       <Stack.Screen name="reset" />
     </Stack>

@@ -245,3 +245,40 @@ describe('A. 7i Time eaten', () => {
     expect(chosen()).toBe('Yesterday · Sun 8 Nov · 23:59');
   });
 });
+
+describe('B. Daily targets', () => {
+  /** The in-page header (no native header) and everything below it. */
+  function expectTargetsVisible() {
+    const shell = screen.getByTestId('screen-targets');
+    expect(within(shell).getByRole('header', { name: 'Daily targets' })).toBeTruthy();
+    expect(within(shell).getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    // The intro sits below the header in the page, not under a translucent native bar.
+    expect(within(shell).getByTestId('targets-intro').props.children).toMatch(
+      /^Your daily targets for calories/,
+    );
+    expect(within(shell).getByLabelText('Calories (kcal)')).toBeTruthy();
+    expect(within(shell).getByRole('button', { name: 'Save targets' })).toBeTruthy();
+  }
+
+  it('from Me: in-page header and intro visible; Cancel goes back', async () => {
+    await start(state(), '/me');
+    await press('Meal plan & macro targets');
+    await screen.findByTestId('screen-targets');
+    expectTargetsVisible();
+    await press('Cancel');
+    await screen.findByTestId('screen-me');
+  });
+
+  it('from onboarding 0g: same header and intro; saving returns to 0g', async () => {
+    const s = state();
+    await start(
+      { ...s, settings: { ...s.settings!, onboardingCompletedAt: null } },
+      '/onboarding/finish',
+    );
+    await press(/Set targets now|Edit targets/);
+    await screen.findByTestId('screen-targets');
+    expectTargetsVisible();
+    await press('Save targets');
+    await screen.findByTestId('screen-onboarding-finish');
+  });
+});
