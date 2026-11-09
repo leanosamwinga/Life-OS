@@ -220,10 +220,10 @@ export default function HowMuchScreen() {
         {forBatch ? null : (
           <>
             <TodayBar
-              label="Today"
-              logged={lm.progress.kcal.consumed}
+              label={lm.mealDay.word}
+              logged={lm.mealDay.progress.kcal.consumed}
               meal={mealAfter.kcal}
-              target={lm.progress.kcal.target}
+              target={lm.mealDay.progress.kcal.target}
             />
             <Text style={styles.sub}>Dark: already logged today · light: this meal so far</Text>
           </>

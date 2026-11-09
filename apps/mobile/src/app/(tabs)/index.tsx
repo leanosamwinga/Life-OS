@@ -197,6 +197,9 @@ export default function TodayScreen() {
           nowAt={nowAt}
           nowLabel={toLondonTime(now)}
           onAteIt={(id) => void ateIt(id)}
+          onOpen={
+            live ? (id) => router.push({ pathname: '/meal/[id]', params: { id } }) : undefined
+          }
           emptyText={
             live && day.loading
               ? 'Loading your day…'
@@ -239,6 +242,8 @@ function Timeline(props: {
   nowAt: number;
   nowLabel: string;
   onAteIt: (savedMealId: string) => void;
+  /** 7j: open a logged meal. Absent for sample data. */
+  onOpen?: (mealLogId: string) => void;
   emptyText: string;
 }) {
   if (props.items.length === 0) {
@@ -252,7 +257,13 @@ function Timeline(props: {
   props.items.forEach((item, i) => {
     if (i === props.nowAt) rows.push(<NowLine key="now" label={props.nowLabel} />);
     rows.push(
-      <TimelineRow key={item.id} item={item} past={i < props.nowAt} onAteIt={props.onAteIt} />,
+      <TimelineRow
+        key={item.id}
+        item={item}
+        past={i < props.nowAt}
+        onAteIt={props.onAteIt}
+        onOpen={props.onOpen}
+      />,
     );
   });
   if (props.nowAt === props.items.length) rows.push(<NowLine key="now" label={props.nowLabel} />);
@@ -296,25 +307,47 @@ const KIND_LABEL: Record<TimelineItem['kind'], string> = {
   checkin: 'check-in',
 };
 
-function TimelineRow(props: { item: TimelineItem; past: boolean; onAteIt: (id: string) => void }) {
+function TimelineRow(props: {
+  item: TimelineItem;
+  past: boolean;
+  onAteIt: (id: string) => void;
+  onOpen?: (id: string) => void;
+}) {
   const { item } = props;
   const muted = props.past;
+  const label = [item.time, item.title, item.subtitle, KIND_LABEL[item.kind]]
+    .filter(Boolean)
+    .join(', ');
+  const content = (
+    <>
+      <Text style={[styles.tlTime, !muted && styles.tlTimeStrong]}>{item.time}</Text>
+      <Marker kind={item.kind} />
+      <View style={styles.tlText}>
+        <Text style={[styles.tlTitle, !muted && styles.tlTitleStrong]}>{item.title}</Text>
+        {item.subtitle ? <Text style={styles.tlSubtitle}>{item.subtitle}</Text> : null}
+      </View>
+    </>
+  );
+  const open = item.kind === 'meal-eaten' ? props.onOpen : undefined;
   return (
     <View style={styles.tlRow}>
-      <View
-        style={styles.tlMain}
-        accessible
-        accessibilityLabel={[item.time, item.title, item.subtitle, KIND_LABEL[item.kind]]
-          .filter(Boolean)
-          .join(', ')}
-      >
-        <Text style={[styles.tlTime, !muted && styles.tlTimeStrong]}>{item.time}</Text>
-        <Marker kind={item.kind} />
-        <View style={styles.tlText}>
-          <Text style={[styles.tlTitle, !muted && styles.tlTitleStrong]}>{item.title}</Text>
-          {item.subtitle ? <Text style={styles.tlSubtitle}>{item.subtitle}</Text> : null}
+      {open ? (
+        <Pressable
+          onPress={() => open(item.id)}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityHint="Opens the meal"
+          style={({ pressed }) => [styles.tlMain, pressed && { opacity: 0.6 }]}
+          testID={`open-${item.id}`}
+        >
+          {content}
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      ) : (
+        <View style={styles.tlMain} accessible accessibilityLabel={label}>
+          {content}
         </View>
-      </View>
+      )}
       {item.kind === 'meal-planned' && item.savedMealId ? (
         <OutlineButton
           label="Ate it"
@@ -346,6 +379,7 @@ const styles = StyleSheet.create({
   tlTitle: { ...type.body, color: colors.textSecondary },
   tlTitleStrong: { color: colors.text, fontWeight: '600' },
   tlSubtitle: { ...type.footnote, color: colors.textSecondary, marginTop: 2 },
+  chevron: { fontSize: 24, color: colors.textSecondary, marginLeft: space.sm },
   marker: { width: MARKER, height: MARKER, alignItems: 'center', justifyContent: 'center' },
   markerEaten: { borderRadius: MARKER / 2, backgroundColor: colors.fill },
   tick: { color: colors.inverseText, fontSize: 18, fontWeight: '700' },

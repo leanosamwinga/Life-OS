@@ -167,10 +167,10 @@ export default function BatchLogScreen() {
 
       <View style={styles.after}>
         <TodayBar
-          label="Today after this"
-          logged={lm.progress.kcal.consumed}
+          label={`${lm.mealDay.word} after this`}
+          logged={lm.mealDay.progress.kcal.consumed}
           meal={macros.kcal}
-          target={lm.progress.kcal.target}
+          target={lm.mealDay.progress.kcal.target}
         />
       </View>
     </FormScreen>

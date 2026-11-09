@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo, useRef, useState, type ReactNode } 
 import {
   addDays,
   dayProgress,
+  formatDateUK,
   guessCooksAs,
   latestTimeOn,
   londonDateTimeToInstant,
@@ -22,7 +23,7 @@ import type { RosterMeal, SavedBatch, StoredFood } from '@/lib/backend/foods';
 import { targetsForProgress } from '@/lib/backend/settings';
 import type { RecentFood } from '@/lib/backend/types';
 import { useSession } from '@/lib/session';
-import { defaultSlot, type MealSlot } from './slots';
+import { defaultSlot, slotDate, type MealSlot } from './slots';
 
 export interface DraftComponent extends MealComponent {
   key: string;
@@ -96,6 +97,11 @@ export interface LogMealValue {
   data: LogMealData;
   /** Today's totals before this meal. */
   progress: DayProgress;
+  /**
+   * The day the meal is being logged for (yesterday after a picked time) and its totals before
+   * this meal; `word` is "Today" or e.g. "Sun 8 Nov" for the "… after this meal" bars.
+   */
+  mealDay: { date: string; word: string; progress: DayProgress };
   slot: MealSlot;
   setSlot(slot: MealSlot): void;
   /** 7a's tabs: "Plan & recent" or "Saved". */
@@ -182,20 +188,17 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
   );
   const data = state.data ?? EMPTY_DATA;
 
-  const progress = dayProgress(
-    { meals: data.logs },
-    targetsForProgress(
-      session.settings?.targets ?? {
-        kcal: null,
-        protein: null,
-        carbs: null,
-        fat: null,
-        waterMl: null,
-        steps: null,
-      },
-    ),
-    today,
+  const targets = targetsForProgress(
+    session.settings?.targets ?? {
+      kcal: null,
+      protein: null,
+      carbs: null,
+      fat: null,
+      waterMl: null,
+      steps: null,
+    },
   );
+  const progress = dayProgress({ meals: data.logs }, targets, today);
 
   const [chosenSlot, setSlot] = useState<MealSlot | null>(null);
   const [tab, setTab] = useState<LogMealTab>('plan');
@@ -222,6 +225,16 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
     progress,
     slot,
     setSlot,
+    mealDay: (() => {
+      const date = slotDate(slot, today);
+      return date === today
+        ? { date, word: 'Today', progress }
+        : {
+            date,
+            word: formatDateUK(date),
+            progress: dayProgress({ meals: data.logs }, targets, date),
+          };
+    })(),
     tab,
     setTab,
     draft,

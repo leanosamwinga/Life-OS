@@ -9,6 +9,8 @@ export function SheetHeader(props: {
   onLeft: () => void;
   title?: string;
   right?: string;
+  /** 7b-T: the chosen time as an outlined chip that opens the picker. */
+  rightChip?: { label: string; a11yLabel: string; onPress: () => void };
 }) {
   return (
     <View style={styles.header}>
@@ -29,7 +31,19 @@ export function SheetHeader(props: {
         </Text>
       ) : null}
       <View style={[styles.headerSide, styles.headerRightWrap]}>
-        {props.right ? (
+        {props.rightChip ? (
+          <Pressable
+            onPress={props.rightChip.onPress}
+            accessibilityRole="button"
+            accessibilityLabel={props.rightChip.a11yLabel}
+            style={styles.headerChip}
+            testID="header-time"
+          >
+            <Text style={styles.headerChipText} numberOfLines={1}>
+              {props.rightChip.label}
+            </Text>
+          </Pressable>
+        ) : props.right ? (
           <Text style={styles.headerRight} numberOfLines={1}>
             {props.right}
           </Text>
@@ -236,6 +250,15 @@ const styles = StyleSheet.create({
   headerLeft: { ...type.body, color: colors.textSecondary },
   headerTitle: { ...type.headline, color: colors.text, flex: 1.4, textAlign: 'center' },
   headerRight: { ...type.callout, color: colors.textSecondary },
+  headerChip: {
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: 'center',
+  },
+  headerChipText: { ...type.callout, fontWeight: '600', color: colors.text },
   tiles: { flexDirection: 'row', gap: space.sm },
   tilesGrey: {},
   tile: {
