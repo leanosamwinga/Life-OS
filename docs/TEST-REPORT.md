@@ -58,7 +58,7 @@ stack: 7a-T, 7i default / limit / yesterday, 7a-T chosen, 7b-T, 7d-U ml and g, 7
 | `npx expo export` ios · web · android                        | ✅                                                                                |
 | `npm run doctor -- --simulator` against the local stack      | ✅ "All good."                                                                    |
 | `database.types.ts`                                          | ✅ regenerated (`npx supabase gen types typescript --db-url`), additive diff only |
-| CI on the PR (lint/typecheck/unit, Deno check, database)     | see the PR                                                                        |
+| CI on PR #9 (lint/typecheck/unit, Deno check, database)      | ✅                                                                                |
 
 Not run here: anything that needs the iPhone (M14 look and feel on the phone, M15 VoiceOver and
 largest text) — the checklist in `docs/PHASE2-SIGNOFF.md`.
