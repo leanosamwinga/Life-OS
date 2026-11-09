@@ -1,9 +1,12 @@
 import {
+  componentUnit,
   cookedRatio,
+  isAmountUnit,
   isCooksAs,
   portionMacros,
   roundGrams,
   toFood,
+  type AmountUnit,
   type BatchIngredient,
   type BatchInfo,
   type CookedWeightIssue,
@@ -37,12 +40,16 @@ export function foodRecordFromRow(row: FoodRow): StoredFood {
     fibrePer100g: n(row.fibre_per_100g),
     sugarPer100g: n(row.sugar_per_100g),
     saltPer100g: n(row.salt_per_100g),
+    nutritionUnit: unitOf(row.nutrition_unit),
     packGrams: n(row.pack_g),
     servingGrams: n(row.serving_g),
     remembered: row.remembered,
     ...(row.is_batch ? { batch: batchInfoFromRow(row) } : {}),
   };
 }
+
+/** A stored unit label; anything unexpected (or absent on an older row) reads as g. */
+export const unitOf = (v: unknown): AmountUnit => (isAmountUnit(v) ? v : 'g');
 
 function batchInfoFromRow(row: FoodRow): BatchInfo {
   return {
@@ -56,6 +63,7 @@ function batchInfoFromRow(row: FoodRow): BatchInfo {
 interface ComponentRow {
   food_id: string;
   grams: number | string;
+  unit?: string | null;
   position: number;
   foods: FoodRow | null;
 }
@@ -82,7 +90,7 @@ export function savedMealFromRow(row: SavedMealRow): RosterMeal {
   let missing = 0;
   for (const c of [...row.saved_meal_components].sort((a, b) => a.position - b.position)) {
     const food = c.foods ? toFood(foodRecordFromRow(c.foods)) : null;
-    if (food) components.push({ food, grams: Number(c.grams) });
+    if (food) components.push({ food, grams: Number(c.grams), unit: unitOf(c.unit ?? food.unit) });
     else missing++;
   }
   return {
@@ -160,6 +168,7 @@ export interface MealLogRow {
     food_id: string | null;
     food_name: string;
     grams: number | string;
+    unit?: string | null;
     kcal: number;
     protein_g: number | string;
     carbs_g: number | string;
@@ -181,6 +190,7 @@ export function mealLogFromRow(row: MealLogRow): MealLog {
         foodId: i.food_id,
         foodName: i.food_name,
         grams: Number(i.grams),
+        unit: unitOf(i.unit),
         macros: {
           kcal: Number(i.kcal),
           protein: Number(i.protein_g),
@@ -199,6 +209,7 @@ export function logMealItems(components: readonly MealComponent[]) {
     return {
       food_id: c.food.id,
       grams,
+      unit: componentUnit(c),
       kcal: m.kcal,
       protein: m.protein,
       carbs: m.carbs,
@@ -208,7 +219,11 @@ export function logMealItems(components: readonly MealComponent[]) {
 }
 
 export const saveMealComponents = (components: readonly MealComponent[]) =>
-  components.map((c) => ({ food_id: c.food.id, grams: roundGrams(c.grams) }));
+  components.map((c) => ({
+    food_id: c.food.id,
+    grams: roundGrams(c.grams),
+    unit: componentUnit(c),
+  }));
 
 /** Escape LIKE wildcards in user search text. */
 export const escapeLike = (q: string): string => q.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -219,10 +234,20 @@ export interface UserFoodInput {
   brand?: string | null;
   barcode?: string | null;
   per100g: { kcal: number; protein: number; carbs: number; fat: number };
+  /** Whether the label's values are per 100 g or per 100 ml (7e-U). */
+  unit?: AmountUnit;
   packGrams?: number | null;
   servingGrams?: number | null;
   /** "Remember this food": off keeps it out of search and suggestions. */
   remembered: boolean;
+}
+
+/** 7k: what an edit may change. `loggedAt: null` keeps the time; `units` lists changed labels. */
+export interface LoggedMealEdit {
+  id: string;
+  name: string;
+  loggedAt: string | null;
+  units: { position: number; unit: AmountUnit }[];
 }
 
 export type BarcodeLookup =

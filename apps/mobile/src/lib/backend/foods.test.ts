@@ -1,5 +1,6 @@
 import {
   batchFromRow,
+  foodRecordFromRow,
   logMealItems,
   mealLogFromRow,
   saveBatchIngredients,
@@ -25,6 +26,7 @@ const row = (over: Partial<FoodRow>): FoodRow => ({
   off_fetched_at: null,
   pack_g: null,
   serving_g: null,
+  nutrition_unit: 'g',
   remembered: true,
   is_batch: false,
   cooked_weight_g: null,
@@ -98,8 +100,62 @@ describe('backend row mapping', () => {
       per100g: { kcal: 130, protein: 2.7, carbs: 28, fat: 0.3 },
     };
     expect(logMealItems([{ food, grams: 150.04 }])).toEqual([
-      { food_id: 'r', grams: 150, kcal: 195, protein: 4.1, carbs: 42, fat: 0.5 },
+      { food_id: 'r', grams: 150, unit: 'g', kcal: 195, protein: 4.1, carbs: 42, fat: 0.5 },
     ]);
+  });
+
+  it('sends each amount’s unit: the component’s, else its food’s (1 ml counts as 1 g)', () => {
+    const shake = {
+      id: 's',
+      name: 'Sample protein shake',
+      source: 'open_food_facts' as const,
+      unit: 'ml' as const,
+      per100g: { kcal: 62, protein: 6.1, carbs: 6.6, fat: 1.2 },
+    };
+    const [ml, g] = logMealItems([
+      { food: shake, grams: 330 },
+      { food: shake, grams: 330, unit: 'g' },
+    ]);
+    expect(ml).toMatchObject({ unit: 'ml', grams: 330, kcal: 205 });
+    expect(g).toMatchObject({ unit: 'g', grams: 330, kcal: 205 });
+  });
+
+  it('reads units back from rows; older rows are g', () => {
+    expect(foodRecordFromRow(row({ nutrition_unit: 'ml', pack_g: 330 }))).toMatchObject({
+      nutritionUnit: 'ml',
+      packGrams: 330,
+    });
+    const log = mealLogFromRow({
+      id: 'l',
+      user_id: 'u',
+      saved_meal_id: null,
+      name: 'Test shake breakfast',
+      logged_at: '2026-11-09T07:15:00Z',
+      meal_log_items: [
+        {
+          food_id: 's',
+          food_name: 'Sample protein shake',
+          grams: '330.0',
+          unit: 'ml',
+          kcal: 205,
+          protein_g: '20.1',
+          carbs_g: '21.8',
+          fat_g: '4.0',
+          position: 1,
+        },
+        {
+          food_id: 'o',
+          food_name: 'Test oats',
+          grams: '60.0',
+          kcal: 233,
+          protein_g: '8.1',
+          carbs_g: '39.6',
+          fat_g: '4.1',
+          position: 0,
+        },
+      ],
+    });
+    expect(log.items.map((i) => `${i.grams} ${i.unit}`)).toEqual(['60 g', '330 ml']);
   });
 
   it('escapes LIKE wildcards', () => {

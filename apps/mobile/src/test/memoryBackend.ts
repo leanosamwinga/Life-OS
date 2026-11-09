@@ -3,9 +3,12 @@
  * requires consent, like RLS) so flows can be tested without Supabase.
  */
 import {
+  componentUnit,
+  logWindow,
   portionMacros,
   summariseBatch,
   toFood,
+  type AmountUnit,
   type CooksAs,
   type MealComponent,
   type MealLog,
@@ -42,13 +45,15 @@ export interface MemoryState {
     inDailyPlan: boolean;
     usualTime: string | null;
     starred?: boolean;
-    components: { foodId: string; grams: number }[];
+    components: { foodId: string; grams: number; unit?: AmountUnit }[];
   }[];
   /** Batches are foods (with `batch` set); their ingredients by batch id. */
   batchIngredients: Record<string, { foodId: string; grams: number; cooksAs: CooksAs }[]>;
   mealLogs: MealLog[];
   water: WaterLog[];
-  lastPortions: Record<string, { grams: number; loggedAt: string }>;
+  lastPortions: Record<string, { grams: number; loggedAt: string; unit?: AmountUnit }>;
+  /** Internal edited-at bookkeeping by log id (never shown in the app). */
+  editedAt: Record<string, string>;
 }
 
 export type MemoryBackend = Backend & {
@@ -80,6 +85,7 @@ export function createMemoryBackend(
     mealLogs: [],
     water: [],
     lastPortions: {},
+    editedAt: {},
     batchIngredients: {},
     ...init,
   };
@@ -122,7 +128,7 @@ export function createMemoryBackend(
     let missing = 0;
     for (const c of m.components) {
       const f = food(c.foodId);
-      if (f) components.push({ food: f, grams: c.grams });
+      if (f) components.push({ food: f, grams: c.grams, unit: c.unit ?? f.unit ?? 'g' });
       else missing++;
     }
     return {
@@ -145,6 +151,14 @@ export function createMemoryBackend(
       else missing++;
     }
     return { food: toFood(rec) as SavedBatch['food'], ingredients, missingIngredients: missing };
+  };
+  /** Same window as check_meal_time: yesterday 00:00 to an hour from now (+2 min grace). */
+  const requireMealTime = (at: string) => {
+    const w = logWindow(new Date());
+    if (Date.parse(at) < Date.parse(w.earliest))
+      throw new UserFacingError('Pick a time from yesterday 00:00 onwards.');
+    if (Date.parse(at) > Date.parse(w.latest) + 2 * 60000)
+      throw new UserFacingError('Pick a time no more than an hour from now.');
   };
   const inRange = (t: string, r: { from: string; to: string }) =>
     Date.parse(t) >= Date.parse(r.from) && Date.parse(t) < Date.parse(r.to);
@@ -204,7 +218,11 @@ export function createMemoryBackend(
         name: input.name.trim(),
         inDailyPlan: input.inDailyPlan,
         usualTime: input.inDailyPlan ? input.usualTime : null,
-        components: input.components.map((c) => ({ foodId: c.food.id, grams: c.grams })),
+        components: input.components.map((c) => ({
+          foodId: c.food.id,
+          grams: c.grams,
+          unit: componentUnit(c),
+        })),
       };
       const i = state.savedMeals.findIndex((m) => m.id === input.id);
       if (input.id && i === -1) throw new UserFacingError('Meal not found.');
@@ -314,6 +332,7 @@ export function createMemoryBackend(
       requireConsent();
       if (input.components.length === 0)
         throw new UserFacingError('A meal needs at least one component.');
+      requireMealTime(input.loggedAt);
       // Same check as the log_meal SQL function: recompute from the stored food.
       const items = logMealItems(input.components).map((item) => {
         const f = food(item.food_id);
@@ -327,7 +346,13 @@ export function createMemoryBackend(
         ) {
           throw new UserFacingError(`Nutrition for ${f.name} has changed; refresh and try again.`);
         }
-        return { foodId: f.id, foodName: f.name, grams: item.grams, macros: m };
+        return {
+          foodId: f.id,
+          foodName: f.name,
+          grams: item.grams,
+          unit: item.unit,
+          macros: m,
+        };
       });
       const log: MealLog = {
         id: newId('log'),
@@ -341,10 +366,42 @@ export function createMemoryBackend(
       for (const i of items) {
         const prev = state.lastPortions[i.foodId!];
         if (!prev || Date.parse(prev.loggedAt) <= Date.parse(log.loggedAt)) {
-          state.lastPortions[i.foodId!] = { grams: i.grams, loggedAt: log.loggedAt };
+          state.lastPortions[i.foodId!] = {
+            grams: i.grams,
+            unit: i.unit,
+            loggedAt: log.loggedAt,
+          };
         }
       }
       return log.id;
+    },
+    async updateLoggedMeal(edit) {
+      await call('updateLoggedMeal');
+      requireConsent();
+      const i = state.mealLogs.findIndex((l) => l.id === edit.id);
+      if (i === -1) throw new UserFacingError('Meal not found.');
+      const name = edit.name.trim();
+      if (!name || name.length > 120) throw new UserFacingError('Give the meal a name.');
+      const log = state.mealLogs[i]!;
+      if (edit.loggedAt && edit.loggedAt !== log.loggedAt) requireMealTime(edit.loggedAt);
+      // Only labels change: amounts and macros stay as logged (1 ml counts as 1 g).
+      state.mealLogs[i] = {
+        ...log,
+        name,
+        loggedAt: edit.loggedAt ?? log.loggedAt,
+        items: log.items.map((item, position) => {
+          const u = edit.units.find((x) => x.position === position);
+          return u ? { ...item, unit: u.unit } : item;
+        }),
+      };
+      state.editedAt[edit.id] = new Date().toISOString();
+    },
+    async deleteMealLog(id) {
+      await call('deleteMealLog');
+      requireConsent();
+      if (!state.mealLogs.some((l) => l.id === id))
+        throw new UserFacingError('That meal has already gone.');
+      state.mealLogs = state.mealLogs.filter((l) => l.id !== id);
     },
     async listWaterLogs(range) {
       await call('listWaterLogs');
@@ -384,7 +441,9 @@ export function createMemoryBackend(
         .flatMap(([id, p]) => {
           const f = food(id);
           const remembered = state.foods.find((r) => r.id === id)?.remembered !== false;
-          return f && remembered ? [{ food: f, grams: p.grams, loggedAt: p.loggedAt }] : [];
+          return f && remembered
+            ? [{ food: f, grams: p.grams, unit: p.unit ?? 'g', loggedAt: p.loggedAt }]
+            : [];
         })
         .slice(0, limit);
     },
@@ -418,6 +477,7 @@ export function createMemoryBackend(
         fibrePer100g: null,
         sugarPer100g: null,
         saltPer100g: null,
+        nutritionUnit: input.unit ?? 'g',
         packGrams: input.packGrams ?? null,
         servingGrams: input.servingGrams ?? null,
         remembered: input.remembered,

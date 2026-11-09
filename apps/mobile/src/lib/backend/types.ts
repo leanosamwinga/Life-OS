@@ -1,4 +1,5 @@
 import type {
+  AmountUnit,
   BatchIngredient,
   Food,
   Instant,
@@ -7,7 +8,14 @@ import type {
   MealLog,
   WaterLog,
 } from '@life-os/core';
-import type { BarcodeLookup, RosterMeal, SavedBatch, StoredFood, UserFoodInput } from './foods';
+import type {
+  BarcodeLookup,
+  LoggedMealEdit,
+  RosterMeal,
+  SavedBatch,
+  StoredFood,
+  UserFoodInput,
+} from './foods';
 import type { SettingsPatch, UserSettings } from './settings';
 
 export interface TimeRange {
@@ -46,6 +54,8 @@ export type StarTarget = { kind: 'meal' | 'batch'; id: string };
 export interface RecentFood {
   food: Food;
   grams: number;
+  /** The unit it was logged in last time. */
+  unit: AmountUnit;
   loggedAt: Instant;
 }
 
@@ -172,8 +182,15 @@ export interface Backend {
   /** Star or unstar a saved meal or batch (Saved tab: starred first, then A–Z). */
   setStarred(target: StarTarget, starred: boolean): Promise<void>;
   listMealLogs(range: TimeRange): Promise<MealLog[]>;
-  /** Log a meal atomically (`log_meal`): log + snapshotted items + last portions. */
+  /**
+   * Log a meal atomically (`log_meal`): log + snapshotted items + last portions. The time must
+   * be from yesterday 00:00 to an hour from now (core `logWindow`), or it's refused.
+   */
   logMeal(input: LogMealInput): Promise<string>;
+  /** 7k: change a logged meal's name, time and item units (`update_logged_meal`). */
+  updateLoggedMeal(edit: LoggedMealEdit): Promise<void>;
+  /** 7l: delete a logged meal; a plan meal it came from shows as not eaten again. */
+  deleteMealLog(id: string): Promise<void>;
   listWaterLogs(range: TimeRange): Promise<WaterLog[]>;
   addWater(ml: number): Promise<void>;
   /** Global cache and the user's own foods whose name matches. */
