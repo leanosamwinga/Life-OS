@@ -29,8 +29,8 @@ const NOW = '2026-11-09T13:40:00.000Z';
 describe('7i Pick a time', () => {
   it('offers Today and Yesterday', () => {
     expect(pickerDays(NOW)).toEqual([
-      { label: 'Today', date: '2026-11-09' },
       { label: 'Yesterday', date: '2026-11-08' },
+      { label: 'Today', date: '2026-11-09' },
     ]);
   });
 
@@ -83,7 +83,7 @@ describe('day boundaries', () => {
 
   it('just after midnight, yesterday is the day that just ended and the latest is 01:05', () => {
     const now = '2026-11-09T00:05:00.000Z';
-    expect(pickerDays(now)[1]!.date).toBe('2026-11-08');
+    expect(pickerDays(now)[0]!.date).toBe('2026-11-08');
     expect(pickerLatest('2026-11-09', now)).toBe('01:05');
     expect(isInLogWindow(pickedInstant('2026-11-08', '00:00'), now)).toBe(true);
     expect(isInLogWindow(pickedInstant('2026-11-07', '23:59'), now)).toBe(false);
@@ -164,7 +164,7 @@ describe('7k and 7l', () => {
       }),
     ).toEqual({
       title: 'Delete Test oats bowl?',
-      body: 'It comes off Mon 9 Nov. This can’t be undone; you can log it again.',
+      body: 'It comes off Mon 9 Nov. You can undo it straight after on Today.',
       nowLabel: 'Today now',
       now: '1,458 kcal',
       down: '353 kcal · P 32.1 g',

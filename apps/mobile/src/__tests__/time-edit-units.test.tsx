@@ -545,7 +545,7 @@ describe('7l Delete meal', () => {
     const sheet = within(screen.getByTestId('sheet-7l'));
     expect(sheet.getByText('Delete Test oats bowl?')).toBeTruthy();
     expect(
-      sheet.getByText('It comes off Mon 9 Nov. This can’t be undone; you can log it again.'),
+      sheet.getByText('It comes off Mon 9 Nov. You can undo it straight after on Today.'),
     ).toBeTruthy();
     expect(sheet.getByText('Today now')).toBeTruthy();
     expect(sheet.getByText('1,336 kcal')).toBeTruthy();
@@ -555,8 +555,12 @@ describe('7l Delete meal', () => {
     expect(sheet.queryByTestId('plan-back')).toBeNull();
     await fireEvent.press(sheet.getByRole('button', { name: 'Delete meal' }));
     await screen.findByTestId('screen-today');
-    expect(mockBackend.state.mealLogs.some((l) => l.id === 'log-oats')).toBe(false);
+    // Hidden at once; really deleted when "Meal deleted · Undo" goes (follow-ups.test.tsx, H).
     await waitFor(() => expect(screen.queryByTestId('open-log-oats')).toBeNull());
+    await fireEvent.press(screen.getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() =>
+      expect(mockBackend.state.mealLogs.some((l) => l.id === 'log-oats')).toBe(false),
+    );
   });
 
   it('from the plan: the plan meal goes back as not eaten, with “Ate it” again', async () => {

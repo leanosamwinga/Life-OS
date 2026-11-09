@@ -103,7 +103,9 @@ to Welcome (0a) on its own — just sign in again. **A reset also erases every a
 0b-8i "We don't recognise that account" — that's correct; create it again. Development builds say
 so on that screen.
 
-**What `npm run doctor` checks** (one line each, with the fix): Docker and the stack; this
+**What `npm run doctor` checks** (one line each, with the fix): it first prints the repo path and
+branch it is looking at, and warns about a nested clone (another copy of this repo inside it, which
+is easy to run commands in by mistake); then Docker and the stack; this
 branch's migrations and the Data API guard; that `config.toml`'s Auth hooks are running (if not:
 `npx supabase stop`, then `npx supabase start`); both env files (an empty `APPLE_BUNDLE_ID` is an
 error, and Apple/Google ids still sitting in `supabase/.env` are reported as moved); that `auth-api` answers; that `auth-api` can
@@ -267,7 +269,9 @@ and writes `.local-auth/env` (git-ignored, local-only keys). Then:
   batches (server per-100 g = core, tampering refused, log by the gram, as a component, cook
   again, stars, another user and consent off); custom times, editing and deleting logged meals,
   and g or ml (server time window, crafted edits refused, a plan meal back as not eaten, a barcode
-  drink per 100 ml, another user and consent off). What each sign-off criterion rests on is in
+  drink per 100 ml, another user and consent off); yesterday's timeline, a corrected copy
+  (atomic, plan link kept, tampered macros refused), log again, "Ate it" at the usual time, custom
+  water logged and deleted, another user and consent off. What each sign-off criterion rests on is in
   `docs/PHASE2-SIGNOFF.md`.
 
 The stack also starts local fakes (`scripts/local-auth/fakes.mjs`): a fake Apple and Google (keys
@@ -303,7 +307,7 @@ function, which recomputes the per-100 g values and refuses any mismatch.
 
 ### Times, editing logged meals, g or ml
 
-**Other time…** on Log meal opens a time picker (Today / Yesterday, 24-hour wheels): any time from
+**Other time…** on Log meal opens a time picker (Yesterday / Today, looping 24-hour wheels): any time from
 yesterday 00:00 up to an hour from now, checked by `log_meal` too. The meal counts towards its
 Europe/London day. Tap a logged meal on Today to open it: **Edit meal** changes the name, the time
 and each item's g / ml label only (amounts are locked; to change them, delete and log again), and
@@ -311,6 +315,17 @@ and each item's g / ml label only (amounts are locked; to change them, delete an
 only through the `update_logged_meal` and `delete_logged_meal` Postgres functions, which refuse
 anything else. Each food is per 100 g or per 100 ml (from Open Food Facts, or chosen on manual
 entry); "how much" has a g / ml switch and 1 ml counts as 1 g.
+
+### Yesterday, log again, corrected copies, water
+
+**‹ Yesterday** on Today shows yesterday's meals and totals; yesterday's meals open and edit like
+today's. On a logged meal, **Log again** logs the same amounts as a new meal (now, or **Other
+time…**), and **Log a corrected copy** opens Build meal pre-filled so you can change amounts: Done
+logs the new meal and deletes the old one in one step (`replace_logged_meal`), keeping its plan
+link. **Ate it** logs a plan meal at its usual time if that has passed. After **Delete meal**,
+Today shows **Meal deleted · Undo** for about five seconds before the meal is really deleted. On
+Health, **Other amount…** adds any whole number of ml from 1 to 5,000, and tapping the water total
+lists today's water with a delete for each entry.
 
 ### Run the app
 

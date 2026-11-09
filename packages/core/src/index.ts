@@ -7,3 +7,4 @@ export * from './defaults.ts';
 export * from './auth.ts';
 export * from './batch.ts';
 export * from './mealedit.ts';
+export * from './followups.ts';

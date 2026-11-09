@@ -27,7 +27,12 @@ import {
   type SettingsPatch,
   type UserSettings,
 } from '@/lib/backend/settings';
-import { UserFacingError, type AuthUser, type Backend } from '@/lib/backend/types';
+import {
+  UserFacingError,
+  type AuthUser,
+  type Backend,
+  type LogMealInput,
+} from '@/lib/backend/types';
 import { createMemoryAuth, type MemoryAuth, type MemoryAuthState } from './memoryAuth';
 
 export interface MemoryState {
@@ -122,6 +127,54 @@ export function createMemoryBackend(
   const food = (id: string) => {
     const r = state.foods.find((f) => f.id === id && visible(f));
     return r ? toFood(r) : null;
+  };
+  /** log_meal's checks and writes; throws before changing anything. */
+  const logInto = (input: LogMealInput): string => {
+    requireConsent();
+    if (input.components.length === 0)
+      throw new UserFacingError('A meal needs at least one component.');
+    requireMealTime(input.loggedAt);
+    // Same check as the log_meal SQL function: recompute from the stored food.
+    const items = logMealItems(input.components).map((item) => {
+      const f = food(item.food_id);
+      if (!f) throw new UserFacingError('Unknown food.');
+      const m = portionMacros(f, item.grams);
+      if (
+        m.kcal !== item.kcal ||
+        m.protein !== item.protein ||
+        m.carbs !== item.carbs ||
+        m.fat !== item.fat
+      ) {
+        throw new UserFacingError(`Nutrition for ${f.name} has changed; refresh and try again.`);
+      }
+      return {
+        foodId: f.id,
+        foodName: f.name,
+        grams: item.grams,
+        unit: item.unit,
+        macros: m,
+      };
+    });
+    const log: MealLog = {
+      id: newId('log'),
+      userId: state.user!.id,
+      savedMealId: input.savedMealId,
+      name: input.name.trim(),
+      loggedAt: input.loggedAt,
+      items,
+    };
+    state.mealLogs.push(log);
+    for (const i of items) {
+      const prev = state.lastPortions[i.foodId!];
+      if (!prev || Date.parse(prev.loggedAt) <= Date.parse(log.loggedAt)) {
+        state.lastPortions[i.foodId!] = {
+          grams: i.grams,
+          unit: i.unit,
+          loggedAt: log.loggedAt,
+        };
+      }
+    }
+    return log.id;
   };
   const toRoster = (m: MemoryState['savedMeals'][number]): RosterMeal => {
     const components: MealComponent[] = [];
@@ -334,51 +387,19 @@ export function createMemoryBackend(
     },
     async logMeal(input) {
       await call('logMeal');
+      return logInto(input);
+    },
+    async replaceLoggedMeal(oldId, input) {
+      await call('replaceLoggedMeal');
       requireConsent();
-      if (input.components.length === 0)
-        throw new UserFacingError('A meal needs at least one component.');
-      requireMealTime(input.loggedAt);
-      // Same check as the log_meal SQL function: recompute from the stored food.
-      const items = logMealItems(input.components).map((item) => {
-        const f = food(item.food_id);
-        if (!f) throw new UserFacingError('Unknown food.');
-        const m = portionMacros(f, item.grams);
-        if (
-          m.kcal !== item.kcal ||
-          m.protein !== item.protein ||
-          m.carbs !== item.carbs ||
-          m.fat !== item.fat
-        ) {
-          throw new UserFacingError(`Nutrition for ${f.name} has changed; refresh and try again.`);
-        }
-        return {
-          foodId: f.id,
-          foodName: f.name,
-          grams: item.grams,
-          unit: item.unit,
-          macros: m,
-        };
-      });
-      const log: MealLog = {
-        id: newId('log'),
-        userId: state.user!.id,
-        savedMealId: input.savedMealId,
-        name: input.name.trim(),
-        loggedAt: input.loggedAt,
-        items,
-      };
-      state.mealLogs.push(log);
-      for (const i of items) {
-        const prev = state.lastPortions[i.foodId!];
-        if (!prev || Date.parse(prev.loggedAt) <= Date.parse(log.loggedAt)) {
-          state.lastPortions[i.foodId!] = {
-            grams: i.grams,
-            unit: i.unit,
-            loggedAt: log.loggedAt,
-          };
-        }
-      }
-      return log.id;
+      // Like replace_logged_meal: the old meal must be yours and inside the window, the new one
+      // passes log_meal's checks, and either both happen or neither.
+      const old = state.mealLogs.find((l) => l.id === oldId);
+      if (!old) throw new UserFacingError('That meal has already gone.');
+      requireChangeable(old.loggedAt);
+      const id = logInto({ ...input, savedMealId: old.savedMealId });
+      state.mealLogs = state.mealLogs.filter((l) => l.id !== oldId);
+      return id;
     },
     async updateLoggedMeal(edit) {
       await call('updateLoggedMeal');
@@ -418,12 +439,20 @@ export function createMemoryBackend(
     async addWater(ml) {
       await call('addWater');
       requireConsent();
+      // Like the water_logs check: a whole number from 1 to 5,000.
+      if (!Number.isInteger(ml) || ml < 1 || ml > 5000)
+        throw new UserFacingError('Water must be a whole number from 1 to 5,000 ml.');
       state.water.push({
         id: newId('water'),
         userId: state.user!.id,
         ml,
         loggedAt: new Date().toISOString(),
       });
+    },
+    async deleteWater(id) {
+      await call('deleteWater');
+      requireConsent();
+      state.water = state.water.filter((w) => w.id !== id);
     },
     async searchFoods(query) {
       await call('searchFoods');

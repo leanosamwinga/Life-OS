@@ -226,6 +226,17 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
       if (error?.code === 'P0002') throw new UserFacingError('That meal has already gone.');
       if (error) friendly(error);
     },
+    async replaceLoggedMeal(oldId, input) {
+      const { data, error } = await client.rpc('replace_logged_meal', {
+        p_old_id: oldId,
+        p_name: input.name,
+        p_logged_at: input.loggedAt,
+        p_items: logMealItems(input.components),
+      });
+      if (error?.code === 'P0002') throw new UserFacingError('That meal has already gone.');
+      if (error) friendly(error);
+      return data as string;
+    },
     async listWaterLogs({ from, to }) {
       const { data, error } = await client
         .from('water_logs')
@@ -243,6 +254,10 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
     },
     async addWater(ml) {
       const { error } = await client.from('water_logs').insert({ ml });
+      if (error) friendly(error);
+    },
+    async deleteWater(id) {
+      const { error } = await client.from('water_logs').delete().eq('id', id);
       if (error) friendly(error);
     },
     async searchFoods(query) {

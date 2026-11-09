@@ -38,8 +38,11 @@ export interface UseDay {
 
 const EMPTY: DayData = { meals: [], water: [], roster: [] };
 
-/** Today's meals, water and roster for the signed-in user, reloaded when data changes. */
-export function useDay(date: LocalDate): UseDay {
+/**
+ * A day's meals, water and roster for the signed-in user, reloaded when data changes. Meals in
+ * `hiddenMealIds` (a delete waiting on "Undo") are left out of the meals and the totals.
+ */
+export function useDay(date: LocalDate, hiddenMealIds: readonly string[] = []): UseDay {
   const session = useSession();
   const live = session.status === 'signedIn';
   const consentOff = live && !session.healthConsent;
@@ -58,7 +61,10 @@ export function useDay(date: LocalDate): UseDay {
       : null,
     [live, consentOff, backend, date, session.dataVersion],
   );
-  const data = consentOff ? EMPTY : (state.data ?? EMPTY);
+  const loaded = consentOff ? EMPTY : (state.data ?? EMPTY);
+  const data = hiddenMealIds.length
+    ? { ...loaded, meals: loaded.meals.filter((m) => !hiddenMealIds.includes(m.id)) }
+    : loaded;
   const targets = session.settings?.targets;
   return {
     live,

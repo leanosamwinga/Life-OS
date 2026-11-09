@@ -243,11 +243,17 @@ export function FormScreen(props: {
   children: ReactNode;
   footer?: ReactNode;
   testID?: string;
+  /** iPhone: inset the scroll by the keyboard so the last fields and button stay reachable. */
+  keyboardInsets?: boolean;
 }) {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']} testID={props.testID}>
       {props.header ? <View style={styles.header}>{props.header}</View> : null}
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={props.keyboardInsets}
+      >
         {props.children}
       </ScrollView>
       {props.footer ? <View style={styles.footer}>{props.footer}</View> : null}

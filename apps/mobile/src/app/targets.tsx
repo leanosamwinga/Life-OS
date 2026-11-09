@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { FormMessage, PrimaryButton, TextField, formStyles } from '@/components/forms';
+import { FormMessage, FormScreen, PrimaryButton, TextField, formStyles } from '@/components/forms';
+import { SheetHeader } from '@/features/log-meal/parts';
 import {
   parseTargets,
   TARGET_FIELDS,
@@ -10,9 +11,15 @@ import {
 } from '@/features/targets/parse';
 import { defaultUserSettings } from '@/lib/backend/settings';
 import { useSession } from '@/lib/session';
-import { colors, space } from '@/theme';
+import { space } from '@/theme';
 
-/** Me → Meal plan & macro targets (also "Set targets now" in onboarding 0g). */
+const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
+
+/**
+ * Me → Meal plan & macro targets (also "Set targets now" in onboarding 0g). Uses the in-page
+ * SheetHeader like the other sheets rather than the native iOS header, whose translucent bar hid
+ * the intro line; the form scrolls clear of the keyboard.
+ */
 export default function TargetsScreen() {
   const session = useSession();
   const current = session.settings?.targets ?? defaultUserSettings().targets;
@@ -31,7 +38,7 @@ export default function TargetsScreen() {
     setBusy(true);
     try {
       await session.updateSettings({ targets: parsed.targets });
-      if (router.canGoBack()) router.back();
+      close();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Couldn’t save your targets.');
     } finally {
@@ -40,13 +47,12 @@ export default function TargetsScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.body}
-      keyboardShouldPersistTaps="handled"
+    <FormScreen
       testID="screen-targets"
+      keyboardInsets
+      header={<SheetHeader left="Cancel" onLeft={close} title="Daily targets" />}
     >
-      <Text style={formStyles.body}>
+      <Text style={[formStyles.body, styles.intro]} testID="targets-intro">
         Your daily targets for calories, protein, carbs, fat, water and steps. Leave any blank to
         set it later.
       </Text>
@@ -65,13 +71,12 @@ export default function TargetsScreen() {
       </View>
       {error ? <FormMessage>{error}</FormMessage> : null}
       <PrimaryButton label="Save targets" busy={busy} onPress={() => void save()} />
-    </ScrollView>
+    </FormScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  body: { padding: space.xl, gap: space.lg },
+  intro: { marginBottom: space.lg },
   grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: space.md },
   cell: { flexBasis: '47%', flexGrow: 1 },
 });

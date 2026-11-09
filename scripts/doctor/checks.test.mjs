@@ -4,10 +4,15 @@ import {
   checkAppEnv,
   checkFunctionsEnv,
   checkLegacySupabaseEnv,
+  checkNestedClones,
   checkPhoneUrl,
+  findNestedClones,
   line,
+  normaliseRemote,
+  originFromGitConfig,
   parseEnv,
   supabaseStatus,
+  whereLines,
 } from './checks.mjs';
 
 const secrets = Object.fromEntries(
@@ -149,5 +154,81 @@ describe('npm run doctor checks', () => {
   it('prints one line per check', () => {
     expect(line({ ok: false, name: 'a', detail: 'fix it' })).toBe('✗ a — fix it');
     expect(line({ ok: true, name: 'a', detail: 'ok' })).toBe('✓ a — ok');
+  });
+});
+
+describe('doctor: which checkout', () => {
+  it('prints the repo path and branch first', () => {
+    expect(whereLines('/Users/sample/Life-OS/', 'claude/log-meal-and-water-follow-ups')).toEqual([
+      'Repo: /Users/sample/Life-OS',
+      'Branch: claude/log-meal-and-water-follow-ups',
+    ]);
+    expect(whereLines('/x', null)[1]).toBe('Branch: unknown (not a git checkout?)');
+  });
+
+  it('normalises remotes so https and ssh match', () => {
+    expect(normaliseRemote('https://github.com/Owner/Life-OS.git')).toBe(
+      'github.com/owner/life-os',
+    );
+    expect(normaliseRemote('git@github.com:owner/life-os')).toBe('github.com/owner/life-os');
+    expect(
+      originFromGitConfig(
+        '[core]\n\tbare = false\n[remote "origin"]\n\turl = git@github.com:o/r.git\n',
+      ),
+    ).toBe('git@github.com:o/r.git');
+    expect(originFromGitConfig('[core]\n')).toBeNull();
+  });
+
+  // A tiny fake file system: dirs map to their entries; files to their text.
+  const fakeFs = (tree) => ({
+    list: (dir) =>
+      Object.keys(tree)
+        .filter((p) => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/'))
+        .map((p) => ({ name: p.slice(dir.length + 1), dir: tree[p] === null })),
+    read: (p) => (typeof tree[p] === 'string' ? tree[p] : null),
+  });
+  const cfg = (url) => `[remote "origin"]\n\turl = ${url}\n`;
+
+  it('finds another clone of this repo inside it, not other repos or node_modules', () => {
+    const tree = {
+      '/r/.git': null,
+      '/r/.git/config': cfg('https://github.com/o/life-os'),
+      '/r/package.json': '{"name":"life-os"}',
+      '/r/apps': null,
+      '/r/Life-OS': null,
+      '/r/Life-OS/.git': null,
+      '/r/Life-OS/.git/config': cfg('git@github.com:o/Life-OS.git'),
+      '/r/Life-OS/package.json': '{"name":"life-os"}',
+      '/r/vendor': null,
+      '/r/vendor/other': null,
+      '/r/vendor/other/.git': null,
+      '/r/vendor/other/.git/config': cfg('https://github.com/o/other'),
+      '/r/node_modules': null,
+      '/r/node_modules/x': null,
+      '/r/node_modules/x/.git': null,
+      '/r/node_modules/x/.git/config': cfg('https://github.com/o/life-os'),
+    };
+    const found = findNestedClones('/r', fakeFs(tree));
+    expect(found).toEqual(['Life-OS']);
+    expect(checkNestedClones(found, '/r/')).toEqual({
+      ok: null,
+      name: 'nested clone',
+      detail:
+        'Life-OS is another clone of this repo inside /r — run commands from the one you mean, and move the nested one out',
+    });
+  });
+
+  it('also matches by package name (a clone of a local path has another origin)', () => {
+    const tree = {
+      '/r/package.json': '{"name":"life-os"}',
+      '/r/copy': null,
+      '/r/copy/.git': null,
+      '/r/copy/package.json': '{"name":"life-os"}',
+    };
+    expect(findNestedClones('/r', fakeFs(tree))).toEqual(['copy']);
+  });
+
+  it('says nothing when there is no nested clone', () => {
+    expect(checkNestedClones([], '/r')).toBeNull();
   });
 });

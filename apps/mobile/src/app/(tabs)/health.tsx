@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import {
   dayProgress,
   componentUnit,
+  WATER_QUICK_ADD_ML,
   formatAmount,
   formatKcal,
   formatMl,
@@ -20,6 +21,7 @@ import { FormMessage, SecondaryButton } from '@/components/forms';
 import { useDay } from '@/features/data/useDay';
 import { useNow } from '@/features/data/useNow';
 import type { RosterMeal } from '@/lib/backend/foods';
+import { TodayWaterSheet, WaterAmountSheet } from '@/features/water/WaterSheets';
 import { useSession } from '@/lib/session';
 import {
   sampleCompletedThisCycle,
@@ -40,6 +42,8 @@ export default function HealthScreen() {
   const live = day.live;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // G: "Other amount…" and today's water (tap the total).
+  const [waterSheet, setWaterSheet] = useState<'amount' | 'today' | null>(null);
   const p = live
     ? day.progress
     : dayProgress(
@@ -54,7 +58,7 @@ export default function HealthScreen() {
     setError(null);
     setBusy(true);
     try {
-      await session.backend.addWater(250);
+      await session.backend.addWater(WATER_QUICK_ADD_ML);
       session.notifyDataChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Couldn’t add water.');
@@ -128,14 +132,33 @@ export default function HealthScreen() {
 
           <Card title="Water">
             <View style={styles.bigRow}>
-              <Text
-                style={styles.waterBig}
-                accessibilityLabel={`Water: ${formatMl(p.water.consumed)} of ${p.water.target ? formatMl(p.water.target) : 'no target'}`}
-              >
-                {formatMl(p.water.consumed)}
-                {p.water.target ? ` of ${formatMl(p.water.target)}` : ''}
-              </Text>
               {live ? (
+                <Pressable
+                  onPress={() => setWaterSheet('today')}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Water: ${formatMl(p.water.consumed)} of ${p.water.target ? formatMl(p.water.target) : 'no target'}`}
+                  accessibilityHint="Shows today’s water"
+                  style={styles.waterTotal}
+                  testID="water-total"
+                >
+                  <Text style={styles.waterBig}>
+                    {formatMl(p.water.consumed)}
+                    {p.water.target ? ` of ${formatMl(p.water.target)}` : ''}
+                  </Text>
+                  <Text style={styles.chevron}>›</Text>
+                </Pressable>
+              ) : (
+                <Text
+                  style={styles.waterBig}
+                  accessibilityLabel={`Water: ${formatMl(p.water.consumed)} of ${p.water.target ? formatMl(p.water.target) : 'no target'}`}
+                >
+                  {formatMl(p.water.consumed)}
+                  {p.water.target ? ` of ${formatMl(p.water.target)}` : ''}
+                </Text>
+              )}
+            </View>
+            {live ? (
+              <View style={styles.waterButtons}>
                 <Pressable
                   onPress={() => void addWater()}
                   disabled={busy}
@@ -146,11 +169,37 @@ export default function HealthScreen() {
                 >
                   <Text style={styles.darkButtonText}>+ 250 ml</Text>
                 </Pressable>
-              ) : null}
-            </View>
+                <Pressable
+                  onPress={() => setWaterSheet('amount')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Other amount of water"
+                  style={styles.outlineButton}
+                  testID="water-other"
+                >
+                  <Text style={styles.outlineButtonText}>Other amount…</Text>
+                </Pressable>
+              </View>
+            ) : null}
             <WaterGlasses consumed={p.water.consumed} target={p.water.target} />
             {live ? null : <ComingIn phase={2} what="+ 250 ml quick add" />}
           </Card>
+          <WaterAmountSheet
+            visible={waterSheet === 'amount'}
+            onClose={() => setWaterSheet(null)}
+            onAdd={async (ml) => {
+              await session.backend!.addWater(ml);
+              session.notifyDataChanged();
+            }}
+          />
+          <TodayWaterSheet
+            visible={waterSheet === 'today'}
+            onClose={() => setWaterSheet(null)}
+            logs={day.data.water}
+            onDelete={async (id) => {
+              await session.backend!.deleteWater(id);
+              session.notifyDataChanged();
+            }}
+          />
         </>
       )}
 
@@ -380,6 +429,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   darkButtonText: { ...type.headline, color: colors.inverseText },
+  outlineButton: {
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: 'center',
+  },
+  outlineButtonText: { ...type.headline, color: colors.text },
+  waterButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md },
+  waterTotal: { flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, flexShrink: 1 },
+  chevron: { fontSize: 24, color: colors.textSecondary, marginLeft: space.sm },
   bar: { marginTop: space.md },
   barLabels: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   barLabel: { ...type.callout, color: colors.text },

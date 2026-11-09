@@ -7,7 +7,14 @@ import {
   formatDateUK,
   formatKcal,
   formatTimeUK,
+  componentsFromLog,
+  pickedInstant,
+  pickerStart,
   planBackNote,
+  toFood,
+  type Food,
+  type LocalDate,
+  type LocalTime,
   sumMacros,
   toLondonDate,
   type MealLog,
@@ -21,12 +28,13 @@ import {
   formStyles,
 } from '@/components/forms';
 import { Overline } from '@/components/ui';
-import { SheetHeader } from '@/features/log-meal/parts';
+import { Chip, SheetHeader } from '@/features/log-meal/parts';
 import { slotOfPlanMeal } from '@/features/log-meal/slots';
-import { BottomSheet } from '@/features/log-meal/TimeSheet';
+import { BottomSheet, TimeSheet } from '@/features/log-meal/TimeSheet';
 import { isChangeable, useLoggedMeals } from '@/features/logged-meal/LoggedMealContext';
 import { backToToday } from '@/features/logged-meal/navigation';
 import { g1, macroLine } from '@/features/logged-meal/parts';
+import { usePendingDelete } from '@/features/today/PendingDelete';
 import type { RosterMeal } from '@/lib/backend/foods';
 import { useSession } from '@/lib/session';
 import { colors, radius, space, type } from '@/theme';
@@ -34,9 +42,14 @@ import { colors, radius, space, type } from '@/theme';
 /** 7j Logged meal: read-only, with "Edit meal" and a quiet "Delete meal" (7l). */
 export default function LoggedMealScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const session = useSession();
   const lm = useLoggedMeals();
   const log = lm.logs.find((l) => l.id === id);
   const [deleting, setDeleting] = useState(false);
+  // E: "Log again" now, or at another time from the 7i sheet.
+  const [picker, setPicker] = useState<Date | null>(null);
+  const [again, setAgain] = useState<'busy' | null>(null);
+  const [againError, setAgainError] = useState<string | null>(null);
 
   const header = <SheetHeader left="‹ Today" leftLabel="Back to Today" onLeft={backToToday} />;
   if (!log) {
@@ -61,6 +74,45 @@ export default function LoggedMealScreen() {
   const totals = sumMacros(log.items);
   const plan = lm.roster.find((m) => m.id === log.savedMealId) ?? null;
   const changeable = isChangeable(log, new Date());
+
+  /** Log the same components (amounts and units) as a new meal; the original is untouched. */
+  const logAgain = async (when: { date: LocalDate; time: LocalTime } | null) => {
+    const backend = session.backend;
+    if (!backend) return;
+    setAgain('busy');
+    setAgainError(null);
+    try {
+      const ids = log.items.flatMap((i) => (i.foodId ? [i.foodId] : []));
+      const foods = new Map(
+        (await backend.getFoods(ids)).flatMap((r) => {
+          const f = toFood(r);
+          return f ? [[f.id, f] as [string, Food]] : [];
+        }),
+      );
+      const { components, unavailable } = componentsFromLog(log.items, foods);
+      if (unavailable.length) {
+        // A food has gone: Build meal shows it so it can be removed first.
+        setAgain(null);
+        router.push({
+          pathname: '/log-meal/from-log',
+          params: { id: log.id, mode: 'again', ...(when ?? {}) },
+        });
+        return;
+      }
+      await backend.logMeal({
+        name: log.name,
+        savedMealId: null,
+        loggedAt: when ? pickedInstant(when.date, when.time) : new Date().toISOString(),
+        components,
+      });
+      session.notifyDataChanged();
+      setAgain(null);
+      backToToday();
+    } catch (err) {
+      setAgain(null);
+      setAgainError(err instanceof Error ? err.message : 'Couldn’t log that meal again.');
+    }
+  };
 
   return (
     <FormScreen
@@ -129,6 +181,38 @@ export default function LoggedMealScreen() {
         </View>
       </View>
 
+      <View style={styles.again} testID="log-again">
+        <View style={styles.againRow}>
+          <SecondaryButton
+            label={again === 'busy' ? 'Logging…' : 'Log again'}
+            accessibilityLabel="Log again now"
+            disabled={again === 'busy'}
+            onPress={() => void logAgain(null)}
+            style={styles.againButton}
+          />
+          <Chip
+            label="Other time…"
+            a11yLabel="Log again at another time"
+            onPress={() => setPicker(new Date())}
+            testID="again-other-time"
+          />
+        </View>
+        <Text style={styles.sub}>Same amounts as a new meal. This one stays as it is.</Text>
+        {againError ? <FormMessage>{againError}</FormMessage> : null}
+        {changeable ? (
+          <LinkButton
+            label="Log a corrected copy"
+            align="left"
+            onPress={() =>
+              router.push({
+                pathname: '/log-meal/from-log',
+                params: { id: log.id, mode: 'correct' },
+              })
+            }
+          />
+        ) : null}
+      </View>
+
       {plan ? (
         <Text style={styles.note}>
           {plan.inDailyPlan
@@ -140,6 +224,16 @@ export default function LoggedMealScreen() {
         <Text style={styles.note}>Meals from before yesterday can’t be changed.</Text>
       ) : null}
 
+      <TimeSheet
+        visible={picker !== null}
+        now={picker ?? new Date()}
+        start={pickerStart(new Date(), picker ?? new Date())}
+        onCancel={() => setPicker(null)}
+        onDone={(date, time) => {
+          setPicker(null);
+          void logAgain({ date, time });
+        }}
+      />
       <DeleteSheet
         log={log}
         plan={plan}
@@ -174,9 +268,7 @@ function DeleteSheet(props: {
   dayKcal: number;
   today: string;
 }) {
-  const session = useSession();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const undo = usePendingDelete();
   const t = sumMacros(props.log.items);
   const s = deleteSummary({
     name: props.log.name,
@@ -191,20 +283,11 @@ function DeleteSheet(props: {
       ? planBackNote(slotOfPlanMeal(props.plan), props.plan.usualTime)
       : null;
 
-  const remove = async () => {
-    if (!session.backend) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await session.backend.deleteMealLog(props.log.id);
-      props.onClose();
-      session.notifyDataChanged();
-      backToToday();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Couldn’t delete that meal.');
-    } finally {
-      setBusy(false);
-    }
+  // H: hidden now, deleted when Today's "Meal deleted · Undo" note goes (delete_logged_meal).
+  const remove = () => {
+    undo.schedule(props.log);
+    props.onClose();
+    backToToday();
   };
 
   return (
@@ -234,12 +317,7 @@ function DeleteSheet(props: {
           </Text>
         </View>
       ) : null}
-      {error ? <FormMessage>{error}</FormMessage> : null}
-      <PrimaryButton
-        label={busy ? 'Deleting…' : 'Delete meal'}
-        busy={busy}
-        onPress={() => void remove()}
-      />
+      <PrimaryButton label="Delete meal" onPress={remove} />
       <SecondaryButton label="Cancel" onPress={props.onClose} />
     </BottomSheet>
   );
@@ -286,4 +364,7 @@ const styles = StyleSheet.create({
   sumLabel: { ...type.callout, color: colors.text },
   sumValue: { ...type.callout, color: colors.text, textAlign: 'right', flexShrink: 1 },
   bold: { fontWeight: '700' },
+  again: { marginTop: space.sm, marginBottom: space.md, gap: space.sm },
+  againRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  againButton: { flex: 1 },
 });

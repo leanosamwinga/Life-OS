@@ -14,12 +14,19 @@ import {
 import {
   clampPick,
   isPickable,
+  LOOP_COPIES,
+  loopHome,
+  loopNearest,
+  loopNeedsRecentre,
+  loopRows,
+  loopValue,
   pickedLine,
   pickerDays,
   pickerHint,
   pickerLatest,
   pickerLimitNote,
   formatDateUK,
+  wheelStep,
   wheelTime,
   wheelValues,
   type LocalDate,
@@ -57,12 +64,18 @@ const VISIBLE = 5;
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
 /**
- * One scroll wheel (hours or minutes). Scrolls and snaps like the iOS wheel; a tap on a row picks
- * it (handy with a mouse on the web); VoiceOver treats it as one adjustable control (swipe up or
- * down). Values past the limit are greyed out and struck through, and can't be chosen.
+ * One scroll wheel (hours or minutes). Scrolls and snaps like the iOS wheel and loops like the iOS
+ * alarm picker (59 → 00 → 01 and back): the numbers are drawn `LOOP_COPIES` times and, once the
+ * wheel settles, it jumps without animation to the same number in the middle copy, so there is
+ * always room to keep going. Looping only wraps this wheel's number; it never carries into the other
+ * wheel or changes the day. A tap on a row picks it (handy with a mouse on the web); VoiceOver
+ * treats it as one adjustable control whose swipes stop at 00 and at the last number (or the
+ * latest) rather than wrapping. Values past the limit are greyed out and struck through, and can't
+ * be chosen however they're reached.
  */
 export function Wheel(props: {
   label: string;
+  /** The numbers 0 … max, in order. */
   values: readonly number[];
   value: number;
   onChange: (v: number) => void;
@@ -71,26 +84,64 @@ export function Wheel(props: {
 }) {
   const ref = useRef<ScrollViewInstance>(null);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const index = Math.max(0, props.values.indexOf(props.value));
+  const recentre = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const count = props.values.length;
+  const max = count - 1;
+  // The row the wheel rests on (in the long, repeated list).
+  const row = useRef(loopHome(props.value, count));
+  const [shownRow, setShownRow] = useState(row.current);
 
+  const scrollToRow = (r: number, animated: boolean) => {
+    row.current = r;
+    setShownRow(r);
+    ref.current?.scrollTo?.({ y: r * ROW, animated });
+  };
+  const scheduleRecentre = () => {
+    if (recentre.current) clearTimeout(recentre.current);
+    recentre.current = setTimeout(() => {
+      if (loopNeedsRecentre(row.current, count)) {
+        scrollToRow(loopHome(loopValue(row.current, count), count), false);
+      }
+    }, 320);
+  };
+
+  // A new value from outside (opening the sheet, a change of day, a time held to the limit): move to
+  // it the short way round, then rest in the middle copy.
   useEffect(() => {
-    ref.current?.scrollTo?.({ y: index * ROW, animated: false });
-  }, [index]);
+    if (loopValue(row.current, count) === props.value) return;
+    const target = loopNearest(props.value, row.current, count);
+    scrollToRow(target, Math.abs(target - row.current) <= count);
+    scheduleRecentre();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.value, count]);
   useEffect(
     () => () => {
       if (settle.current) clearTimeout(settle.current);
+      if (recentre.current) clearTimeout(recentre.current);
     },
     [],
   );
+  // Start on the resting row. The web ignores `contentOffset`, so scroll once the rows are laid out.
+  const placed = useRef(false);
+  const place = () => {
+    if (placed.current) return;
+    placed.current = true;
+    ref.current?.scrollTo?.({ y: row.current * ROW, animated: false });
+  };
 
-  const choose = (i: number) => {
-    const clampedIndex = Math.min(props.values.length - 1, Math.max(0, i));
-    const v = props.values[clampedIndex]!;
+  const choose = (r: number) => {
+    const clampedRow = Math.min(loopRows(count) - 1, Math.max(0, r));
+    const v = loopValue(clampedRow, count);
+    row.current = clampedRow;
+    setShownRow(clampedRow);
+    if (props.isDisabled(v)) {
+      // Held to the limit by the parent; the effect above moves to the allowed number.
+      props.onChange(v);
+      return;
+    }
+    ref.current?.scrollTo?.({ y: clampedRow * ROW, animated: true });
     props.onChange(v);
-    // A disabled value is held to the limit by the parent: snap back to the last allowed row.
-    let shown = clampedIndex;
-    while (shown > 0 && props.isDisabled(props.values[shown]!)) shown--;
-    ref.current?.scrollTo?.({ y: shown * ROW, animated: true });
+    scheduleRecentre();
   };
   const fromOffset = (e: NativeSyntheticEvent<NativeScrollEvent>) =>
     Math.round(e.nativeEvent.contentOffset.y / ROW);
@@ -104,8 +155,7 @@ export function Wheel(props: {
       accessibilityValue={{ text: pad2(props.value) }}
       accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
       onAccessibilityAction={(e) => {
-        const step = e.nativeEvent.actionName === 'increment' ? 1 : -1;
-        const next = props.values[index + step];
+        const next = wheelStep(props.value, e.nativeEvent.actionName === 'increment' ? 1 : -1, max);
         if (next != null && !props.isDisabled(next)) props.onChange(next);
       }}
       testID={props.testID}
@@ -115,7 +165,8 @@ export function Wheel(props: {
         showsVerticalScrollIndicator={false}
         snapToInterval={ROW}
         decelerationRate="fast"
-        contentOffset={{ x: 0, y: index * ROW }}
+        contentOffset={{ x: 0, y: row.current * ROW }}
+        onContentSizeChange={place}
         contentContainerStyle={{ paddingVertical: ROW * Math.floor(VISIBLE / 2) }}
         onMomentumScrollEnd={(e) => choose(fromOffset(e))}
         onScrollEndDrag={(e) => {
@@ -134,21 +185,24 @@ export function Wheel(props: {
           const i = fromOffset(e);
           if (settle.current) clearTimeout(settle.current);
           settle.current = setTimeout(() => {
-            if (i !== index) choose(i);
+            if (i !== row.current) choose(i);
           }, 140);
         }}
         scrollEventThrottle={16}
       >
-        {props.values.map((v, i) => {
+        {Array.from({ length: loopRows(count) }, (_, r) => {
+          const v = loopValue(r, count);
+          const copy = Math.floor(r / count);
+          const home = copy === Math.floor(LOOP_COPIES / 2);
           const off = props.isDisabled(v);
-          const on = i === index;
+          const on = r === shownRow;
           return (
             <Pressable
-              key={v}
-              onPress={() => choose(i)}
+              key={r}
+              onPress={() => choose(r)}
               style={styles.row}
               importantForAccessibility="no"
-              testID={`${props.testID}-${pad2(v)}`}
+              testID={home ? `${props.testID}-${pad2(v)}` : `${props.testID}-${pad2(v)}-c${copy}`}
             >
               <Text style={[styles.value, on && styles.valueOn, off && styles.valueOff]}>
                 {pad2(v)}
@@ -165,7 +219,7 @@ const HOURS = wheelValues(23);
 const MINUTES = wheelValues(59);
 
 /**
- * 7i Pick a time: "Time eaten", Today / Yesterday and 24-hour wheels. From yesterday 00:00 up to
+ * 7i Pick a time: "Time eaten", Yesterday / Today (in time order) and 24-hour looping wheels. From yesterday 00:00 up to
  * an hour from now; later times are greyed out, and a choice past the limit is held to it with a
  * note saying why.
  */

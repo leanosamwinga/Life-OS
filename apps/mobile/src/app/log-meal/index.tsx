@@ -5,6 +5,7 @@ import {
   formatDateUK,
   formatKcal,
   formatTimeUK,
+  componentsFromLog,
   pickerStart,
   sumMacros,
   toFood,
@@ -132,13 +133,10 @@ export default function LogMealIndex() {
           return f ? [[f.id, f] as [string, Food]] : [];
         }),
       );
-      const components = log.items.flatMap((i) => {
-        const food = i.foodId ? foods.get(i.foodId) : undefined;
-        return food ? [{ food, grams: i.grams, unit: i.unit ?? 'g' }] : [];
-      });
-      if (components.length < log.items.length) {
-        // Some foods are gone or incomplete: let the user review the meal first.
-        lm.startDraft({ name: log.name, components });
+      const { components, unavailable } = componentsFromLog(log.items, foods);
+      if (unavailable.length) {
+        // Some foods are gone: show them so the user can remove them, then log.
+        lm.startDraft({ name: log.name, components, unavailable });
         router.push('/log-meal/build');
         return;
       }
