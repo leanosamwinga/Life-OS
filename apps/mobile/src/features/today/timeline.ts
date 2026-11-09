@@ -1,5 +1,6 @@
 import {
-  formatGrams,
+  componentUnit,
+  formatAmount,
   formatKcal,
   formatTimeUK,
   sumMacros,
@@ -58,7 +59,7 @@ export function buildTimeline(input: {
       const total = sumMacros(m.components);
       const parts = m.components
         .slice(0, 2)
-        .map((c) => `${formatGrams(c.grams)} ${c.food.name.toLowerCase()}`)
+        .map((c) => `${formatAmount(c.grams, componentUnit(c))} ${c.food.name.toLowerCase()}`)
         .join(', ');
       return {
         id: `plan-${m.id}`,

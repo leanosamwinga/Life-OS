@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo, useRef, useState, type ReactNode } 
 import {
   addDays,
   dayProgress,
+  foodUnit,
   formatDateUK,
   guessCooksAs,
   latestTimeOn,
@@ -9,6 +10,7 @@ import {
   sumMacros,
   toLondonDate,
   toLondonTime,
+  type AmountUnit,
   type BatchIngredient,
   type CooksAs,
   type DayProgress,
@@ -69,6 +71,8 @@ export interface PendingFood {
   from?: 'scan' | 'search' | 'suggestion' | 'component' | 'manual' | 'batch';
   /** Batch ingredients: the ratio chosen so far (7f). */
   cooksAs?: CooksAs;
+  /** The amount's unit when changing an existing component (else the food's own). */
+  unit?: AmountUnit;
 }
 
 /** What the manual entry screen (7e) starts from. */
@@ -118,8 +122,8 @@ export interface LogMealValue {
   /** 7g: last time's ingredients pre-filled; the weighed field starts empty (a new pot). */
   startCookAgain(batch: SavedBatch): void;
   updateDraft(patch: Partial<Omit<MealDraft, 'components'>>): void;
-  addComponent(food: Food, grams: number, cooksAs?: CooksAs): void;
-  updateComponent(key: string, grams: number, cooksAs?: CooksAs): void;
+  addComponent(food: Food, grams: number, cooksAs?: CooksAs, unit?: AmountUnit): void;
+  updateComponent(key: string, grams: number, cooksAs?: CooksAs, unit?: AmountUnit): void;
   removeComponent(key: string): void;
 
   pending: PendingFood | null;
@@ -128,6 +132,8 @@ export interface LogMealValue {
   setManual(m: ManualPrefill | null): void;
   /** The amount the user had last time for a food, if any. */
   lastGrams(foodId: string): number | null;
+  /** The amount last time and the unit it was logged in ("Last time · 330 ml"). */
+  lastPortion(foodId: string): { grams: number; unit: AmountUnit } | null;
 }
 
 const EMPTY_DATA: LogMealData = { logs: [], roster: [], batches: [], recentFoods: [] };
@@ -260,21 +266,23 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
         })),
       }),
     updateDraft: (patch) => setDraft((d) => ({ ...d, ...patch })),
-    addComponent: (food, grams, cooksAs) =>
+    addComponent: (food, grams, cooksAs, unit) =>
       setDraft((d) => ({
         ...d,
         components: [
           ...d.components,
           d.kind === 'batch'
             ? { key: key(), food, grams, cooksAs: cooksAs ?? guessCooksAs(food.name) }
-            : { key: key(), food, grams },
+            : { key: key(), food, grams, unit: unit ?? foodUnit(food) },
         ],
       })),
-    updateComponent: (k, grams, cooksAs) =>
+    updateComponent: (k, grams, cooksAs, unit) =>
       setDraft((d) => ({
         ...d,
         components: d.components.map((c) =>
-          c.key === k ? { ...c, grams, ...(cooksAs ? { cooksAs } : {}) } : c,
+          c.key === k
+            ? { ...c, grams, ...(cooksAs ? { cooksAs } : {}), ...(unit ? { unit } : {}) }
+            : c,
         ),
       })),
     removeComponent: (k) =>
@@ -284,6 +292,10 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
     manual,
     setManual,
     lastGrams: (foodId) => data.recentFoods.find((r) => r.food.id === foodId)?.grams ?? null,
+    lastPortion: (foodId) => {
+      const r = data.recentFoods.find((x) => x.food.id === foodId);
+      return r ? { grams: r.grams, unit: r.unit } : null;
+    },
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

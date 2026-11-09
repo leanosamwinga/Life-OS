@@ -9,12 +9,14 @@ import {
   portionMacros,
   roundGrams,
   toFood,
+  type AmountUnit,
   type NutritionIssue,
 } from '@life-os/core';
 import { FormMessage, FormScreen, PrimaryButton, TextField, formStyles } from '@/components/forms';
 import { ToggleRow } from '@/components/ui';
 import { builderPath, useLogMeal } from '@/features/log-meal/LogMealContext';
 import { MacroTiles, SheetHeader } from '@/features/log-meal/parts';
+import { UnitToggle } from '@/features/logged-meal/parts';
 import { defaultMealName } from '@/features/log-meal/slots';
 import { parseAmount } from '@/features/targets/parse';
 import { useSession } from '@/lib/session';
@@ -28,12 +30,13 @@ const FIELDS: { key: Key; label: string; max: number }[] = [
   { key: 'fat', label: 'Fat (g)', max: 1000 },
 ];
 
-const ISSUE: Record<NutritionIssue, string> = {
-  missing: 'Needed — copy it from the label',
-  negative: 'Can’t be negative',
-  too_high: 'Too high for 100 g — check the label',
-  macros_over_100g: 'Protein, carbs and fat add up to more than 100 g per 100 g',
-};
+const issueText = (issue: NutritionIssue, basis: AmountUnit): string =>
+  ({
+    missing: 'Needed — copy it from the label',
+    negative: 'Can’t be negative',
+    too_high: `Too high for 100 ${basis} — check the label`,
+    macros_over_100g: `Protein, carbs and fat add up to more than 100 g per 100 ${basis}`,
+  })[issue];
 
 const str = (n: number | null | undefined) => (n == null ? '' : String(n));
 
@@ -54,6 +57,8 @@ export default function ManualEntryScreen() {
     carbs: str(rec?.carbsPer100g),
     fat: str(rec?.fatPer100g),
   });
+  // 7e-U: the label's values are per 100 g or per 100 ml; the amount below follows it.
+  const [basis, setBasis] = useState<AmountUnit>(rec?.nutritionUnit ?? 'g');
   const [perServing, setPerServing] = useState(false);
   const [serving, setServing] = useState(str(rec?.servingGrams));
   const [gramsInput, setGramsInput] = useState('');
@@ -98,13 +103,14 @@ export default function ManualEntryScreen() {
         brand: rec?.brand ?? null,
         barcode: prefill.barcode ?? rec?.barcode ?? null,
         per100g: per100 as Record<Key, number>,
+        unit: basis,
         packGrams: rec?.packGrams ?? null,
         servingGrams: perServing ? servingGrams : (rec?.servingGrams ?? null),
         remembered: remember,
       });
       const food = toFood(saved);
       if (!food) throw new Error('That food is missing values.');
-      lm.addComponent(food, grams);
+      lm.addComponent(food, grams, undefined, basis);
       lm.setManual(null);
       session.notifyDataChanged();
       router.dismissTo(builderPath(lm.draft));
@@ -119,7 +125,9 @@ export default function ManualEntryScreen() {
     if (!issue) return null;
     // Only nag about empty fields after the first attempt; wrong values show straight away.
     if (issue === 'missing' && !showErrors) return null;
-    return perServing && issue === 'too_high' ? 'Too high for this serving size' : ISSUE[issue];
+    return perServing && issue === 'too_high'
+      ? 'Too high for this serving size'
+      : issueText(issue, basis);
   };
 
   const mealName = lm.draft.name.trim() || defaultMealName(lm.slot);
@@ -177,12 +185,24 @@ export default function ManualEntryScreen() {
       />
 
       <View style={styles.fieldset}>
-        <Text style={styles.legend}>
-          {perServing ? 'Per serving, from the pack' : 'Per 100 g, from the pack'}
+        <Text style={styles.legend}>Nutrition from the pack</Text>
+        <Text style={styles.gives}>
+          {perServing ? 'The label gives values per serving, sized in' : 'The label gives values'}
         </Text>
+        <View style={styles.basis}>
+          <UnitToggle
+            what="the label"
+            value={basis}
+            onChange={setBasis}
+            size="large"
+            labels={perServing ? { g: 'g', ml: 'ml' } : { g: 'per 100 g', ml: 'per 100 ml' }}
+            a11y={(u) => (perServing ? `Serving in ${u}` : `Label values per 100 ${u}`)}
+            testID="label-basis"
+          />
+        </View>
         {perServing ? (
           <TextField
-            label="Serving size (g)"
+            label={`Serving size (${basis})`}
             value={serving}
             onChangeText={setServing}
             keyboardType="decimal-pad"
@@ -202,29 +222,30 @@ export default function ManualEntryScreen() {
             </View>
           ))}
         </View>
-        {issues.total ? <FormMessage>{ISSUE.macros_over_100g}</FormMessage> : null}
+        {issues.total ? <FormMessage>{issueText('macros_over_100g', basis)}</FormMessage> : null}
         <Pressable
           onPress={() => setPerServing((v) => !v)}
           accessibilityRole="button"
           accessibilityLabel={
-            perServing ? 'Label is per 100 g instead?' : 'Label is per serving instead?'
+            perServing ? `Label is per 100 ${basis} instead?` : 'Label is per serving instead?'
           }
           style={styles.switchLink}
         >
           <Text style={styles.switchLinkText}>
-            {perServing ? 'Label is per 100 g instead?' : 'Label is per serving instead?'}
+            {perServing ? `Label is per 100 ${basis} instead?` : 'Label is per serving instead?'}
           </Text>
         </Pressable>
       </View>
 
       <Text style={styles.question}>How much did you have?</Text>
       <TextField
-        label="Grams"
+        label={basis === 'ml' ? 'Millilitres' : 'Grams'}
+        hideLabel
         value={gramsInput}
         onChangeText={setGramsInput}
         keyboardType="decimal-pad"
         big
-        suffix="g"
+        suffix={basis}
         placeholder="0"
         error={gramsParsed.ok ? null : gramsParsed.error}
       />
@@ -233,7 +254,7 @@ export default function ManualEntryScreen() {
       <View style={styles.remember}>
         <ToggleRow
           label="Remember this food"
-          subtitle="Shows up in suggestions next time"
+          subtitle={`Saved as per 100 ${basis}`}
           value={remember}
           onValueChange={setRemember}
           last
@@ -262,6 +283,8 @@ const styles = StyleSheet.create({
     marginBottom: space.xl,
   },
   legend: { ...type.headline, color: colors.text, marginBottom: space.md },
+  gives: { ...type.callout, color: colors.textSecondary, marginBottom: space.sm },
+  basis: { marginBottom: space.lg },
   grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: space.md },
   cell: { flexBasis: '45%', flexGrow: 1 },
   switchLink: { minHeight: MIN_TOUCH, justifyContent: 'center' },

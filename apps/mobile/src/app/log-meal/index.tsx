@@ -134,7 +134,7 @@ export default function LogMealIndex() {
       );
       const components = log.items.flatMap((i) => {
         const food = i.foodId ? foods.get(i.foodId) : undefined;
-        return food ? [{ food, grams: i.grams }] : [];
+        return food ? [{ food, grams: i.grams, unit: i.unit ?? 'g' }] : [];
       });
       if (components.length < log.items.length) {
         // Some foods are gone or incomplete: let the user review the meal first.

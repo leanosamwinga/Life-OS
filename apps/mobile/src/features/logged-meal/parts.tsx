@@ -23,6 +23,9 @@ export function UnitToggle(props: {
   size?: 'small' | 'large';
   disabled?: boolean;
   testID?: string;
+  /** Visible labels (7e-U: "per 100 g" / "per 100 ml"); VoiceOver reads `a11y` with them. */
+  labels?: Record<AmountUnit, string>;
+  a11y?: (u: AmountUnit) => string;
 }) {
   const large = props.size === 'large';
   return (
@@ -40,11 +43,13 @@ export function UnitToggle(props: {
             onPress={() => props.onChange(u)}
             disabled={props.disabled}
             accessibilityRole="radio"
-            accessibilityLabel={`${props.what} in ${UNIT_WORD[u]}`}
+            accessibilityLabel={props.a11y ? props.a11y(u) : `${props.what} in ${UNIT_WORD[u]}`}
             accessibilityState={{ checked: on, ...(props.disabled ? { disabled: true } : {}) }}
             style={[styles.option, large && styles.optionLarge, on && styles.optionOn]}
           >
-            <Text style={[styles.optionText, on && styles.optionTextOn]}>{u}</Text>
+            <Text style={[styles.optionText, on && styles.optionTextOn]}>
+              {props.labels?.[u] ?? u}
+            </Text>
           </Pressable>
         );
       })}

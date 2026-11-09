@@ -2,12 +2,16 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
+  formatAmount,
   formatDateUK,
   formatGrams,
   formatKcal,
   isLiquidBatch,
+  portionFormula,
   portionMacros,
   roundGrams,
+  unitHint,
+  type AmountUnit,
 } from '@life-os/core';
 import {
   FormMessage,
@@ -19,6 +23,7 @@ import {
   formStyles,
 } from '@/components/forms';
 import { useLogMeal } from '@/features/log-meal/LogMealContext';
+import { UnitToggle } from '@/features/logged-meal/parts';
 import { amountChips } from '@/features/log-meal/amounts';
 import { closeLogMeal } from '@/features/log-meal/navigation';
 import { Chip, FoodName, MacroTiles, SheetHeader, TodayBar } from '@/features/log-meal/parts';
@@ -38,6 +43,8 @@ export default function BatchLogScreen() {
   const lm = useLogMeal();
   const pending = lm.pending;
   const [input, setInput] = useState(() => (pending?.grams != null ? String(pending.grams) : ''));
+  // 7h-U: opens in g (a batch is per 100 g); ml counts 1 ml as 1 g.
+  const [unit, setUnit] = useState<AmountUnit>('g');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,11 +64,11 @@ export default function BatchLogScreen() {
   const parsed = parseAmount(input, { max: 5000, decimals: 1 });
   const grams = parsed.ok && parsed.value && parsed.value > 0 ? roundGrams(parsed.value) : null;
   const macros = portionMacros(food, grams ?? 0);
-  const last = lm.lastGrams(food.id);
-  const chips =
-    last != null
-      ? [{ label: `Last time · ${formatGrams(last)}`, grams: last }]
-      : amountChips(food, null);
+  const last = lm.lastPortion(food.id);
+  const chips = last
+    ? [{ label: `Last time · ${formatAmount(last.grams, last.unit)}`, ...last }]
+    : amountChips(food, null);
+  const hint = unitHint(unit, 'g');
   const p = food.per100g;
   const liquid = isLiquidBatch(food.name);
 
@@ -74,7 +81,7 @@ export default function BatchLogScreen() {
         name: food.name,
         savedMealId: null,
         loggedAt: loggedAtFor(lm.slot, lm.today, new Date()),
-        components: [{ food, grams }],
+        components: [{ food, grams, unit }],
       });
       lm.setPending(null);
       session.notifyDataChanged();
@@ -87,7 +94,7 @@ export default function BatchLogScreen() {
 
   const addToMeal = () => {
     if (!grams) return;
-    lm.startDraft({ components: [{ food, grams }] });
+    lm.startDraft({ components: [{ food, grams, unit }] });
     lm.setPending(null);
     router.replace('/log-meal/build');
   };
@@ -136,33 +143,44 @@ export default function BatchLogScreen() {
       </View>
 
       <Text style={styles.question}>How much did you have?</Text>
-      <TextField
-        label="Grams or millilitres"
-        hideLabel
-        value={input}
-        onChangeText={setInput}
-        keyboardType="decimal-pad"
-        big
-        suffix="g (or ml)"
-        placeholder="0"
-        error={parsed.ok ? null : parsed.error}
-        autoFocus={pending.grams == null}
-      />
+      <View style={styles.amountRow}>
+        <View style={styles.amountField}>
+          <TextField
+            label={unit === 'ml' ? 'Millilitres' : 'Grams'}
+            hideLabel
+            value={input}
+            onChangeText={setInput}
+            keyboardType="decimal-pad"
+            big
+            suffix={unit}
+            placeholder="0"
+            error={parsed.ok ? null : parsed.error}
+            autoFocus={pending.grams == null}
+          />
+        </View>
+        <View style={styles.unitToggle}>
+          <UnitToggle what={food.name} value={unit} onChange={setUnit} size="large" />
+        </View>
+      </View>
+      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <View style={styles.chips}>
         {chips.map((c) => (
           <Chip
             key={c.label}
             label={c.label}
-            selected={grams === c.grams}
-            onPress={() => setInput(String(c.grams))}
+            selected={grams === c.grams && unit === c.unit}
+            onPress={() => {
+              setInput(String(c.grams));
+              setUnit(c.unit);
+            }}
           />
         ))}
       </View>
 
       <MacroTiles macros={macros} />
       <Text style={styles.formula}>
-        {grams ? formatGrams(grams) : '— g'} × per-100 g values ÷ 100 ·{' '}
-        {liquid ? '1 ml counts as 1 g' : 'weigh what’s on your plate'}
+        {portionFormula(grams, unit, 'g')}
+        {unit === 'g' && !liquid ? ' · weigh what’s on your plate' : ''}
       </Text>
 
       <View style={styles.after}>
@@ -183,6 +201,15 @@ const styles = StyleSheet.create({
   foodName: { ...type.title, color: colors.text },
   sub: { ...type.footnote, color: colors.textSecondary },
   question: { ...type.headline, color: colors.text, marginBottom: space.sm },
+  amountRow: { flexDirection: 'row', gap: space.md, alignItems: 'flex-start' },
+  amountField: { flex: 1 },
+  unitToggle: { width: 112, marginTop: 4 },
+  hint: {
+    ...type.footnote,
+    color: colors.textSecondary,
+    marginTop: -space.sm,
+    marginBottom: space.md,
+  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginBottom: space.lg },
   formula: {
     ...type.footnote,

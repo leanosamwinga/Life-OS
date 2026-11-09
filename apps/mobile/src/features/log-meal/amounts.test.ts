@@ -21,4 +21,15 @@ describe('how-much amount chips', () => {
       '150 g',
     ]);
   });
+
+  it('uses each amount’s own unit: last time as logged, a drink’s bottle in ml (7d-U, 7h-U)', () => {
+    expect(
+      amountChips({ packGrams: 330, unit: 'ml' }, { grams: 330, unit: 'ml' }).map((c) => c.label),
+    ).toEqual(['Last time · 330 ml', 'Half bottle · 165 ml']);
+    expect(amountChips({ unit: 'g' }, { grams: 300, unit: 'g' })[0]).toEqual({
+      label: 'Last time · 300 g',
+      grams: 300,
+      unit: 'g',
+    });
+  });
 });
