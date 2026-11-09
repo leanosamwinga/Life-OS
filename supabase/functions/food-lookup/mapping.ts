@@ -20,6 +20,10 @@ export interface OffProductResponse {
     serving_quantity?: number | string;
     serving_quantity_unit?: string;
     nutriments?: Record<string, unknown>;
+    /** What the label's values are for: "100g", "serving" (and "100ml" on some products). */
+    nutrition_data_per?: string;
+    /** API v3.5: the input sets say per 100 g, per 100 ml or per serving. */
+    nutrition?: { input_sets?: { per?: string; source?: string }[] };
   };
 }
 
@@ -80,11 +84,20 @@ const unitText = (unit: unknown): string | null =>
   typeof unit === 'string' && unit.trim() !== '' ? unit.trim().toLowerCase() : null;
 
 /**
- * Whether a product's nutrition is per 100 g or per 100 ml. Open Food Facts gives drinks'
- * values per 100 ml and says so through the pack's unit ("330 ml" → product_quantity_unit ml).
- * Anything else, or nothing, is g.
+ * Whether a product's nutrition is per 100 g or per 100 ml. Open Food Facts' `_100g` values are
+ * "per 100 g or 100 ml": its own basis wins when it states one (API v3.5 input sets say "100ml",
+ * and some products carry nutrition_data_per "100ml"); otherwise drinks show it through the
+ * pack's unit ("330 ml" → product_quantity_unit ml). Anything else, or nothing, is g.
  */
 export function nutritionUnitOf(p: NonNullable<OffProductResponse['product']>): AmountUnit {
+  const sets = Array.isArray(p.nutrition?.input_sets) ? p.nutrition.input_sets : [];
+  const pers = sets
+    .filter((s) => s && (s.source === undefined || s.source === 'packaging'))
+    .map((s) => unitText(s.per))
+    .filter((x): x is string => x === '100ml' || x === '100g');
+  if (pers.length) return pers[0] === '100ml' ? 'ml' : 'g';
+  const per = unitText(p.nutrition_data_per)?.replace(/\s/g, '');
+  if (per === '100ml') return 'ml';
   const u = unitText(p.product_quantity_unit);
   if (u) return u === 'ml' ? 'ml' : 'g';
   return typeof p.quantity === 'string' && /\d\s*ml\b/i.test(p.quantity) ? 'ml' : 'g';

@@ -130,6 +130,32 @@ describe('pack and serving sizes', () => {
     expect(r({ product_quantity: 120 })?.nutritionUnit).toBe('g');
   });
 
+  it('Open Food Facts’ own basis wins when it states one; missing stays null', () => {
+    const r = (p: Record<string, unknown>) => mapOffProduct('0000000000000', withQty(p));
+    // API v3.5: the packaging input set is per 100 ml, even with no pack size.
+    expect(r({ nutrition: { input_sets: [{ source: 'packaging', per: '100ml' }] } })).toMatchObject(
+      { nutritionUnit: 'ml', packGrams: null, servingGrams: null },
+    );
+    // A stated per 100 g beats a pack sold in ml (a thick yoghurt drink weighed per 100 g).
+    expect(
+      r({
+        product_quantity: 500,
+        product_quantity_unit: 'ml',
+        nutrition: { input_sets: [{ source: 'packaging', per: '100g' }] },
+      }),
+    ).toMatchObject({ nutritionUnit: 'g', packGrams: null });
+    expect(r({ nutrition_data_per: '100ml' })?.nutritionUnit).toBe('ml');
+    // "100g" is Open Food Facts' generic word, so the pack's unit still decides.
+    expect(
+      r({ nutrition_data_per: '100g', product_quantity: 330, product_quantity_unit: 'ml' }),
+    ).toMatchObject({ nutritionUnit: 'ml', packGrams: 330 });
+    // Estimated sets from other sources don't decide; nonsense is ignored.
+    expect(
+      r({ nutrition: { input_sets: [{ source: 'estimate', per: '100ml' }, { per: 'cup' }] } })
+        ?.nutritionUnit,
+    ).toBe('g');
+  });
+
   it('round-trips the unit through the row', () => {
     const rec = mapOffProduct('0000000000024', fixture('off-product-partial'))!;
     const row = toFoodRow(rec, new Date(0));
