@@ -582,3 +582,88 @@ describe('H. Undo after deleting a meal', () => {
     expect(timelineTitles()).toContain('Test oats bowl');
   });
 });
+
+describe('G. Water on Health', () => {
+  async function openHealth(init = state()) {
+    await start(init, '/health');
+    await screen.findByLabelText('Water: 750 ml of 3 L');
+  }
+  const todaysWater = () =>
+    mockBackend.state.water.filter((w) => w.loggedAt.startsWith('2026-11-09')).map((w) => w.ml);
+
+  it('keeps + 250 ml beside “Other amount…”', async () => {
+    await openHealth();
+    await press('Add 250 ml of water');
+    await screen.findByLabelText('Water: 1 L of 3 L');
+    expect(screen.getByRole('button', { name: 'Other amount of water' })).toBeTruthy();
+  });
+
+  it('a quick amount adds it now; the total updates', async () => {
+    await openHealth();
+    await press('Other amount of water');
+    const sheet = within(await screen.findByTestId('sheet-water-amount'));
+    expect(sheet.getByRole('header', { name: 'Add water' })).toBeTruthy();
+    expect(
+      within(screen.getByTestId('water-quick'))
+        .getAllByRole('button')
+        .map((b) => b.props.accessibilityLabel),
+    ).toEqual(['150 ml', '330 ml', '500 ml']);
+    await fireEvent.press(sheet.getByRole('button', { name: '330 ml' }));
+    await fireEvent.press(sheet.getByRole('button', { name: 'Add 330 ml' }));
+    await screen.findByLabelText('Water: 1.08 L of 3 L');
+    expect(screen.queryByTestId('sheet-water-amount')).toBeNull();
+    expect(todaysWater()).toEqual([250, 500, 330]);
+  });
+
+  it('any whole number from 1 to 5,000 ml; anything else is refused with a message', async () => {
+    await openHealth();
+    await press('Other amount of water');
+    await screen.findByTestId('sheet-water-amount');
+    const field = screen.getByLabelText('Amount of water in ml');
+    for (const [typed, message] of [
+      ['0', 'Enter at least 1 ml.'],
+      ['5001', 'That’s more than 5,000 ml. Log up to 5,000 ml at a time.'],
+      ['250.5', 'Use a whole number of ml, with no decimals.'],
+      ['lots', 'Enter a whole number of ml, like 330.'],
+    ] as const) {
+      await fireEvent.changeText(field, typed);
+      await fireEvent.press(
+        within(screen.getByTestId('sheet-water-amount')).getByRole('button', { name: /^Add/ }),
+      );
+      expect(screen.getByText(message)).toBeTruthy();
+    }
+    expect(mockBackend.state.calls).not.toContain('addWater');
+    await fireEvent.changeText(field, '5000');
+    await press('Add 5 L');
+    await screen.findByLabelText('Water: 5.75 L of 3 L');
+  });
+
+  it('tapping the total lists today’s water newest first; delete asks first and updates the total', async () => {
+    await openHealth();
+    await press(/^Water: 750 ml of 3 L/);
+    const sheet = within(await screen.findByTestId('sheet-water-today'));
+    expect(sheet.getByText('750 ml today')).toBeTruthy();
+    expect(
+      within(screen.getByTestId('water-list'))
+        .getAllByRole('button')
+        .map((b) => b.props.accessibilityLabel),
+    ).toEqual(['Delete 500 ml at 12:00', 'Delete 250 ml at 08:00']);
+    await fireEvent.press(sheet.getByRole('button', { name: 'Delete 500 ml at 12:00' }));
+    expect(screen.getByText('Delete 500 ml at 12:00?')).toBeTruthy();
+    expect(screen.getByText('It comes off today’s water: 750 ml → 250 ml.')).toBeTruthy();
+    await press('Keep it');
+    expect(mockBackend.state.calls).not.toContain('deleteWater');
+    await fireEvent.press(sheet.getByRole('button', { name: 'Delete 500 ml at 12:00' }));
+    await press('Delete');
+    await screen.findByLabelText('Water: 250 ml of 3 L');
+    expect(todaysWater()).toEqual([250]);
+    expect(mockBackend.state.water.some((w) => w.id === 'w-y')).toBe(true);
+  });
+
+  it('consent off: no water controls', async () => {
+    await start(consentOff(), '/health');
+    await screen.findByTestId('health-consent-off');
+    expect(screen.queryByRole('button', { name: 'Other amount of water' })).toBeNull();
+    expect(screen.queryByTestId('water-total')).toBeNull();
+  });
+});
