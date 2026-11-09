@@ -52,6 +52,11 @@ export function formatGrams(grams: number): string {
   return `${trimNumber(grams, 1)} g`;
 }
 
+/** An amount in its unit: "60 g", "330 ml", "1,200 ml". Up to 1 decimal place. */
+export function formatAmount(amount: number, unit: 'g' | 'ml' = 'g'): string {
+  return `${trimNumber(amount, 1)} ${unit}`;
+}
+
 /** Body weight, e.g. "82.4 kg". */
 export function formatKg(kg: number): string {
   return `${trimNumber(kg, 1)} kg`;

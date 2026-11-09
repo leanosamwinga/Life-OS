@@ -104,6 +104,7 @@ describe('snapshotComponents', () => {
       foodId: 'f-chk',
       foodName: 'Chicken breast, raw',
       grams: 200,
+      unit: 'g',
       macros: { kcal: 212, protein: 48.0, carbs: 0, fat: 2.4 },
     });
   });
