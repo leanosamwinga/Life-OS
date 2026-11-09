@@ -327,6 +327,15 @@ Today shows **Meal deleted · Undo** for about five seconds before the meal is r
 Health, **Other amount…** adds any whole number of ml from 1 to 5,000, and tapping the water total
 lists today's water with a delete for each entry.
 
+### Build meal: the time at any point, the meal kept
+
+The time a meal was eaten belongs to the meal: on Build meal it's the chip at the top right, and
+tapping it offers Now, the four slots (later ones greyed) and **Other time…**, as many times as you
+like before **Done**, without touching the components. Going back to Log meal keeps the meal you
+were building: Log meal shows it as **Not logged yet** with **Continue**, and anything that would
+start another meal asks before discarding it. Logging it, **Save to roster only**, **Discard** or
+closing Log meal clears it; it is kept in memory only, never across app restarts.
+
 ### Run the app
 
 `expo start`; press `i` for the iOS simulator.
