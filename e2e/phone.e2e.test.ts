@@ -26,6 +26,7 @@ import {
   summariseBatch,
   toFood,
   toLondonDate,
+  toLondonTime,
   type DailyTargets,
   type BatchIngredient,
   type Food,
@@ -34,7 +35,15 @@ import {
 import { SignJWT, importJWK } from 'jose';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { keptDraft } from '../apps/mobile/src/features/log-meal/draft';
 import { sortSaved } from '../apps/mobile/src/features/log-meal/saved';
+import {
+  loggedAtFor,
+  pickerFrom,
+  timeChip,
+  whenChoices,
+  type MealSlot,
+} from '../apps/mobile/src/features/log-meal/slots';
 import { buildTimeline } from '../apps/mobile/src/features/today/timeline';
 import type { AuthUser } from '../apps/mobile/src/lib/backend/types';
 import { fakeProviders } from './stubs/providers';
@@ -1668,5 +1677,113 @@ describe.skipIf(!stack)('phone end to end on the real stack', () => {
     await a.b.setHealthConsent(true);
     expect((await a.b.listWaterLogs(wideRange())).map((x) => x.id)).toEqual([water.id]);
     expect((await a.b.listMealLogs(wideRange())).find((l) => l.id === mealId)).toEqual(before);
+  });
+
+  // ------------------------------- Build meal: the time at any point, keep the draft (W)
+
+  it('W1: a meal built at Now, kept on 7a, its time changed to yesterday 21:15 on 7b, logged → lands on yesterday with the same components', async () => {
+    const { b, oats, w, dayRange } = await timeUser('build-time');
+    const drink = toFood(
+      await b.saveUserFood({
+        name: 'E2E test oat drink',
+        per100g: { kcal: 46, protein: 1, carbs: 6.5, fat: 1.5 },
+        unit: 'ml',
+        remembered: true,
+      }),
+    )!;
+    const now = new Date();
+    // 7a: Now, then + Build a meal from scratch; two components.
+    const choices = whenChoices(
+      await b.listSavedMeals(),
+      { name: 'Now', time: '00:00' },
+      w.today,
+      now,
+    );
+    let slot: MealSlot = choices[0]!.slot;
+    expect(slot.name).toBe('Now');
+    const components: MealComponent[] = [
+      { food: oats, grams: 60, unit: 'g' },
+      { food: drink, grams: 250, unit: 'ml' },
+    ];
+    const draft = {
+      kind: 'meal' as const,
+      mode: 'log' as const,
+      name: 'E2E built meal',
+      components,
+      replaces: null,
+    };
+    // ‹ Log meal keeps it (7a-C), at the same time.
+    expect(keptDraft(draft, slot)).toMatchObject({ name: 'E2E built meal', count: 2 });
+    // 7b-T2 → 7b-W → Other time…: 7i opens on Today at now; Yesterday 21:15 → Done.
+    expect(pickerFrom(slot, now).date).toBe(w.today);
+    slot = { name: 'Custom', date: w.yesterday, time: '21:15' };
+    expect(timeChip(slot, w.today).label).toBe('Yesterday · 21:15 ▾');
+
+    const loggedAt = loggedAtFor(slot, w.today, new Date());
+    expect(loggedAt).toBe(londonDateTimeToInstant(w.yesterday, '21:15'));
+    const id = await b.logMeal({ name: draft.name, savedMealId: null, loggedAt, components });
+    const yesterday = await b.listMealLogs(dayRange(w.yesterday));
+    const logged = yesterday.find((l) => l.id === id)!;
+    expect(formatTimeUK(logged.loggedAt)).toBe('21:15');
+    expect(toLondonDate(logged.loggedAt)).toBe(w.yesterday);
+    expect(logged.items.map((i) => [i.foodName, i.grams, i.unit])).toEqual([
+      ['E2E test oats', 60, 'g'],
+      ['E2E test oat drink', 250, 'ml'],
+    ]);
+    expect(logged.items.map((i) => i.macros.kcal)).toEqual([
+      portionMacros(oats, 60).kcal,
+      portionMacros(drink, 250).kcal,
+    ]);
+    expect((await b.listMealLogs(dayRange(w.today))).map((l) => l.id)).not.toContain(id);
+  });
+
+  it('W2: a slot more than an hour ahead is refused by the server when forced through the Data API', async () => {
+    const { p, b, oats, w } = await timeUser('slot-ahead');
+    const now = new Date();
+    const ahead = new Date(now.getTime() + 90 * 60_000);
+    let forced = ahead.toISOString();
+    if (toLondonDate(ahead) === w.today) {
+      // A plan dinner 90 minutes from now: 7a and 7b-W grey it out.
+      await b.saveMeal({
+        id: null,
+        name: 'Dinner · E2E late',
+        inDailyPlan: true,
+        usualTime: toLondonTime(ahead),
+        components: [{ food: oats, grams: 60 }],
+      });
+      const choices = whenChoices(
+        await b.listSavedMeals(),
+        { name: 'Now', time: '00:00' },
+        w.today,
+        now,
+      );
+      const greyed = choices.find((c) => c.slot.name === 'Dinner')!;
+      expect(greyed.disabled).toBe(true);
+      forced = loggedAtFor(greyed.slot, w.today, now);
+    }
+    // Late in the evening every slot today has passed; the same time an hour and a half ahead
+    // stands in for it.
+    const raw = await rawData(s, p.tokens()!.accessToken, 'rpc/log_meal', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_name: 'E2E forced slot',
+        p_saved_meal_id: null,
+        p_logged_at: forced,
+        p_items: [{ food_id: oats.id, grams: 60, ...portionMacros(oats, 60) }],
+      }),
+    });
+    expect(raw.status).toBe(400);
+    expect(raw.body.code).toBe('22023');
+    await expect(
+      b.logMeal({
+        name: 'E2E forced slot',
+        savedMealId: null,
+        loggedAt: forced,
+        components: [{ food: oats, grams: 60 }],
+      }),
+    ).rejects.toThrow(/no more than an hour from now/);
+    expect((await b.listMealLogs(wideRange())).filter((l) => l.name === 'E2E forced slot')).toEqual(
+      [],
+    );
   });
 });
