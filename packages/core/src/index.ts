@@ -6,3 +6,4 @@ export * from './training.ts';
 export * from './defaults.ts';
 export * from './auth.ts';
 export * from './batch.ts';
+export * from './mealedit.ts';
