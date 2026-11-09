@@ -3,7 +3,7 @@
 -- locked; deleting a plan meal's log brings the plan meal back; g or ml on foods and amounts.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(46);
+select plan(63);
 
 insert into auth.users (id, email) values
   ('a1a1a1a1-0000-0000-0000-0000000000c1', 'time-a@example.test'),
@@ -26,6 +26,8 @@ select has_column('public', 'food_portions_last', 'unit', 'last time''s amount c
 select has_column('public', 'meal_logs', 'edited_at', 'edits are recorded internally');
 select is((select nutrition_unit from public.foods where barcode = '0000000000961'), 'g', 'foods default to g');
 select ok(not (select prosecdef from pg_proc where proname = 'update_logged_meal'), 'update_logged_meal is SECURITY INVOKER');
+select ok(not (select prosecdef from pg_proc where proname = 'delete_logged_meal'), 'delete_logged_meal is SECURITY INVOKER');
+select ok(not has_function_privilege('anon', 'public.delete_logged_meal(uuid)', 'execute'), 'anon cannot delete meals');
 select ok(not has_function_privilege('anon', 'public.update_logged_meal(uuid, text, timestamptz, jsonb)', 'execute'), 'anon cannot edit meals');
 select ok(exists (select 1 from pg_constraint where conname = 'foods_batch_unit_g'), 'batches are always per 100 g');
 select throws_ok($$insert into public.foods (source, barcode, name, nutrition_unit) values ('open_food_facts', '0000000000969', 'Bad', 'oz')$$,
@@ -120,27 +122,56 @@ select throws_ok($$select public.update_logged_meal((select id from shake_log), 
 
 -- Amounts and components are locked, however they're changed.
 select throws_ok($$update public.meal_log_items set grams = 90 where meal_log_id = (select id from shake_log) and position = 0$$,
-  '42501', 'logged amounts can''t be changed; delete the meal and log it again', 'amounts are locked');
+  '42501', 'logged meals are changed only through Edit meal or Delete meal', 'amounts are locked');
 select throws_ok($$update public.meal_log_items set kcal = 1 where meal_log_id = (select id from shake_log)$$,
   '42501', null, 'logged nutrition is locked');
-select lives_ok($$update public.meal_log_items set unit = 'g' where meal_log_id = (select id from shake_log) and position = 0$$,
-  'a unit label can change');
+select throws_ok($$update public.meal_log_items set unit = 'g' where meal_log_id = (select id from shake_log) and position = 0$$,
+  '42501', null, 'even a unit label changes only through Edit meal');
 select throws_ok($$update public.meal_logs set logged_at = now() - interval '3 days' where id = (select id from shake_log)$$,
-  '22023', null, 'a direct retime is held to the window too');
+  '42501', null, 'a direct retime is refused');
+select throws_ok($$update public.meal_logs set name = 'Sneaky' where id = (select id from shake_log)$$,
+  '42501', null, 'a direct rename is refused');
+select throws_ok($$delete from public.meal_logs where id = (select id from shake_log)$$,
+  '42501', null, 'a direct delete is refused');
+select throws_ok($$delete from public.meal_log_items where meal_log_id = (select id from shake_log)$$,
+  '42501', null, 'removing a component is refused');
+
+-- A crafted edit can't sneak amounts, nutrition or components in.
+select throws_ok($$select public.update_logged_meal((select id from shake_log), 'Test shake breakfast', null, '[{"position":0,"unit":"g","grams":90}]'::jsonb)$$,
+  '42501', 'amounts can''t be changed; delete the meal and log it again', 'an amount in the edit is refused');
+select throws_ok($$select public.update_logged_meal((select id from shake_log), 'Test shake breakfast', null, '[{"position":1,"unit":"ml","kcal":1}]'::jsonb)$$,
+  '42501', null, 'nutrition in the edit is refused');
+select throws_ok($$select public.update_logged_meal((select id from shake_log), 'Test shake breakfast', null, '[{"position":0,"unit":"g","food_id":"fc000000-0000-0000-0000-000000000002"}]'::jsonb)$$,
+  '42501', null, 'swapping a component in the edit is refused');
+select throws_ok($$select public.update_logged_meal((select id from shake_log), 'Test shake breakfast', null, '[{"position":7,"unit":"g"}]'::jsonb)$$,
+  '22023', null, 'an item that isn''t in the meal is refused');
+select is((select string_agg(unit || ' ' || grams || ' ' || kcal, ',' order by position) from public.meal_log_items where meal_log_id = (select id from shake_log)),
+  'ml 60.0 233,ml 330.0 205', 'nothing changed after the refusals');
+
+-- A meal from before yesterday is history: no edits, no deletes.
+reset role;
+insert into public.meal_logs (id, user_id, name, logged_at) values
+  ('fc000000-0000-0000-0000-0000000000f1', 'a1a1a1a1-0000-0000-0000-0000000000c1', 'Old meal', now() - interval '3 days');
+set local role authenticated;
+select throws_ok($$select public.update_logged_meal('fc000000-0000-0000-0000-0000000000f1', 'Renamed', null, null)$$,
+  '22023', 'meals from before yesterday can''t be changed', 'an old meal can''t be edited');
+select throws_ok($$select public.delete_logged_meal('fc000000-0000-0000-0000-0000000000f1')$$,
+  '22023', null, 'an old meal can''t be deleted');
 
 -- ---------------------------------------------------------------------------
 -- Other users
 -- ---------------------------------------------------------------------------
 select set_config('request.jwt.claims', '{"sub":"b2b2b2b2-0000-0000-0000-0000000000c2","role":"authenticated"}', true);
 select throws_ok($$select public.update_logged_meal((select id from shake_log), 'Mine now', null, null)$$, 'P0002', null, 'B cannot edit A''s meal');
-delete from public.meal_logs where id = (select id from shake_log);
+select throws_ok($$select public.delete_logged_meal((select id from shake_log))$$, 'P0002', null, 'B cannot delete A''s meal through the function');
+select is((select count(*)::int from public.meal_logs where id = (select id from shake_log)), 0, 'B cannot see A''s meal');
 select set_config('request.jwt.claims', '{"sub":"a1a1a1a1-0000-0000-0000-0000000000c1","role":"authenticated"}', true);
 select is((select name from public.meal_logs where id = (select id from shake_log)), 'Test shake breakfast', 'B cannot delete A''s meal');
 
 -- ---------------------------------------------------------------------------
 -- Delete (7l): a plan meal's log goes, so the plan meal shows as not eaten again
 -- ---------------------------------------------------------------------------
-delete from public.meal_logs where id = (select id from plan_log);
+select lives_ok($$select public.delete_logged_meal((select id from plan_log))$$, 'delete through the function');
 select is((select count(*)::int from public.meal_logs where saved_meal_id = (select id from plan_meal)), 0, 'no log references the plan meal');
 select is((select count(*)::int from public.meal_log_items where meal_log_id = (select id from plan_log)), 0, 'its items go with it');
 select is((select count(*)::int from public.saved_meals where id = (select id from plan_meal)), 1, 'the plan meal itself stays');
@@ -155,11 +186,15 @@ select lives_ok($$delete from public.foods where id = 'fc000000-0000-0000-0000-0
 select is((select coalesce(food_id::text, 'gone') || ' ' || unit || ' ' || kcal from public.meal_log_items where meal_log_id = (select id from drink_log)),
   'gone ml 113', 'the log keeps its snapshot and unit');
 
--- Without consent nothing can be edited.
+-- Without consent nothing can be edited or deleted.
 reset role;
 update public.consents set withdrawn_at = now() where user_id = 'a1a1a1a1-0000-0000-0000-0000000000c1';
 set local role authenticated;
-select throws_ok($$select public.update_logged_meal((select id from drink_log), 'Drink', null, null)$$, 'P0002', null, 'no edits without health consent');
+select throws_ok($$select public.update_logged_meal((select id from drink_log), 'Drink', null, null)$$, '42501', null, 'no edits without health consent');
+select throws_ok($$select public.delete_logged_meal((select id from drink_log))$$, '42501', null, 'no deletes without health consent');
+reset role;
+select is((select count(*)::int from public.meal_logs where id = (select id from drink_log)), 1, 'the meal is still there');
+set local role authenticated;
 
 reset role;
 select * from finish();

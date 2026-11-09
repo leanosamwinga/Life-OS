@@ -1473,6 +1473,8 @@ export type Database = {
         };
         Returns: string;
       };
+      delete_logged_meal: { Args: { p_id: string }; Returns: undefined };
+      lock_logged_meal: { Args: { p_action: string; p_id: string }; Returns: string };
       update_logged_meal: {
         Args: { p_id: string; p_logged_at: string; p_name: string; p_units: Json };
         Returns: undefined;

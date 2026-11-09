@@ -160,6 +160,11 @@ export function createMemoryBackend(
     if (Date.parse(at) > Date.parse(w.latest) + 2 * 60000)
       throw new UserFacingError('Pick a time no more than an hour from now.');
   };
+  /** As lock_logged_meal: a meal from before yesterday is history (no edits, no deletes). */
+  const requireChangeable = (at: string) => {
+    if (Date.parse(at) < Date.parse(logWindow(new Date()).earliest))
+      throw new UserFacingError('Meals from before yesterday can’t be changed.');
+  };
   const inRange = (t: string, r: { from: string; to: string }) =>
     Date.parse(t) >= Date.parse(r.from) && Date.parse(t) < Date.parse(r.to);
 
@@ -383,6 +388,7 @@ export function createMemoryBackend(
       const name = edit.name.trim();
       if (!name || name.length > 120) throw new UserFacingError('Give the meal a name.');
       const log = state.mealLogs[i]!;
+      requireChangeable(log.loggedAt);
       if (edit.loggedAt && edit.loggedAt !== log.loggedAt) requireMealTime(edit.loggedAt);
       // Only labels change: amounts and macros stay as logged (1 ml counts as 1 g).
       state.mealLogs[i] = {
@@ -399,8 +405,9 @@ export function createMemoryBackend(
     async deleteMealLog(id) {
       await call('deleteMealLog');
       requireConsent();
-      if (!state.mealLogs.some((l) => l.id === id))
-        throw new UserFacingError('That meal has already gone.');
+      const log = state.mealLogs.find((l) => l.id === id);
+      if (!log) throw new UserFacingError('That meal has already gone.');
+      requireChangeable(log.loggedAt);
       state.mealLogs = state.mealLogs.filter((l) => l.id !== id);
     },
     async listWaterLogs(range) {

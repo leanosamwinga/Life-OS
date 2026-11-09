@@ -222,9 +222,9 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
       if (error) friendly(error);
     },
     async deleteMealLog(id) {
-      const { data, error } = await client.from('meal_logs').delete().eq('id', id).select('id');
+      const { error } = await client.rpc('delete_logged_meal', { p_id: id });
+      if (error?.code === 'P0002') throw new UserFacingError('That meal has already gone.');
       if (error) friendly(error);
-      if (!data?.length) throw new UserFacingError('That meal has already gone.');
     },
     async listWaterLogs({ from, to }) {
       const { data, error } = await client

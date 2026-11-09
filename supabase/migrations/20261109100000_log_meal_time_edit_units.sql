@@ -7,8 +7,12 @@
 --   * Edit a logged meal: name, time and each item's unit only, through update_logged_meal.
 --     Amounts and components are locked by a guard trigger: to change them, delete the meal and
 --     log it again. edited_at is internal bookkeeping; the app never shows it.
---   * Delete: an ordinary delete on meal_logs (RLS: owner + health consent); items cascade. A plan
---     meal shows as not eaten again simply because no log references it any more.
+--   * Delete: only through delete_logged_meal (RLS: owner + health consent); items cascade. A
+--     plan meal shows as not eaten again simply because no log references it any more.
+--   * Edits and deletes are for meals inside the same window (a meal from before yesterday is
+--     history and stays as logged). Guard triggers refuse any other update or delete of a logged
+--     meal or its items by app users; the owner's own jobs (account erase, FK actions) are
+--     unaffected.
 --   * g or ml: every food has a nutrition unit (per 100 g or per 100 ml; existing foods are g,
 --     batches are always g). Amounts carry a unit label everywhere they're stored. 1 ml counts as
 --     1 g, so the maths never changes; the amount stays in the `grams` columns (to 1 dp).
@@ -265,6 +269,15 @@ language plpgsql
 set search_path = ''
 as $$
 begin
+  -- App users change items only through update_logged_meal / delete_logged_meal.
+  if current_user in ('authenticated', 'anon')
+     and coalesce(current_setting('lifeos.edit_meal_log', true), '') <> 'on' then
+    raise exception 'logged meals are changed only through Edit meal or Delete meal'
+      using errcode = '42501';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
   if (new.food_id is null or new.food_id = old.food_id)
      and (to_jsonb(new) - 'unit' - 'updated_at' - 'food_id')
        = (to_jsonb(old) - 'unit' - 'updated_at' - 'food_id') then
@@ -275,16 +288,25 @@ begin
 end;
 $$;
 
-create trigger meal_log_items_guard before update on public.meal_log_items
+create trigger meal_log_items_guard before update or delete on public.meal_log_items
   for each row execute function public.meal_log_items_guard();
 
--- A logged meal's time stays inside the window when it changes, however it's changed.
-create or replace function public.meal_logs_time_guard()
+-- App users update or delete a logged meal only through the functions below, and a changed time
+-- stays inside the window however it's changed.
+create or replace function public.meal_logs_guard()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
+  if current_user in ('authenticated', 'anon')
+     and coalesce(current_setting('lifeos.edit_meal_log', true), '') <> 'on' then
+    raise exception 'logged meals are changed only through Edit meal or Delete meal'
+      using errcode = '42501';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
   if new.logged_at is distinct from old.logged_at then
     perform public.check_meal_time(new.logged_at);
   end if;
@@ -292,8 +314,59 @@ begin
 end;
 $$;
 
-create trigger meal_logs_time_guard before update of logged_at on public.meal_logs
-  for each row execute function public.meal_logs_time_guard();
+create trigger meal_logs_guard before update or delete on public.meal_logs
+  for each row execute function public.meal_logs_guard();
+
+revoke all on function public.meal_logs_guard() from public, anon;
+revoke all on function public.meal_log_items_guard() from public, anon;
+
+-- Shared checks for editing or deleting one of your logged meals: signed in, health consent on,
+-- the meal is yours (RLS) and inside the window. Locks the row and returns its time.
+create or replace function public.lock_logged_meal(p_id uuid, p_action text)
+returns timestamptz
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_at timestamptz;
+begin
+  if auth.uid() is null then
+    raise exception 'sign in to % meals', p_action using errcode = '42501';
+  end if;
+  if not public.has_active_consent('health_data') then
+    raise exception 'turn on health data in Me to % meals', p_action using errcode = '42501';
+  end if;
+  select logged_at into v_at from public.meal_logs where id = p_id for update;
+  if not found then
+    raise exception 'meal not found' using errcode = 'P0002';
+  end if;
+  begin
+    perform public.check_meal_time(v_at);
+  exception when sqlstate '22023' then
+    raise exception 'meals from before yesterday can''t be changed' using errcode = '22023';
+  end;
+  return v_at;
+end;
+$$;
+
+revoke all on function public.lock_logged_meal(uuid, text) from public, anon;
+grant execute on function public.lock_logged_meal(uuid, text) to authenticated;
+
+-- delete_logged_meal (7l). A plan meal it came from shows as not eaten again.
+create or replace function public.delete_logged_meal(p_id uuid)
+returns void
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  perform public.lock_logged_meal(p_id, 'delete');
+  perform set_config('lifeos.edit_meal_log', 'on', true);
+  delete from public.meal_logs where id = p_id;
+  perform set_config('lifeos.edit_meal_log', 'off', true);
+end;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- update_logged_meal (7k): name, time and each item's unit, in one transaction.
@@ -318,29 +391,43 @@ declare
   v_old timestamptz;
   v_name text := btrim(coalesce(p_name, ''));
 begin
-  if auth.uid() is null then
-    raise exception 'sign in to edit meals' using errcode = '42501';
-  end if;
   if char_length(v_name) not between 1 and 120 then
     raise exception 'give the meal a name' using errcode = '22023';
   end if;
-  if p_units is not null and (
-    jsonb_typeof(p_units) <> 'array'
-    or exists (
-      select 1 from jsonb_array_elements(p_units) u
-      where u.value ->> 'unit' is null or u.value ->> 'unit' not in ('g', 'ml')
-         or jsonb_typeof(u.value -> 'position') <> 'number'
-    )
+  if p_units is not null and jsonb_typeof(p_units) <> 'array' then
+    raise exception 'the unit must be g or ml' using errcode = '22023';
+  end if;
+  -- Amounts, components and nutrition are locked: anything but a position and a unit is refused.
+  if p_units is not null and exists (
+    select 1 from jsonb_array_elements(p_units) u
+    where jsonb_typeof(u.value) <> 'object'
+       or exists (select 1 from jsonb_object_keys(u.value) k where k not in ('position', 'unit'))
+  ) then
+    raise exception 'amounts can''t be changed; delete the meal and log it again'
+      using errcode = '42501';
+  end if;
+  if p_units is not null and exists (
+    select 1 from jsonb_array_elements(p_units) u
+    where u.value ->> 'unit' is null or u.value ->> 'unit' not in ('g', 'ml')
+       or jsonb_typeof(u.value -> 'position') <> 'number'
   ) then
     raise exception 'the unit must be g or ml' using errcode = '22023';
   end if;
 
-  -- RLS: only your own logs, with health consent.
-  select logged_at into v_old from public.meal_logs where id = p_id for update;
-  if not found then
-    raise exception 'meal not found' using errcode = 'P0002';
+  -- Signed in, consent, yours (RLS), inside the window.
+  v_old := public.lock_logged_meal(p_id, 'edit');
+
+  if p_units is not null and exists (
+    select 1 from jsonb_array_elements(p_units) u
+    where not exists (
+      select 1 from public.meal_log_items i
+      where i.meal_log_id = p_id and i.position = (u.value ->> 'position')::numeric
+    )
+  ) then
+    raise exception 'that item isn''t in this meal' using errcode = '22023';
   end if;
 
+  perform set_config('lifeos.edit_meal_log', 'on', true);
   update public.meal_logs
     set name = v_name,
         logged_at = coalesce(p_logged_at, v_old),
@@ -355,9 +442,12 @@ begin
         and i.position = (u.value ->> 'position')::int
         and i.unit is distinct from u.value ->> 'unit';
   end if;
+  perform set_config('lifeos.edit_meal_log', 'off', true);
 end;
 $$;
 
+revoke all on function public.delete_logged_meal(uuid) from public, anon;
+grant execute on function public.delete_logged_meal(uuid) to authenticated;
 revoke all on function public.log_meal(text, uuid, timestamptz, jsonb) from public, anon;
 revoke all on function public.save_meal(uuid, text, boolean, time, jsonb) from public, anon;
 revoke all on function public.update_logged_meal(uuid, text, timestamptz, jsonb) from public, anon;
