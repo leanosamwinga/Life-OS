@@ -14,6 +14,8 @@
 // (docs/PHASE2-SIGNOFF.md).
 import { createHash } from 'node:crypto';
 import {
+  ateItAt,
+  componentsFromLog,
   dayEnd,
   dayProgress,
   formatTimeUK,
@@ -1439,5 +1441,232 @@ describe.skipIf(!stack)('phone end to end on the real stack', () => {
     expect(raw.body.code).toBe('42501');
     await a.b.setHealthConsent(true);
     expect((await a.b.listMealLogs(wideRange())).find((l) => l.id === id)).toEqual(before);
+  });
+  // ------------------------------------------------------------------ log meal and water follow-ups
+  const waterToday = async (b: Phone['backend']) =>
+    (await b.listWaterLogs(dayRangeOf(logWindow(new Date()).today))).map((w) => w.ml);
+  const dayRangeOf = (date: string) => ({
+    from: londonDateTimeToInstant(date, '00:00'),
+    to: dayEnd(date),
+  });
+
+  it('U1: a meal moved to yesterday shows on yesterday’s timeline and can still be edited', async () => {
+    const { b, oats, w, dayRange } = await timeUser('yesterday-view');
+    const id = await b.logMeal({
+      name: 'E2E moved meal',
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [{ food: oats, grams: 60 }],
+    });
+    await b.updateLoggedMeal({
+      id,
+      name: 'E2E moved meal',
+      loggedAt: londonDateTimeToInstant(w.yesterday, '20:00'),
+      units: [],
+    });
+    // What Today's "‹ Yesterday" shows: yesterday's meals only, no plan.
+    const yesterday = buildTimeline({
+      mealLogs: await b.listMealLogs(dayRange(w.yesterday)),
+      planMeals: [],
+      calendar: [],
+    });
+    expect(yesterday.map((i) => [i.id, i.time, i.kind])).toEqual([[id, '20:00', 'meal-eaten']]);
+    await b.updateLoggedMeal({ id, name: 'E2E moved meal, renamed', loggedAt: null, units: [] });
+    expect((await b.listMealLogs(dayRange(w.yesterday)))[0]!.name).toBe('E2E moved meal, renamed');
+  });
+
+  it('U2: a corrected copy replaces the meal atomically and keeps the plan link; failures leave the original', async () => {
+    const { p, b, plan, oats, w } = await timeUser('corrected');
+    const oldId = await b.logMeal({
+      name: plan.name,
+      savedMealId: plan.id,
+      loggedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+      components: plan.components,
+    });
+    const before = (await b.listMealLogs(wideRange())).find((l) => l.id === oldId)!;
+    const token = p.tokens()!.accessToken;
+    const honest = portionMacros(oats, 80);
+
+    // Mismatched macros through the Data API: refused, nothing changes.
+    const tampered = await rawData(s, token, 'rpc/replace_logged_meal', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_old_id: oldId,
+        p_name: 'E2E tampered copy',
+        p_logged_at: new Date().toISOString(),
+        p_items: [{ food_id: oats.id, grams: 80, ...honest, kcal: honest.kcal + 50 }],
+      }),
+    });
+    expect(tampered.status).toBe(400);
+    expect(tampered.body.code).toBe('22023');
+    // A new time outside the window: refused through the app, nothing changes.
+    await expect(
+      b.replaceLoggedMeal(oldId, {
+        name: plan.name,
+        savedMealId: null,
+        loggedAt: new Date(Date.now() + 3 * 3600_000).toISOString(),
+        components: [{ food: oats, grams: 80 }],
+      }),
+    ).rejects.toThrow(/no more than an hour from now/);
+    expect(
+      (await b.listMealLogs(wideRange())).filter((l) => l.name.startsWith('E2E tampered')),
+    ).toEqual([]);
+    expect((await b.listMealLogs(wideRange())).find((l) => l.id === oldId)).toEqual(before);
+
+    // The corrected copy, from the meal as 7j pre-fills it, with one amount changed.
+    const foods = new Map([[oats.id, oats]]);
+    const pre = componentsFromLog(before.items, foods);
+    expect(pre.unavailable).toEqual([]);
+    const newId = await b.replaceLoggedMeal(oldId, {
+      name: plan.name,
+      savedMealId: null,
+      loggedAt: londonDateTimeToInstant(w.today, '00:30'),
+      components: pre.components.map((c) => ({ ...c, grams: 80 })),
+    });
+    const logs = await b.listMealLogs(wideRange());
+    expect(logs.some((l) => l.id === oldId)).toBe(false);
+    const copy = logs.find((l) => l.id === newId)!;
+    expect(copy.savedMealId).toBe(plan.id);
+    expect(copy.items.map((i) => [i.grams, i.macros.kcal])).toEqual([[80, honest.kcal]]);
+    expect(formatTimeUK(copy.loggedAt)).toBe('00:30');
+    // The plan meal stays eaten: Today doesn't offer "Ate it" for it.
+    const offered = buildTimeline({
+      mealLogs: logs,
+      planMeals: await b.listSavedMeals(),
+      calendar: [],
+    }).some((i) => i.kind === 'meal-planned' && i.savedMealId === plan.id);
+    expect(offered).toBe(false);
+    await expect(
+      b.replaceLoggedMeal(oldId, {
+        name: plan.name,
+        savedMealId: null,
+        loggedAt: new Date().toISOString(),
+        components: [{ food: oats, grams: 60 }],
+      }),
+    ).rejects.toThrow(/already gone/);
+  });
+
+  it('U3: Log again creates a second meal and leaves the first', async () => {
+    const { b, oats } = await timeUser('log-again');
+    const first = await b.logMeal({
+      name: 'E2E log again',
+      savedMealId: null,
+      loggedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      components: [{ food: oats, grams: 45 }],
+    });
+    const before = (await b.listMealLogs(wideRange())).find((l) => l.id === first)!;
+    const { components } = componentsFromLog(before.items, new Map([[oats.id, oats]]));
+    const second = await b.logMeal({
+      name: before.name,
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components,
+    });
+    const both = (await b.listMealLogs(wideRange())).filter((l) => l.name === 'E2E log again');
+    expect(both.map((l) => l.id).sort()).toEqual([first, second].sort());
+    expect(both.find((l) => l.id === first)).toEqual(before);
+    expect(both.find((l) => l.id === second)!.items.map((i) => i.grams)).toEqual([45]);
+  });
+
+  it('U4: “Ate it” after the usual time logs at the usual time', async () => {
+    const { b, oats, w } = await timeUser('ate-it-time');
+    // 00:00 has always passed today, so "Ate it" logs at 00:00 rather than now.
+    const id = await b.saveMeal({
+      id: null,
+      name: 'Breakfast · E2E midnight oats',
+      inDailyPlan: true,
+      usualTime: '00:00',
+      components: [{ food: oats, grams: 60 }],
+    });
+    const plan = (await b.listSavedMeals()).find((m) => m.id === id)!;
+    const at = ateItAt(plan.usualTime, new Date());
+    expect(at).toBe(londonDateTimeToInstant(w.today, '00:00'));
+    const logId = await b.logMeal({
+      name: plan.name,
+      savedMealId: plan.id,
+      loggedAt: at,
+      components: plan.components,
+    });
+    const logged = (await b.listMealLogs(wideRange())).find((l) => l.id === logId)!;
+    expect([toLondonDate(logged.loggedAt), formatTimeUK(logged.loggedAt)]).toEqual([
+      w.today,
+      '00:00',
+    ]);
+  });
+
+  it('U5: custom water is logged and deleted; out-of-range amounts are refused', async () => {
+    const { b } = await timeUser('water');
+    await b.addWater(330);
+    await b.addWater(250);
+    expect((await waterToday(b)).sort()).toEqual([250, 330]);
+    await expect(b.addWater(5001)).rejects.toThrow();
+    await expect(b.addWater(0)).rejects.toThrow();
+    const entry = (await b.listWaterLogs(wideRange())).find((x) => x.ml === 330)!;
+    await b.deleteWater(entry.id);
+    expect(await waterToday(b)).toEqual([250]);
+  });
+
+  it('U6, U7: another user can’t see or change any of it; consent off refuses all of it', async () => {
+    const a = await timeUser('follow-owner');
+    const mealId = await a.b.logMeal({
+      name: 'E2E private follow-up',
+      savedMealId: null,
+      loggedAt: new Date().toISOString(),
+      components: [{ food: a.oats, grams: 60 }],
+    });
+    await a.b.addWater(330);
+    const water = (await a.b.listWaterLogs(wideRange()))[0]!;
+    const before = (await a.b.listMealLogs(wideRange())).find((l) => l.id === mealId)!;
+
+    const other = await signUp(s, 'follow-other');
+    const ob = other.p.backend;
+    await ob.setHealthConsent(true);
+    expect(await ob.listWaterLogs(wideRange())).toEqual([]);
+    await expect(
+      ob.replaceLoggedMeal(mealId, {
+        name: 'Mine now',
+        savedMealId: null,
+        loggedAt: new Date().toISOString(),
+        components: [],
+      }),
+    ).rejects.toThrow();
+    const ot = other.p.tokens()!.accessToken;
+    const raw = await rawData(s, ot, 'rpc/replace_logged_meal', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_old_id: mealId,
+        p_name: 'Mine now',
+        p_logged_at: new Date().toISOString(),
+        p_items: [{ food_id: a.oats.id, grams: 60, ...portionMacros(a.oats, 60) }],
+      }),
+    });
+    expect(raw.body.code).toBe('P0002');
+    await ob.deleteWater(water.id);
+    expect((await a.b.listWaterLogs(wideRange())).map((x) => x.id)).toEqual([water.id]);
+    expect((await a.b.listMealLogs(wideRange())).find((l) => l.id === mealId)).toEqual(before);
+
+    // U7: consent off — no corrected copy, no log again, no water added or deleted.
+    await a.b.setHealthConsent(false);
+    await expect(
+      a.b.replaceLoggedMeal(mealId, {
+        name: 'No consent',
+        savedMealId: null,
+        loggedAt: new Date().toISOString(),
+        components: [{ food: a.oats, grams: 60 }],
+      }),
+    ).rejects.toThrow(/Health data is off|health data/i);
+    await expect(
+      a.b.logMeal({
+        name: 'No consent again',
+        savedMealId: null,
+        loggedAt: new Date().toISOString(),
+        components: [{ food: a.oats, grams: 60 }],
+      }),
+    ).rejects.toThrow();
+    await expect(a.b.addWater(150)).rejects.toThrow();
+    await a.b.deleteWater(water.id);
+    await a.b.setHealthConsent(true);
+    expect((await a.b.listWaterLogs(wideRange())).map((x) => x.id)).toEqual([water.id]);
+    expect((await a.b.listMealLogs(wideRange())).find((l) => l.id === mealId)).toEqual(before);
   });
 });
