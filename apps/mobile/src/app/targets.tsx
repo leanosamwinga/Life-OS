@@ -52,7 +52,7 @@ export default function TargetsScreen() {
       keyboardInsets
       header={<SheetHeader left="Cancel" onLeft={close} title="Daily targets" />}
     >
-      <Text style={formStyles.body} testID="targets-intro">
+      <Text style={[formStyles.body, styles.intro]} testID="targets-intro">
         Your daily targets for calories, protein, carbs, fat, water and steps. Leave any blank to
         set it later.
       </Text>
@@ -76,6 +76,7 @@ export default function TargetsScreen() {
 }
 
 const styles = StyleSheet.create({
+  intro: { marginBottom: space.lg },
   grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: space.md },
   cell: { flexBasis: '47%', flexGrow: 1 },
 });

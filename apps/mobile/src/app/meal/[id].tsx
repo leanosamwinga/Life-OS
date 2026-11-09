@@ -48,7 +48,7 @@ export default function LoggedMealScreen() {
   const [deleting, setDeleting] = useState(false);
   // E: "Log again" now, or at another time from the 7i sheet.
   const [picker, setPicker] = useState<Date | null>(null);
-  const [again, setAgain] = useState<'busy' | 'done' | null>(null);
+  const [again, setAgain] = useState<'busy' | null>(null);
   const [againError, setAgainError] = useState<string | null>(null);
 
   const header = <SheetHeader left="‹ Today" leftLabel="Back to Today" onLeft={backToToday} />;
@@ -183,10 +183,10 @@ export default function LoggedMealScreen() {
 
       <View style={styles.again} testID="log-again">
         <View style={styles.againRow}>
-          <PrimaryButton
-            label="Log again"
+          <SecondaryButton
+            label={again === 'busy' ? 'Logging…' : 'Log again'}
             accessibilityLabel="Log again now"
-            busy={again === 'busy'}
+            disabled={again === 'busy'}
             onPress={() => void logAgain(null)}
             style={styles.againButton}
           />

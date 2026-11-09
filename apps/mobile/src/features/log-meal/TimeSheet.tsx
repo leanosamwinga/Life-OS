@@ -121,6 +121,13 @@ export function Wheel(props: {
     },
     [],
   );
+  // Start on the resting row. The web ignores `contentOffset`, so scroll once the rows are laid out.
+  const placed = useRef(false);
+  const place = () => {
+    if (placed.current) return;
+    placed.current = true;
+    ref.current?.scrollTo?.({ y: row.current * ROW, animated: false });
+  };
 
   const choose = (r: number) => {
     const clampedRow = Math.min(loopRows(count) - 1, Math.max(0, r));
@@ -159,6 +166,7 @@ export function Wheel(props: {
         snapToInterval={ROW}
         decelerationRate="fast"
         contentOffset={{ x: 0, y: row.current * ROW }}
+        onContentSizeChange={place}
         contentContainerStyle={{ paddingVertical: ROW * Math.floor(VISIBLE / 2) }}
         onMomentumScrollEnd={(e) => choose(fromOffset(e))}
         onScrollEndDrag={(e) => {
