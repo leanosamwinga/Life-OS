@@ -2,7 +2,8 @@
  * Domain types for Life OS.
  *
  * Conventions (see CLAUDE.md):
- * - Food nutrition is stored per 100 g.
+ * - Food nutrition is stored per 100 g, or per 100 ml for a food whose `unit` is ml.
+ * - Amounts in ml count 1 ml as 1 g, so the maths never changes with the unit; the unit is a label.
  * - Money is integer pence, never floats.
  * - Instants are ISO-8601 strings in UTC; "local" days are Europe/London calendar dates.
  */
@@ -38,6 +39,13 @@ export interface NutrientsPer100g extends Macros {
 export type FoodSource = 'open_food_facts' | 'user';
 
 /**
+ * What an amount is measured in. A food's unit says whether its nutrition is per 100 g or per
+ * 100 ml (a barcode sets it from Open Food Facts; manual entry offers both; older foods are g).
+ * An amount's unit is only its label: 1 ml counts as 1 g, so the numbers never change with it.
+ */
+export type AmountUnit = 'g' | 'ml';
+
+/**
  * A food that is one of the user's own cooked batches (wireframes 7f–7h): its per-100 g values
  * are the ingredients' totals ÷ the cooked weight. Batches have no portions, no "what's left"
  * and no expiry; they stay until deleted.
@@ -64,8 +72,11 @@ export interface Food {
   brand?: string | null;
   barcode?: string | null;
   source: FoodSource;
+  /** Per 100 g, or per 100 ml when `unit` is ml (the field keeps its name; 1 ml counts as 1 g). */
   per100g: NutrientsPer100g;
-  /** Whole pack and one serving in grams, when known (e.g. from Open Food Facts). */
+  /** What the nutrition is per 100 of. Absent means g. */
+  unit?: AmountUnit;
+  /** Whole pack and one serving in the food's unit, when known (e.g. from Open Food Facts). */
   packGrams?: number | null;
   servingGrams?: number | null;
   /** Set when this food is one of the user's own batches. */
@@ -88,7 +99,9 @@ export interface FoodRecord {
   fibrePer100g: number | null;
   sugarPer100g: number | null;
   saltPer100g: number | null;
-  /** Whole pack and one serving in grams. Unknown is `null`; absent on older records. */
+  /** Per 100 g or per 100 ml. Absent means g. */
+  nutritionUnit?: AmountUnit;
+  /** Whole pack and one serving in the food's unit. Unknown is `null`; absent on older records. */
   packGrams?: number | null;
   servingGrams?: number | null;
   /** Set when this food is one of the user's own batches. */
@@ -98,7 +111,10 @@ export interface FoodRecord {
 /** One part of a meal: a food and how much of it. */
 export interface MealComponent {
   food: Food;
+  /** The amount. Named grams for history; in ml when `unit` is ml (1 ml counts as 1 g). */
   grams: number;
+  /** The amount's label. Absent means the food's own unit. */
+  unit?: AmountUnit;
 }
 
 /** A saved meal in the user's roster. Plan meals are saved meals flagged as part of the daily plan. */
@@ -122,7 +138,10 @@ export interface SavedMeal {
 export interface MealLogItem {
   foodId: string | null;
   foodName: string;
+  /** The amount, in `unit` (1 ml counts as 1 g). */
   grams: number;
+  /** Absent on older logs, which are g. */
+  unit?: AmountUnit;
   macros: Macros;
 }
 
@@ -140,6 +159,7 @@ export interface MealLog {
 export interface LastPortion {
   foodId: string;
   grams: number;
+  unit?: AmountUnit;
   loggedAt: Instant;
 }
 

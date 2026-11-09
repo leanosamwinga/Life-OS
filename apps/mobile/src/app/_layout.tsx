@@ -68,6 +68,7 @@ function RootStack() {
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="log-meal" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="meal" />
         <Stack.Screen name="security" />
         <Stack.Screen name="kept" />
       </Stack.Protected>

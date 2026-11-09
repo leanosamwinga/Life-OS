@@ -1,4 +1,4 @@
-import type { FoodRecord } from '@life-os/core';
+import type { AmountUnit, FoodRecord } from '@life-os/core';
 
 /** Shape of the parts of an Open Food Facts v2 product response that we use. */
 export interface OffProductResponse {
@@ -20,6 +20,10 @@ export interface OffProductResponse {
     serving_quantity?: number | string;
     serving_quantity_unit?: string;
     nutriments?: Record<string, unknown>;
+    /** What the label's values are for: "100g", "serving" (and "100ml" on some products). */
+    nutrition_data_per?: string;
+    /** API v3.5: the input sets say per 100 g, per 100 ml or per serving. */
+    nutrition?: { input_sets?: { per?: string; source?: string }[] };
   };
 }
 
@@ -40,6 +44,7 @@ export interface FoodRow {
   salt_per_100g: number | null;
   pack_g?: number | null;
   serving_g?: number | null;
+  nutrition_unit?: string;
   off_fetched_at?: string | null;
 }
 
@@ -75,13 +80,35 @@ function text(value: unknown, maxLength = 200): string | null {
   return t === '' ? null : t.slice(0, maxLength);
 }
 
+const unitText = (unit: unknown): string | null =>
+  typeof unit === 'string' && unit.trim() !== '' ? unit.trim().toLowerCase() : null;
+
 /**
- * Grams from an OFF quantity, only when the unit is grams (default unit is g). Millilitres
- * are not grams, so liquids get `null` rather than a guess.
+ * Whether a product's nutrition is per 100 g or per 100 ml. Open Food Facts' `_100g` values are
+ * "per 100 g or 100 ml": its own basis wins when it states one (API v3.5 input sets say "100ml",
+ * and some products carry nutrition_data_per "100ml"); otherwise drinks show it through the
+ * pack's unit ("330 ml" → product_quantity_unit ml). Anything else, or nothing, is g.
  */
-function grams(value: unknown, unit: unknown, max: number): number | null {
-  const u = typeof unit === 'string' && unit.trim() !== '' ? unit.trim().toLowerCase() : 'g';
-  if (u !== 'g') return null;
+export function nutritionUnitOf(p: NonNullable<OffProductResponse['product']>): AmountUnit {
+  const sets = Array.isArray(p.nutrition?.input_sets) ? p.nutrition.input_sets : [];
+  const pers = sets
+    .filter((s) => s && (s.source === undefined || s.source === 'packaging'))
+    .map((s) => unitText(s.per))
+    .filter((x): x is string => x === '100ml' || x === '100g');
+  if (pers.length) return pers[0] === '100ml' ? 'ml' : 'g';
+  const per = unitText(p.nutrition_data_per)?.replace(/\s/g, '');
+  if (per === '100ml') return 'ml';
+  const u = unitText(p.product_quantity_unit);
+  if (u) return u === 'ml' ? 'ml' : 'g';
+  return typeof p.quantity === 'string' && /\d\s*ml\b/i.test(p.quantity) ? 'ml' : 'g';
+}
+
+/**
+ * A pack or serving size in the food's own unit (g, or ml for a per-100 ml food). A size in any
+ * other unit (kg, cl, a g serving of a ml drink…) is `null`, never converted or guessed.
+ */
+function amount(value: unknown, unit: unknown, foodUnit: AmountUnit, max: number): number | null {
+  if ((unitText(unit) ?? foodUnit) !== foodUnit) return null;
   const n = num(value);
   if (n == null || n <= 0 || n > max) return null;
   return Math.round(n * 10) / 10;
@@ -109,6 +136,7 @@ export function mapOffProduct(barcode: string, response: OffProductResponse): Fo
   const salt = num(n['salt_100g']) ?? (sodium != null ? sodium * SALT_PER_SODIUM : null);
 
   const firstBrand = text(p.brands)?.split(',')[0];
+  const unit = nutritionUnitOf(p);
 
   return {
     userId: null,
@@ -127,8 +155,9 @@ export function mapOffProduct(barcode: string, response: OffProductResponse): Fo
     fibrePer100g: plausible(num(n['fiber_100g']), 100),
     sugarPer100g: plausible(num(n['sugars_100g']), 100),
     saltPer100g: plausible(salt, 100),
-    packGrams: grams(p.product_quantity, p.product_quantity_unit, 100000),
-    servingGrams: grams(p.serving_quantity, p.serving_quantity_unit, 10000),
+    nutritionUnit: unit,
+    packGrams: amount(p.product_quantity, p.product_quantity_unit, unit, 100000),
+    servingGrams: amount(p.serving_quantity, p.serving_quantity_unit, unit, 10000),
   };
 }
 
@@ -149,6 +178,7 @@ export function toFoodRow(record: FoodRecord, fetchedAt: Date): FoodRow {
     salt_per_100g: record.saltPer100g,
     pack_g: record.packGrams ?? null,
     serving_g: record.servingGrams ?? null,
+    nutrition_unit: record.nutritionUnit ?? 'g',
     off_fetched_at: fetchedAt.toISOString(),
   };
 }
@@ -175,6 +205,7 @@ export function fromFoodRow(row: FoodRow): FoodRecord & { fetchedAt: string | nu
     saltPer100g: dbNum(row.salt_per_100g),
     packGrams: dbNum(row.pack_g),
     servingGrams: dbNum(row.serving_g),
+    nutritionUnit: row.nutrition_unit === 'ml' ? 'ml' : 'g',
     fetchedAt: row.off_fetched_at ?? null,
   };
 }

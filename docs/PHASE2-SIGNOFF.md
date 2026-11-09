@@ -371,3 +371,140 @@ npm run mobile -- --clear
    overlapping, buttons still tappable. Back to the default size.
 
 Tick 📱 → ✅ for L11 and L12 when done.
+
+## M · Log meal: custom time, edit and delete, g or ml
+
+Follow-up to 7a–7h, built on `claude/log-meal-time-edit-units` from the decisions doc
+(`claude/log-meal-time-edit-units-decisions.md`, Mon 9 Nov) and the wireframes "Log meal Custom
+time & edit" (7a-T, 7i, 7b-T, 7j, 7k, 7l, 1B before/after, flow strip) and the "-U" frames for g
+or ml (7d-U, 7e-U, 7h-U, 7j-U, 7k-U, flow strip). Tests: `jest` =
+`apps/mobile/src/__tests__/time-edit-units.test.tsx` (7h-U in `saved-batches.test.tsx`); `core` =
+`packages/core/src/mealedit.test.ts` and `logwindow.test.ts`; `pgTAP` =
+`supabase/tests/09_log_meal_time_edit_units.test.sql`; `functions` =
+`supabase/functions/food-lookup/mapping.test.ts`; `e2e` as above (T1–T10).
+
+| ID  | Criterion                                                                                                                                                           | Status | Proof                                                                                                                                                                                        |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1  | "Other time…" beside Now and the slots (7a-T); a bottom sheet with 24-hour hour and minute wheels and Today / Yesterday (7i); the chosen time in 7b's header (7b-T) | ✅     | `jest` › "7a-T “Other time…” offered …" · "7i default …" · "7i a past time on Yesterday …" · "7a-T custom time chosen → 7b-T time in the header → 1B …"                                      |
+| M2  | earliest yesterday 00:00, latest one hour from now; later times greyed out and held to the limit in the app                                                         | ✅     | `jest` › "7i more than an hour ahead …"; `core` › "7i Pick a time" · "day boundaries" (midnight, 23:59, summer time, both 2026 clock changes)                                                |
+| M3  | the same window enforced by the server, whatever the client sends                                                                                                   | ✅     | `e2e` › "T2: …" (app and raw Data API refused); `pgTAP` 09 (log_meal, retime, direct writes)                                                                                                 |
+| M4  | a meal at a custom time counts towards its Europe/London day and sits on the timeline in time order                                                                 | ✅     | `e2e` › "T1: …"; `jest` › "… 1B placed in time order" · "a meal logged for yesterday counts towards yesterday, not today"                                                                    |
+| M5  | tapping a logged meal on Today opens it read-only (7j) with "Edit meal" and a quiet "Delete meal"; from the plan it says so                                         | ✅     | `jest` › "7j … ordinary …" · "from the plan …" · "logged meals open with a chevron …"                                                                                                        |
+| M6  | edit (7k) changes name, time and each item's unit only; no edited label anywhere                                                                                    | ✅     | `jest` › "7k default …" · "name changed …" · "moved to yesterday (with saving) …"; `pgTAP` 09                                                                                                |
+| M7  | rename and retime change only the log — the saved or plan meal it came from is untouched; moving to yesterday moves the totals                                      | ✅     | `e2e` › "T3, T4: …"; `jest` › "name changed …" · "moved to yesterday …"                                                                                                                      |
+| M8  | amounts, components and macros can't be changed, even with a crafted request or straight to the Data API                                                            | ✅     | `e2e` › "T5: …" (extra keys in `update_logged_meal`, PATCH items, PATCH log, raw DELETE: all 42501, meal unchanged); `pgTAP` 09                                                              |
+| M9  | delete (7l) with a confirmation; a meal logged from the plan makes that plan meal show as not eaten again                                                           | ✅     | `e2e` › "T6: …"; `jest` › "7l ordinary …" · "from the plan …" · "Cancel keeps the meal"; `pgTAP` 09                                                                                          |
+| M10 | each food is per 100 g or per 100 ml: barcodes from Open Food Facts, manual entry has the choice, existing foods stay g                                             | ✅     | `e2e` › "T7, T8: …" (fake 330 ml shake → `nutrition_unit` ml, pack 330); `functions` › "Open Food Facts’ own basis wins …"; `jest` › "7e-U manual entry per 100 ml …"; `pgTAP` 09 (defaults) |
+| M11 | "how much" (7d, 7h) has a g / ml switch defaulting to the food's unit; the other unit counts 1 ml as 1 g with the quiet "≈" line                                    | ✅     | `jest` › "7d-U drink in ml …" · "7d-U drink switched to g …" · "7h-U soup in ml …"; `core` › "g or ml"                                                                                       |
+| M12 | last-time amounts, logged items, the timeline, 7j and 7k show amounts in their own unit; switching a logged item's unit in 7k changes no numbers                    | ✅     | `e2e` › "T7, T8: …"; `jest` › "7j-U …" · "7k-U …" · "7d-U drink switched to g …" (last time stays in ml)                                                                                     |
+| M13 | another user can't see, edit or delete any of it; consent off refuses edits and deletes                                                                             | ✅     | `e2e` › "T9, T10: …"; `pgTAP` 09; `jest` › "consent off: edits and deletes are refused by the backend"                                                                                       |
+| M14 | every new wireframe state: layout, hierarchy and copy                                                                                                               | 📱     | `jest` (one or more tests per state, 22 + 7h-U); looked at in a browser against the local stack. Checklist below.                                                                            |
+| M15 | VoiceOver (the wheels adjustable by swiping) and the largest text size on the new screens                                                                           | 📱     | Role and label on every control; the wheels are `adjustable` (jest swipes them). Checklist steps 9–10.                                                                                       |
+| M16 | all automated checks and CI green                                                                                                                                   | ✅     | `docs/TEST-REPORT.md` › "Log meal: custom time, edit and delete, g or ml".                                                                                                                   |
+
+**Readings taken** (also in the PR):
+
+- **The wheels** are built from React Native's `ScrollView` (snaps to rows; tap a row; mouse wheel
+  and trackpad on the web; one `adjustable` control each for VoiceOver). The Expo date-time picker
+  has no web version and the Expo picker can't strike out times past the limit, as 7i draws.
+- **Slots more than an hour ahead** (e.g. Dinner 18:15 at 13:40) are shown but greyed and can't be
+  chosen, and the default slot is never one of them (it was Snack 16:00 at 13:40 before): the
+  server would refuse them. 7a-T draws them like the others.
+- **The window applies to edits and deletes too**: a meal from before yesterday is history (7j
+  shows it without Edit or Delete). The new time must also be in the window.
+- **7k toggles**: the plain 7k frames have no unit switch; 7k-U does. The edit screen always shows
+  the per-item g / ml switch with 7k-U's "COMPONENTS · AMOUNTS LOCKED" header; the "≈ 1 ml counts
+  as 1 g, so switching only fixes the label." line appears once an item has been switched.
+- **Where Save goes**: a new time goes back to Today (to see the meal in its place, as the main
+  flow strip shows); a name or unit change goes back to 7j (as the -U strip shows). Cancel goes
+  back.
+- **7j "From your plan"**: there are no plan names in the data ("Plan A" is sample-only) and the
+  app doesn't record whether a plan meal was logged with "Ate it" or from 7a, so 7j says "From your
+  plan · Lunch" / "Logged from your plan". A meal from a saved (non-plan) meal says "From your
+  saved meals".
+- **7l wording for yesterday**: "Sun 8 Nov now / after" instead of "Today now / after".
+- **The "after this meal" bars** (7b, 7d, 7h) follow the meal's own day: "Sun 8 Nov after this
+  meal" for a time picked on yesterday.
+- **7d-U footer**: "From Open Food Facts · nutrition per 100 ml." as drawn, keeping the existing
+  "Wrong values? …", "Edit values" and the ODbL credit. A drink's pack is a "bottle" ("330 ml
+  bottle", "Half bottle · 165 ml").
+- **Batch ingredients stay in grams** (there's no unit on `batch_ingredients`); the switch is on
+  meal components and on logging a batch (7h-U).
+- **Pack and serving sizes in ml are kept** (in the food's unit) instead of being dropped.
+- **Open Food Facts basis**: its stated basis wins (v3.5 packaging input set, or
+  `nutrition_data_per` "100ml"); "100g" is OFF's generic word, so then the pack's unit decides.
+- **1B's dashed box** is the designer's highlight and isn't built.
+- **Edits and deletes only through functions**: besides `update_logged_meal` and
+  `delete_logged_meal`, guard triggers refuse any direct update or delete of logged meals or their
+  items by app users (the account-erase job and foreign-key actions run as the owner and are
+  unaffected).
+
+### Morning checklist (custom time, edit and delete, g or ml)
+
+About 15 minutes, signed in on your iPhone with health data on. First bring your local database up
+to date (from the repo root):
+
+```bash
+git pull
+npm install
+npx supabase stop
+npx supabase start
+npx supabase db reset
+```
+
+In a second window, and leave it running:
+
+```bash
+npx supabase functions serve --env-file supabase/functions/.env
+```
+
+In a third window:
+
+```bash
+npm run doctor
+npm run mobile -- --clear
+```
+
+`db reset` erases local accounts: create one again (email → code from Mailpit → 0c → … → Today).
+
+1. **Other time… (7a-T).** Today (`screen-today`) → **+ Log meal** → `screen-log-meal`. ✔ Under
+   WHEN: **Now · hh:mm** (selected), the four slots, **Other time…**; slots more than an hour away
+   are greyed.
+2. **Pick a time (7i).** Tap **Other time…** → `sheet-7i` "Time eaten". ✔ **Today** selected, the
+   wheels on now, "Any time from yesterday 00:00 up to …" (an hour from now). Spin the hour wheel
+   past the limit → ✔ later hours struck through; it settles on the latest and "Latest is …. That's
+   an hour from now, …" appears.
+3. **Yesterday.** Tap **Yesterday** → set **21:15** → ✔ "Yesterday · Sun … · 21:15" and "Counts
+   towards …'s totals, not today's." Tap **Today**, set **06:40** → **Done** → ✔ the chip reads
+   **Today · 06:40 ▾**.
+4. **Chosen time in the header (7b-T).** **+ Build a meal from scratch** → `screen-build-meal`. ✔
+   Top right **Today · 06:40 ▾** (tap it: the sheet opens on 06:40; **Cancel**). Add a food →
+   **Done · log meal** → `screen-today`. ✔ The meal sits at 06:40 in time order; the kcal ring
+   includes it.
+5. **Open it (7j).** ✔ Logged meals have a **›**. Tap the 06:40 meal → `screen-7j`: "‹ Today",
+   LOGGED MEAL, the name, "Mon 9 Nov · 06:40", components, MEAL TOTALS, **Edit meal** and a quiet
+   **Delete meal**.
+6. **Edit (7k) and move to yesterday.** **Edit meal** → `screen-7k`. ✔ **Save changes** is grey.
+   Change the name; **Change ›** → **Yesterday** → 21:30 → **Done** → ✔ the grey note "Moves to Sun
+   …. Today goes down by … kcal (… → …). Sun … goes up by … kcal." **Save changes** → ✔ "Saving…",
+   then Today without the meal and the kcal ring down by that much.
+7. **A plan meal (7j, 7l).** On Today tap **Ate it** on a plan meal → tap it → `screen-7j` ✔ "From
+   your plan · Lunch" and "Renaming or retiming here doesn't change the plan meal." **Delete meal**
+   → `sheet-7l` ✔ "Delete …?", Today now / Goes down by / Today after, "Lunch goes back on your plan
+   as not eaten." and when "Ate it" comes back → **Delete meal** → ✔ Today shows **Ate it** again.
+8. **g or ml (7d-U, 7k-U, 7e-U).** **+ Log meal** → **+ Build a meal from scratch** → **Scan** → a
+   real drink (or type a barcode) → `screen-how-much`. For a drink sold in ml: ✔ "Per 100 ml: …",
+   the field in **ml** with the **g | ml** switch beside it. Tap **g** → ✔ "≈ 1 ml counts as 1 g",
+   same kcal. Add it, log the meal, open it → **Edit meal** → switch that item to **ml** → ✔ the
+   numbers don't change; **Save changes** → 7j shows "… · 330 ml". Back on 7b, **Manual** → "Not
+   found? Add it from the label" → `screen-manual-entry`: ✔ "The label gives values" with **per 100
+   g | per 100 ml**; pick ml → the amount is in ml and "Saved as per 100 ml".
+9. **VoiceOver (M15).** VoiceOver on. In 7i: the tabs read "Today, Mon 9 Nov, tab, selected"; each
+   wheel reads "Hour, 13, adjustable" — swipe up/down to change it (it stops at the latest); "Done,
+   Today · Mon 9 Nov · 13:40, button". In 7k each item reads "…, 330 g, locked" and the switch "…
+   in grams, radio button, checked". On Today a logged meal reads its time, name and "Opens the
+   meal". VoiceOver off.
+10. **Largest text (M15).** Largest text size: 7a, 7i, 7j, 7k, 7l and how much — nothing cut off or
+    overlapping, buttons still tappable. Back to the default size.
+
+Tick 📱 → ✅ for M14 and M15 when done.

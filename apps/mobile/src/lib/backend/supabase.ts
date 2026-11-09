@@ -12,6 +12,7 @@ import {
   saveBatchIngredients,
   saveMealComponents,
   savedMealFromRow,
+  unitOf,
   type BatchRow,
   type FoodRow,
   type MealLogRow,
@@ -120,7 +121,7 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
       const { data, error } = await client
         .from('saved_meals')
         .select(
-          'id, user_id, name, in_daily_plan, usual_time, sort_order, starred, saved_meal_components(food_id, grams, position, foods(*))',
+          'id, user_id, name, in_daily_plan, usual_time, sort_order, starred, saved_meal_components(food_id, grams, unit, position, foods(*))',
         )
         .order('sort_order')
         .order('created_at');
@@ -193,7 +194,7 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
       const { data, error } = await client
         .from('meal_logs')
         .select(
-          'id, user_id, saved_meal_id, name, logged_at, meal_log_items(food_id, food_name, grams, kcal, protein_g, carbs_g, fat_g, position)',
+          'id, user_id, saved_meal_id, name, logged_at, meal_log_items(food_id, food_name, grams, unit, kcal, protein_g, carbs_g, fat_g, position)',
         )
         .gte('logged_at', from)
         .lt('logged_at', to)
@@ -210,6 +211,20 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
       });
       if (error) friendly(error);
       return data as string;
+    },
+    async updateLoggedMeal(edit) {
+      const { error } = await client.rpc('update_logged_meal', {
+        p_id: edit.id,
+        p_name: edit.name,
+        p_logged_at: sqlNull(edit.loggedAt),
+        p_units: edit.units.length ? edit.units : sqlNull(null),
+      });
+      if (error) friendly(error);
+    },
+    async deleteMealLog(id) {
+      const { error } = await client.rpc('delete_logged_meal', { p_id: id });
+      if (error?.code === 'P0002') throw new UserFacingError('That meal has already gone.');
+      if (error) friendly(error);
     },
     async listWaterLogs({ from, to }) {
       const { data, error } = await client
@@ -255,16 +270,28 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
     async listRecentFoods(limit) {
       const { data, error } = await client
         .from('food_portions_last')
-        .select('grams, logged_at, foods(*)')
+        .select('grams, unit, logged_at, foods(*)')
         .order('logged_at', { ascending: false })
         .limit(limit);
       if (error) friendly(error);
       return (
-        data as unknown as { grams: number; logged_at: string; foods: FoodRow | null }[]
+        data as unknown as {
+          grams: number;
+          unit: string | null;
+          logged_at: string;
+          foods: FoodRow | null;
+        }[]
       ).flatMap((r) => {
         const food = r.foods?.remembered ? toFood(foodRecordFromRow(r.foods)) : null;
         return food
-          ? [{ food, grams: Number(r.grams), loggedAt: new Date(r.logged_at).toISOString() }]
+          ? [
+              {
+                food,
+                grams: Number(r.grams),
+                unit: unitOf(r.unit),
+                loggedAt: new Date(r.logged_at).toISOString(),
+              },
+            ]
           : [];
       });
     },
@@ -309,6 +336,7 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
         protein_per_100g: input.per100g.protein,
         carbs_per_100g: input.per100g.carbs,
         fat_per_100g: input.per100g.fat,
+        nutrition_unit: input.unit ?? 'g',
         pack_g: input.packGrams ?? null,
         serving_g: input.servingGrams ?? null,
         remembered: input.remembered,

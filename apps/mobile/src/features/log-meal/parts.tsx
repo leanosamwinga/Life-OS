@@ -9,6 +9,8 @@ export function SheetHeader(props: {
   onLeft: () => void;
   title?: string;
   right?: string;
+  /** 7b-T: the chosen time as an outlined chip that opens the picker. */
+  rightChip?: { label: string; a11yLabel: string; onPress: () => void };
 }) {
   return (
     <View style={styles.header}>
@@ -29,7 +31,19 @@ export function SheetHeader(props: {
         </Text>
       ) : null}
       <View style={[styles.headerSide, styles.headerRightWrap]}>
-        {props.right ? (
+        {props.rightChip ? (
+          <Pressable
+            onPress={props.rightChip.onPress}
+            accessibilityRole="button"
+            accessibilityLabel={props.rightChip.a11yLabel}
+            style={styles.headerChip}
+            testID="header-time"
+          >
+            <Text style={styles.headerChipText} numberOfLines={1}>
+              {props.rightChip.label}
+            </Text>
+          </Pressable>
+        ) : props.right ? (
           <Text style={styles.headerRight} numberOfLines={1}>
             {props.right}
           </Text>
@@ -92,20 +106,40 @@ export function TodayBar(props: { logged: number; meal: number; target: number; 
 }
 
 /** Small rounded chip, e.g. "Last time · 60 g". */
-export function Chip(props: { label: string; selected?: boolean; onPress: () => void }) {
+export function Chip(props: {
+  label: string;
+  selected?: boolean;
+  disabled?: boolean;
+  a11yLabel?: string;
+  testID?: string;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       onPress={props.onPress}
+      disabled={props.disabled}
       accessibilityRole="button"
-      accessibilityLabel={props.label}
-      accessibilityState={{ selected: Boolean(props.selected) }}
+      accessibilityLabel={props.a11yLabel ?? props.label}
+      accessibilityState={{
+        selected: Boolean(props.selected),
+        ...(props.disabled ? { disabled: true } : {}),
+      }}
+      testID={props.testID}
       style={({ pressed }) => [
         styles.chip,
         props.selected && styles.chipOn,
         pressed && { opacity: 0.7 },
       ]}
     >
-      <Text style={[styles.chipText, props.selected && styles.chipTextOn]}>{props.label}</Text>
+      <Text
+        style={[
+          styles.chipText,
+          props.selected && styles.chipTextOn,
+          props.disabled && styles.chipTextOff,
+        ]}
+      >
+        {props.label}
+      </Text>
     </Pressable>
   );
 }
@@ -216,6 +250,15 @@ const styles = StyleSheet.create({
   headerLeft: { ...type.body, color: colors.textSecondary },
   headerTitle: { ...type.headline, color: colors.text, flex: 1.4, textAlign: 'center' },
   headerRight: { ...type.callout, color: colors.textSecondary },
+  headerChip: {
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: 'center',
+  },
+  headerChipText: { ...type.callout, fontWeight: '600', color: colors.text },
   tiles: { flexDirection: 'row', gap: space.sm },
   tilesGrey: {},
   tile: {
@@ -250,6 +293,7 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.fill, borderColor: colors.fill },
   chipText: { ...type.callout, color: colors.text },
   chipTextOn: { color: colors.inverseText },
+  chipTextOff: { color: colors.textTertiary },
   segmented: {
     flexDirection: 'row',
     backgroundColor: colors.card,

@@ -265,12 +265,14 @@ and writes `.local-auth/env` (git-ignored, local-only keys). Then:
   water; Apple and Google; wrong method; forgot password; new-device code; signed-in devices;
   change password; delete and keep; export; consent off; an unknown barcode; save to roster only;
   batches (server per-100 g = core, tampering refused, log by the gram, as a component, cook
-  again, stars, another user and consent off). What each sign-off criterion rests on is in
+  again, stars, another user and consent off); custom times, editing and deleting logged meals,
+  and g or ml (server time window, crafted edits refused, a plan meal back as not eaten, a barcode
+  drink per 100 ml, another user and consent off). What each sign-off criterion rests on is in
   `docs/PHASE2-SIGNOFF.md`.
 
 The stack also starts local fakes (`scripts/local-auth/fakes.mjs`): a fake Apple and Google (keys
-made on each start; `auth-api` here trusts only them) and an Open Food Facts that knows no
-barcodes. `LOCAL_FAKES=off npm run local-auth` leaves them out (Apple and Google are then off).
+made on each start; `auth-api` here trusts only them) and an Open Food Facts that knows one
+made-up 330 ml drink (`0000000000962`, nutrition per 100 ml) and no other barcodes. `LOCAL_FAKES=off npm run local-auth` leaves them out (Apple and Google are then off).
 Against `npx supabase start` instead: `E2E_API_URL=http://127.0.0.1:54321 E2E_ANON_KEY=<publishable key>
 E2E_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run test:e2e`.
 
@@ -298,6 +300,17 @@ or used as a component. The cooked weight is estimated from a small table of dry
 (`packages/core/src/batch.ts`) unless you weigh it. Tap a batch on Saved to cook it again;
 meals already logged keep their numbers. Batches are saved only through the `save_batch` Postgres
 function, which recomputes the per-100 g values and refuses any mismatch.
+
+### Times, editing logged meals, g or ml
+
+**Other time…** on Log meal opens a time picker (Today / Yesterday, 24-hour wheels): any time from
+yesterday 00:00 up to an hour from now, checked by `log_meal` too. The meal counts towards its
+Europe/London day. Tap a logged meal on Today to open it: **Edit meal** changes the name, the time
+and each item's g / ml label only (amounts are locked; to change them, delete and log again), and
+**Delete meal** takes it off its day (a plan meal shows as not eaten again). Edits and deletes go
+only through the `update_logged_meal` and `delete_logged_meal` Postgres functions, which refuse
+anything else. Each food is per 100 g or per 100 ml (from Open Food Facts, or chosen on manual
+entry); "how much" has a g / ml switch and 1 ml counts as 1 g.
 
 ### Run the app
 
@@ -327,7 +340,7 @@ npm run mobile
 
 ### Database tests
 
-`supabase/tests/*.test.sql` are pgTAP tests proving owner-only access, the global food cache rules, health-data consent, logging and batches (`save_batch` recomputes and refuses mismatches) and the sign-in tables, hooks, guards and deletion job.
+`supabase/tests/*.test.sql` are pgTAP tests proving owner-only access, the global food cache rules, health-data consent, logging and batches (`save_batch` recomputes and refuses mismatches), the log time window and editing or deleting logged meals (amounts locked, owner and consent only) and the sign-in tables, hooks, guards and deletion job.
 
 - With Docker: `npx supabase start`, then `npx supabase test db`
 - Without Docker: point `DATABASE_URL` at an empty Postgres 15+ database with pgTAP installed and run `npm run test:db`. It loads `scripts/db/supabase-shim.sql` (roles, `auth.users`, `auth.uid()`), applies the migrations, then runs every test file. CI uses this path.

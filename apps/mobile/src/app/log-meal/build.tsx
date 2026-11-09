@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
-import { formatGrams, formatKcal, portionMacros, type Food } from '@life-os/core';
+import {
+  componentUnit,
+  formatAmount,
+  formatKcal,
+  portionMacros,
+  type AmountUnit,
+  type Food,
+} from '@life-os/core';
 import {
   FormMessage,
   FormScreen,
@@ -14,6 +21,7 @@ import { Overline, ToggleRow } from '@/components/ui';
 import { useLogMeal } from '@/features/log-meal/LogMealContext';
 import { closeLogMeal } from '@/features/log-meal/navigation';
 import { FoodName, SheetHeader, TodayBar } from '@/features/log-meal/parts';
+import { TimeSheet } from '@/features/log-meal/TimeSheet';
 import { defaultMealName, isValidTime, loggedAtFor, slotLabel } from '@/features/log-meal/slots';
 import { useSession } from '@/lib/session';
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
@@ -48,6 +56,8 @@ export default function BuildMealScreen() {
   const planFields = editing || saveOnly;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 7b-T: the picker, opened from the time in the header.
+  const [picker, setPicker] = useState<Date | null>(null);
   const backend = session.backend;
 
   const inMeal = new Set(draft.components.map((c) => c.food.id));
@@ -55,8 +65,13 @@ export default function BuildMealScreen() {
   const name = draft.name.trim() || defaultMealName(lm.slot);
   const timeOk = !draft.inDailyPlan || isValidTime(draft.usualTime);
 
-  const openHowMuch = (food: Food, grams: number | null, componentKey?: string) => {
-    lm.setPending({ food, grams, componentKey });
+  const openHowMuch = (
+    food: Food,
+    grams: number | null,
+    componentKey?: string,
+    unit?: AmountUnit,
+  ) => {
+    lm.setPending({ food, grams, componentKey, unit });
     router.push('/log-meal/how-much');
   };
 
@@ -140,6 +155,15 @@ export default function BuildMealScreen() {
           leftLabel="Back to Log meal"
           onLeft={() => router.back()}
           right={editing ? 'Edit meal' : saveOnly ? 'Not logging' : slotLabel(lm.slot)}
+          rightChip={
+            !editing && !saveOnly && lm.slot.name === 'Custom'
+              ? {
+                  label: `${slotLabel(lm.slot, lm.today)} ▾`,
+                  a11yLabel: `Time eaten: ${slotLabel(lm.slot, lm.today)}. Change`,
+                  onPress: () => setPicker(new Date()),
+                }
+              : undefined
+          }
         />
       }
       footer={
@@ -223,14 +247,14 @@ export default function BuildMealScreen() {
           >
             <Pressable
               style={styles.compMain}
-              onPress={() => openHowMuch(c.food, c.grams, c.key)}
+              onPress={() => openHowMuch(c.food, c.grams, c.key, componentUnit(c))}
               accessibilityRole="button"
-              accessibilityLabel={`${c.food.name}, ${formatGrams(c.grams)}. Change amount`}
+              accessibilityLabel={`${c.food.name}, ${formatAmount(c.grams, componentUnit(c))}. Change amount`}
             >
               <FoodName
                 name={c.food.name}
                 batch={Boolean(c.food.batch)}
-                suffix={` · ${formatGrams(c.grams)}`}
+                suffix={` · ${formatAmount(c.grams, componentUnit(c))}`}
                 style={styles.compTitle}
               />
               <Text style={styles.sub}>{macroLine(portionMacros(c.food, c.grams))}</Text>
@@ -255,10 +279,10 @@ export default function BuildMealScreen() {
             {suggestions.map((r) => (
               <Pressable
                 key={r.food.id}
-                onPress={() => lm.addComponent(r.food, r.grams)}
-                onLongPress={() => openHowMuch(r.food, r.grams)}
+                onPress={() => lm.addComponent(r.food, r.grams, undefined, r.unit)}
+                onLongPress={() => openHowMuch(r.food, r.grams, undefined, r.unit)}
                 accessibilityRole="button"
-                accessibilityLabel={`Add ${r.food.name}, ${formatGrams(r.grams)}`}
+                accessibilityLabel={`Add ${r.food.name}, ${formatAmount(r.grams, r.unit)}`}
                 accessibilityHint="Hold to change grams"
                 style={styles.suggestion}
               >
@@ -266,7 +290,7 @@ export default function BuildMealScreen() {
                   <FoodName
                     name={`+ ${r.food.name}`}
                     batch={Boolean(r.food.batch)}
-                    suffix={` · ${formatGrams(r.grams)}`}
+                    suffix={` · ${formatAmount(r.grams, r.unit)}`}
                     style={styles.suggestionText}
                   />
                 </View>
@@ -318,9 +342,10 @@ export default function BuildMealScreen() {
           <Text style={styles.sub}>Not added to today. Log it from Saved when you eat it.</Text>
         ) : (
           <TodayBar
-            logged={lm.progress.kcal.consumed}
+            label={`${lm.mealDay.word} after this meal`}
+            logged={lm.mealDay.progress.kcal.consumed}
             meal={t.kcal}
-            target={lm.progress.kcal.target}
+            target={lm.mealDay.progress.kcal.target}
           />
         )}
       </View>
@@ -355,6 +380,18 @@ export default function BuildMealScreen() {
           last
         />
       )}
+      {lm.slot.name === 'Custom' && lm.slot.date ? (
+        <TimeSheet
+          visible={picker !== null}
+          now={picker ?? new Date()}
+          start={{ date: lm.slot.date, time: lm.slot.time }}
+          onCancel={() => setPicker(null)}
+          onDone={(date, time) => {
+            lm.setSlot({ name: 'Custom', date, time });
+            setPicker(null);
+          }}
+        />
+      ) : null}
     </FormScreen>
   );
 }

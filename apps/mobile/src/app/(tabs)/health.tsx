@@ -3,13 +3,15 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   dayProgress,
-  formatGrams,
+  componentUnit,
+  formatAmount,
   formatKcal,
   formatMl,
   formatTimeUK,
   nextSplitDay,
   sumMacros,
   toLondonDate,
+  type AmountUnit,
   type DayProgress,
   type MealLog,
 } from '@life-os/core';
@@ -224,10 +226,10 @@ function Bar({
   );
 }
 
-const describe = (items: { foodName: string; grams: number }[]) =>
+const describe = (items: { foodName: string; grams: number; unit?: AmountUnit }[]) =>
   items
     .slice(0, 3)
-    .map((i) => `${i.foodName} ${formatGrams(i.grams)}`)
+    .map((i) => `${i.foodName} ${formatAmount(i.grams, i.unit ?? 'g')}`)
     .join(' · ');
 
 /** Plan meals (eaten or not) and other meals logged today, under the macro bars. */
@@ -253,7 +255,13 @@ function MealList({ progress, roster }: { progress: DayProgress; roster: RosterM
             key: m.id,
             done: false,
             title: m.name,
-            sub: describe(m.components.map((c) => ({ foodName: c.food.name, grams: c.grams }))),
+            sub: describe(
+              m.components.map((c) => ({
+                foodName: c.food.name,
+                grams: c.grams,
+                unit: componentUnit(c),
+              })),
+            ),
             kcal: sumMacros(m.components).kcal,
           };
     }),

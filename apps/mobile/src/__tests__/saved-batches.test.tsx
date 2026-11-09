@@ -438,7 +438,7 @@ describe('7f Batch builder', () => {
     await press('Save and log some');
     expect(await screen.findByTestId('screen-how-much-batch')).toBeTruthy();
     expect(screen.getByText('Your batch · cooked Sun 8 Nov · ≈ 1,000 g estimated')).toBeTruthy();
-    await fireEvent.changeText(screen.getByLabelText('Grams or millilitres'), '250');
+    await fireEvent.changeText(screen.getByLabelText('Grams'), '250');
     await press('Log it · 330 kcal');
     await screen.findByTestId('screen-today');
     const batch = mockBackend.state.foods.find((f) => f.name === 'Lentil dal')!;
@@ -583,9 +583,14 @@ describe('7h How much — a batch on its own', () => {
     expect(screen.getByText('Breakfast · 08:00')).toBeTruthy();
     expect(screen.getByText('Your batch · cooked Sun 8 Nov · weighed 1,310 g')).toBeTruthy();
     expect(screen.getByText('Per 100 g: 136 kcal · P 4.0 · C 23.2 · F 2.6')).toBeTruthy();
-    expect(screen.getByLabelText('Grams or millilitres').props.value).toBe('350');
+    expect(screen.getByLabelText('Grams').props.value).toBe('350');
     expect(screen.getByRole('button', { name: 'Last time · 350 g' })).toBeTruthy();
-    expect(screen.getByText('g (or ml)')).toBeTruthy();
+    // 7h-U: opens in g (a batch is per 100 g), with no ≈ line.
+    expect(
+      screen.getByRole('radio', { name: 'Egg fried rice in grams' }).props.accessibilityState
+        .checked,
+    ).toBe(true);
+    expect(screen.queryByText('≈ 1 ml counts as 1 g')).toBeNull();
     expect(
       screen.getByText(/350 g × per-100 g values ÷ 100 · weigh what’s on your plate/),
     ).toBeTruthy();
@@ -599,13 +604,21 @@ describe('7h How much — a batch on its own', () => {
     });
   });
 
-  it('liquid: "1 ml counts as 1 g"; "Add to a meal instead" opens 7b with it', async () => {
+  it('7h-U soup in ml: ≈ line, same numbers; "Add to a meal instead" keeps ml', async () => {
     await start(batchState());
     await openSaved();
     await press('Log Lentil soup');
     await screen.findByTestId('screen-how-much-batch');
     expect(screen.getByText('Your batch · cooked Thu 5 Nov · ≈ 1,760 g estimated')).toBeTruthy();
-    expect(screen.getByText(/300 g × per-100 g values ÷ 100 · 1 ml counts as 1 g/)).toBeTruthy();
+    expect(screen.getByText('300 g × per-100 g values ÷ 100')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('radio', { name: 'Lentil soup in millilitres' }));
+    expect(screen.getByText('≈ 1 ml counts as 1 g')).toBeTruthy();
+    expect(screen.getByLabelText('Millilitres').props.value).toBe('300');
+    expect(screen.getByText('300 ml × per-100 g values ÷ 100')).toBeTruthy();
+    // Last time stays in its own unit and isn't the choice any more.
+    expect(
+      screen.getByRole('button', { name: 'Last time · 300 g' }).props.accessibilityState.selected,
+    ).toBe(false);
     expect(
       screen.getByLabelText(/^177 kcal, protein 11.1 g, carbs 23.4 g, fat 3.3 g$/),
     ).toBeTruthy();
@@ -613,7 +626,7 @@ describe('7h How much — a batch on its own', () => {
     await press('Add to a meal instead');
     await screen.findByTestId('screen-build-meal');
     expect(screen.getByText('Lentil soup')).toBeTruthy();
-    expect(screen.getByText(' · 300 g', { exact: false })).toBeTruthy();
+    expect(screen.getByText(' · 300 ml', { exact: false })).toBeTruthy();
   });
 });
 

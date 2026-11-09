@@ -136,3 +136,54 @@ export function addDays(date: LocalDate, days: number): LocalDate {
   const t = new Date(Date.UTC(d.year, d.month - 1, d.day + days, 12));
   return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`;
 }
+
+// ---------------------------------------------------------------------------
+// When a meal can be logged for (wireframe 7i): from yesterday 00:00 up to an hour from now.
+// log_meal and update_logged_meal enforce the same window in Postgres.
+// ---------------------------------------------------------------------------
+
+/** How far ahead of now a meal may be logged. */
+export const LOG_AHEAD_MINUTES = 60;
+
+export interface LogWindow {
+  /** Today and yesterday as Europe/London dates. */
+  today: LocalDate;
+  yesterday: LocalDate;
+  /** Yesterday 00:00 in Europe/London. */
+  earliest: Instant;
+  /** An hour from now, to the minute. */
+  latest: Instant;
+}
+
+/** The window a meal's time must fall in, as of `now`. */
+export function logWindow(now: Date | Instant): LogWindow {
+  const d = toInstantDate(now);
+  const today = toLondonDate(d);
+  const yesterday = addDays(today, -1);
+  const minute = Math.floor(d.getTime() / 60000) * 60000;
+  return {
+    today,
+    yesterday,
+    earliest: londonDateTimeToInstant(yesterday, '00:00'),
+    latest: new Date(minute + LOG_AHEAD_MINUTES * 60000).toISOString(),
+  };
+}
+
+/** Whether an instant is inside the log window (both ends included). */
+export function isInLogWindow(at: Date | Instant, now: Date | Instant): boolean {
+  const w = logWindow(now);
+  const t = toInstantDate(at).getTime();
+  return t >= Date.parse(w.earliest) && t <= Date.parse(w.latest);
+}
+
+/**
+ * The latest `HH:MM` that may be picked on a day in the window: an hour from now on the day
+ * that hour falls on, 23:59 on a day before it. `null` for a day after it.
+ */
+export function latestTimeOn(date: LocalDate, now: Date | Instant): LocalTime | null {
+  const w = logWindow(now);
+  const latestDate = toLondonDate(w.latest);
+  if (date < latestDate) return '23:59';
+  if (date === latestDate) return toLondonTime(w.latest);
+  return null;
+}

@@ -3,6 +3,66 @@
 - Run started: Sat 7 Nov 2026, 00:45 (Europe/London). Branch `claude/phase2-sign-in-v3`.
 - Environment: Docker client present but no daemon (`/var/run/docker.sock` missing) → Supabase CLI stack cannot run. Plan: Supabase Auth (GoTrue) release binary + local Postgres 16 + Mailpit binary.
 
+## Log meal: custom time, edit and delete, g or ml (Mon 9 Nov 2026)
+
+Branch `claude/log-meal-time-edit-units`. Criteria M1–M16 and the proof for each are in
+`docs/PHASE2-SIGNOFF.md` › "M · Log meal: custom time, edit and delete, g or ml".
+
+New tests:
+
+- **core** `mealedit.test.ts` (18) and `logwindow.test.ts` (8): the picker's limits (14:40 at 13:40,
+  23:59 on yesterday, struck-out values, held to the latest), its words, where it opens; day
+  boundaries — yesterday 23:59 vs today 00:00, just after midnight, late evening, summer time, the
+  October change (01:30 happens twice) and the March change (01:30 doesn't exist); 7k's move note,
+  7l's sums and the plan note; the ≈ line, the formula and "bottle".
+- **pgTAP** `09_log_meal_time_edit_units.test.sql` (63): units on foods, items, saved components
+  and last portions (defaults g); the window in `log_meal` and on retime; `update_logged_meal` —
+  name, time, units only, keys other than position/unit refused (amounts, kcal, food), unknown
+  items refused; `delete_logged_meal`; direct updates and deletes of logs and items refused; meals
+  before yesterday locked; another user; consent off for edits and deletes; SECURITY INVOKER,
+  nothing for `anon`.
+- **jest** `time-edit-units.test.tsx` (22): every new wireframe state (7a-T ×2, 7i ×3 including
+  VoiceOver swipes, 7b-T, 1B before/after, 7j ×3, 7k ×4 including saving, 7l ×2 plus cancel, 7d-U ×2,
+  7e-U), a link to a deleted meal, consent off; 7h-U in `saved-batches.test.tsx`; `amounts.test.ts`
+  for units.
+- **functions** `mapping.test.ts`: Open Food Facts' own basis (v3.5 input sets, `nutrition_data_per`)
+  over the pack's unit; missing stays null.
+- **e2e** (7 more, 29 in all): T1 custom time → London day and time order; T2 server refuses out of
+  window (app and raw Data API); T3–T4 rename and retime touch only the log, totals move; T5
+  crafted edits and raw writes can't change amounts; T6 delete, plan meal back as not eaten; T7–T8
+  barcode drink per 100 ml (a fake 330 ml shake in the local Open Food Facts stand-in), unit switch
+  changes no numbers; T9–T10 another user, consent off.
+
+What looking at it found and what was fixed (headless Chrome, 390 × 844, web against the local
+stack: 7a-T, 7i default / limit / yesterday, 7a-T chosen, 7b-T, 7d-U ml and g, 7j, 7k-U, 7k moved,
+7l, 1B after the move and after "Ate it", 7e-U, the food list):
+
+| Found                                                                                                                | Fix                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| The g / ml switch on 7d-U was shorter than the big amount field                                                      | the switch is as tall as the field (7d-U, 7h-U); a full-width size for 7e-U                                       |
+| 7k: "Change ›" wrapped under "Yesterday · Sun 8 Nov · 21:30"; auto-shrinking text isn't on the web (it hid the time) | 16 pt for that row; the time is never truncated                                                                   |
+| The food list said "62 kcal per 100 g" for a drink                                                                   | per 100 ml (test added)                                                                                           |
+| The serving hint on 7e said "per 100 g" with per 100 ml chosen                                                       | follows the label's unit                                                                                          |
+| `expo start` writes typed routes (`.expo/types`) under which three existing lines in `_layout.tsx` don't typecheck   | not part of this change and not in CI (the file isn't generated there); left as is and the generated file removed |
+
+### Checks (Mon 9 Nov 2026, this branch)
+
+| Check                                                        | Result                                                                            |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `npm run lint` · `format:check` · `typecheck`                | ✅                                                                                |
+| `npm test` (core · functions · scripts · mobile)             | ✅ 119 · 45 · 13 · 193                                                            |
+| `npm run test:db` (Postgres 16 + pgTAP, fresh database)      | ✅ 9 files; `09_log_meal_time_edit_units` 63                                      |
+| `npm run test:integration` (real Supabase Auth, fresh stack) | ✅ 42                                                                             |
+| `npm run test:e2e`, three runs back to back                  | ✅ 29 · 29 · 29 (~40 s each)                                                      |
+| `deno check` food-lookup and auth-api                        | ✅                                                                                |
+| `npx expo export` ios · web · android                        | ✅                                                                                |
+| `npm run doctor -- --simulator` against the local stack      | ✅ "All good."                                                                    |
+| `database.types.ts`                                          | ✅ regenerated (`npx supabase gen types typescript --db-url`), additive diff only |
+| CI on PR #9 (lint/typecheck/unit, Deno check, database)      | ✅                                                                                |
+
+Not run here: anything that needs the iPhone (M14 look and feel on the phone, M15 VoiceOver and
+largest text) — the checklist in `docs/PHASE2-SIGNOFF.md`.
+
 ## Log meal: Saved tab and batches (Sun 8 Nov 2026)
 
 Branch `claude/log-meal-saved-batches`. Criteria L1–L13 and the proof for each are in

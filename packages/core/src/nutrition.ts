@@ -1,4 +1,5 @@
 import type {
+  AmountUnit,
   DailyTargets,
   Food,
   FoodRecord,
@@ -94,9 +95,19 @@ export function snapshotComponents(components: readonly MealComponent[]): MealLo
     foodId: c.food.id,
     foodName: c.food.name,
     grams: c.grams,
+    unit: componentUnit(c),
     macros: portionMacros(c.food, c.grams),
   }));
 }
+
+/** A food's nutrition unit: per 100 g unless it says ml. */
+export const foodUnit = (food: Pick<Food, 'unit'>): AmountUnit => food.unit ?? 'g';
+
+/** A component's amount label: its own, else its food's. */
+export const componentUnit = (c: Pick<MealComponent, 'food' | 'unit'>): AmountUnit =>
+  c.unit ?? foodUnit(c.food);
+
+export const isAmountUnit = (v: unknown): v is AmountUnit => v === 'g' || v === 'ml';
 
 /**
  * Turn a stored food record into a loggable `Food`, or `null` if kcal or any headline
@@ -122,6 +133,7 @@ export function toFood(record: FoodRecord & { id: string }): Food | null {
       sugar: record.sugarPer100g,
       salt: record.saltPer100g,
     },
+    unit: record.nutritionUnit ?? 'g',
     packGrams: record.packGrams ?? null,
     servingGrams: record.servingGrams ?? null,
     ...(record.batch ? { batch: record.batch } : {}),

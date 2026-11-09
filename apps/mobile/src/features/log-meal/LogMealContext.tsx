@@ -2,11 +2,15 @@ import { createContext, useContext, useMemo, useRef, useState, type ReactNode } 
 import {
   addDays,
   dayProgress,
+  foodUnit,
+  formatDateUK,
   guessCooksAs,
+  latestTimeOn,
   londonDateTimeToInstant,
   sumMacros,
   toLondonDate,
   toLondonTime,
+  type AmountUnit,
   type BatchIngredient,
   type CooksAs,
   type DayProgress,
@@ -21,7 +25,7 @@ import type { RosterMeal, SavedBatch, StoredFood } from '@/lib/backend/foods';
 import { targetsForProgress } from '@/lib/backend/settings';
 import type { RecentFood } from '@/lib/backend/types';
 import { useSession } from '@/lib/session';
-import { defaultSlot, type MealSlot } from './slots';
+import { defaultSlot, slotDate, type MealSlot } from './slots';
 
 export interface DraftComponent extends MealComponent {
   key: string;
@@ -67,6 +71,8 @@ export interface PendingFood {
   from?: 'scan' | 'search' | 'suggestion' | 'component' | 'manual' | 'batch';
   /** Batch ingredients: the ratio chosen so far (7f). */
   cooksAs?: CooksAs;
+  /** The amount's unit when changing an existing component (else the food's own). */
+  unit?: AmountUnit;
 }
 
 /** What the manual entry screen (7e) starts from. */
@@ -95,6 +101,11 @@ export interface LogMealValue {
   data: LogMealData;
   /** Today's totals before this meal. */
   progress: DayProgress;
+  /**
+   * The day the meal is being logged for (yesterday after a picked time) and its totals before
+   * this meal; `word` is "Today" or e.g. "Sun 8 Nov" for the "… after this meal" bars.
+   */
+  mealDay: { date: string; word: string; progress: DayProgress };
   slot: MealSlot;
   setSlot(slot: MealSlot): void;
   /** 7a's tabs: "Plan & recent" or "Saved". */
@@ -111,8 +122,8 @@ export interface LogMealValue {
   /** 7g: last time's ingredients pre-filled; the weighed field starts empty (a new pot). */
   startCookAgain(batch: SavedBatch): void;
   updateDraft(patch: Partial<Omit<MealDraft, 'components'>>): void;
-  addComponent(food: Food, grams: number, cooksAs?: CooksAs): void;
-  updateComponent(key: string, grams: number, cooksAs?: CooksAs): void;
+  addComponent(food: Food, grams: number, cooksAs?: CooksAs, unit?: AmountUnit): void;
+  updateComponent(key: string, grams: number, cooksAs?: CooksAs, unit?: AmountUnit): void;
   removeComponent(key: string): void;
 
   pending: PendingFood | null;
@@ -121,6 +132,8 @@ export interface LogMealValue {
   setManual(m: ManualPrefill | null): void;
   /** The amount the user had last time for a food, if any. */
   lastGrams(foodId: string): number | null;
+  /** The amount last time and the unit it was logged in ("Last time · 330 ml"). */
+  lastPortion(foodId: string): { grams: number; unit: AmountUnit } | null;
 }
 
 const EMPTY_DATA: LogMealData = { logs: [], roster: [], batches: [], recentFoods: [] };
@@ -181,27 +194,27 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
   );
   const data = state.data ?? EMPTY_DATA;
 
-  const progress = dayProgress(
-    { meals: data.logs },
-    targetsForProgress(
-      session.settings?.targets ?? {
-        kcal: null,
-        protein: null,
-        carbs: null,
-        fat: null,
-        waterMl: null,
-        steps: null,
-      },
-    ),
-    today,
+  const targets = targetsForProgress(
+    session.settings?.targets ?? {
+      kcal: null,
+      protein: null,
+      carbs: null,
+      fat: null,
+      waterMl: null,
+      steps: null,
+    },
   );
+  const progress = dayProgress({ meals: data.logs }, targets, today);
 
   const [chosenSlot, setSlot] = useState<MealSlot | null>(null);
   const [tab, setTab] = useState<LogMealTab>('plan');
   const loggedPlanIds = new Set(
     progress.meals.map((m) => m.savedMealId).filter(Boolean) as string[],
   );
-  const slot = chosenSlot ?? defaultSlot(data.roster, loggedPlanIds, toLondonTime(now));
+  // A plan slot more than an hour ahead can't be logged yet (core latestTimeOn), so it isn't the default.
+  const slot =
+    chosenSlot ??
+    defaultSlot(data.roster, loggedPlanIds, toLondonTime(now), latestTimeOn(today, now) ?? '23:59');
 
   const [draft, setDraft] = useState<MealDraft>(blankDraft);
   const [pending, setPending] = useState<PendingFood | null>(null);
@@ -218,6 +231,16 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
     progress,
     slot,
     setSlot,
+    mealDay: (() => {
+      const date = slotDate(slot, today);
+      return date === today
+        ? { date, word: 'Today', progress }
+        : {
+            date,
+            word: formatDateUK(date),
+            progress: dayProgress({ meals: data.logs }, targets, date),
+          };
+    })(),
     tab,
     setTab,
     draft,
@@ -243,21 +266,23 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
         })),
       }),
     updateDraft: (patch) => setDraft((d) => ({ ...d, ...patch })),
-    addComponent: (food, grams, cooksAs) =>
+    addComponent: (food, grams, cooksAs, unit) =>
       setDraft((d) => ({
         ...d,
         components: [
           ...d.components,
           d.kind === 'batch'
             ? { key: key(), food, grams, cooksAs: cooksAs ?? guessCooksAs(food.name) }
-            : { key: key(), food, grams },
+            : { key: key(), food, grams, unit: unit ?? foodUnit(food) },
         ],
       })),
-    updateComponent: (k, grams, cooksAs) =>
+    updateComponent: (k, grams, cooksAs, unit) =>
       setDraft((d) => ({
         ...d,
         components: d.components.map((c) =>
-          c.key === k ? { ...c, grams, ...(cooksAs ? { cooksAs } : {}) } : c,
+          c.key === k
+            ? { ...c, grams, ...(cooksAs ? { cooksAs } : {}), ...(unit ? { unit } : {}) }
+            : c,
         ),
       })),
     removeComponent: (k) =>
@@ -267,6 +292,10 @@ export function LogMealProvider({ children }: { children: ReactNode }) {
     manual,
     setManual,
     lastGrams: (foodId) => data.recentFoods.find((r) => r.food.id === foodId)?.grams ?? null,
+    lastPortion: (foodId) => {
+      const r = data.recentFoods.find((x) => x.food.id === foodId);
+      return r ? { grams: r.grams, unit: r.unit } : null;
+    },
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
