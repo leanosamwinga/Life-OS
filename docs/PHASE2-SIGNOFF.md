@@ -1,7 +1,7 @@
 # Phase 2 sign-off
 
-Branch `claude/phase2-sign-in-v3` · PR #7 (merged) · updated Sun 8 Nov 2026 on
-`claude/log-meal-saved-batches`, which adds [section L](#l--log-meal-saved-tab-and-batches).
+**Phase 2 closed Tue 10 Nov 2026** after PR #11 was merged (see [K · Close-out](#k--close-out)).
+Branch `claude/phase2-sign-in-v3` · PR #7 (merged) · follow-ups in sections L–O (PRs #8–#11, merged).
 
 Each criterion is one of:
 
@@ -138,11 +138,21 @@ can eat the same thing twice).
 
 ## K · Close-out
 
-| ID  | Criterion                                      | Status | Notes                                                                   |
-| --- | ---------------------------------------------- | ------ | ----------------------------------------------------------------------- |
-| K1  | every ☐ ticked or moved to a named later phase | ✅     | C1 and C2 moved to phase 7 (Sun 8 Nov); J1 and J2 passed on your phone. |
-| K2  | PR #7 merged by you                            | ✅     | Merged Sun 8 Nov.                                                       |
-| K3  | deferred items recorded                        | ✅     | Below and in `docs/SPEC-QUESTIONS.md`.                                  |
+| ID  | Criterion                                         | Status | Notes                                                                      |
+| --- | ------------------------------------------------- | ------ | -------------------------------------------------------------------------- |
+| K1  | every ☐ ticked or moved to a named later phase    | ✅     | C1 and C2 moved to phase 7 (Sun 8 Nov); J1 and J2 passed on your phone.    |
+| K2  | PR #7 merged by you                               | ✅     | Merged Sun 8 Nov.                                                          |
+| K3  | deferred items recorded                           | ✅     | Below and in `docs/SPEC-QUESTIONS.md`.                                     |
+| K4  | log meal and water follow-ups merged (PRs #8–#11) | ✅     | #11, the last, merged Tue 10 Nov (`e61e1d4`); CI green.                    |
+| K5  | Phase 2 closed by you                             | ✅     | Tue 10 Nov 2026. No ☐ rows open. 📱 rows not yet ticked are carried below. |
+
+**Phone checks carried into Phase 3 (K5).** These rows stay 📱: each is proved by the automated
+tests named in its row, and still wants a pass on a real iPhone. Do them in Phase 3's first phone
+session and tick them here: A1, A4 (setup); B1, B2, B3, B5 (sign-in); E3 (network error); G1
+(onboarding); H1, H2 (log meal, real barcode); I1 (Today rings and timeline); N4 (Daily targets
+header); and the wireframe, VoiceOver and largest-text passes L11, L12, M14, M15, N17, O15. On Tue 10
+Nov the 7b-T2 chip and 7i from it were seen working on your iPhone (part of O's checklist, steps 1
+and 3); O15 itself (VoiceOver, largest text) is still to do.
 
 **Deferred (K3)**
 
@@ -154,6 +164,7 @@ can eat the same thing twice).
 | Web hosting, web Apple/Google (D3)              | SPEC-QUESTIONS Q-HOSTING              | 7                                                                            |
 | Development build and Google on iPhone (C1, C2) | your Apple Developer account          | 7 (TestFlight)                                                               |
 | Android Apple/Google screens                    | SPEC-QUESTIONS Q-ANDROID (decision 9) | the Android release, after phase 7 (the plan is iOS, then web, then Android) |
+| Phone checks still 📱 (K5 list above)           | each row's own checklist step         | 3 (first phone session)                                                      |
 
 ## Morning checklist (Phase 2 sign-in)
 
