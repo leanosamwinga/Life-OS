@@ -3,6 +3,67 @@
 - Run started: Sat 7 Nov 2026, 00:45 (Europe/London). Branch `claude/phase2-sign-in-v3`.
 - Environment: Docker client present but no daemon (`/var/run/docker.sock` missing) → Supabase CLI stack cannot run. Plan: Supabase Auth (GoTrue) release binary + local Postgres 16 + Mailpit binary.
 
+## Build meal: time at any point, keep the draft (Tue 10 Nov 2026)
+
+Branch `claude/build-meal-time-and-draft`, after PR #10 was merged into main (checked: the PR's
+head is an ancestor of `origin/main`, merge commit `15c1b00`). Criteria O1–O16 and the proof for
+each are in `docs/PHASE2-SIGNOFF.md` › "O · Build meal: set the time at any point, keep the draft".
+No schema change, so no new pgTAP.
+
+New tests:
+
+- **unit** `features/log-meal/slots.test.ts` (+6): the WHEN choices in order with 7a's labels;
+  greyed more than an hour ahead (an hour exactly still allowed) with the VoiceOver reason; the
+  selected choice for Now, a slot and a picked time (Other time… then); 7b's chip label equal to
+  7a's; 7b-W's quiet line with and without greyed slots; where 7i opens.
+  `features/log-meal/draft.test.ts` (3): what is kept (components or a typed name; default name),
+  what never is (empty, batch, roster edit, corrected copy), and the discard question (2, 1, 0
+  components).
+- **jest** `build-meal-time-draft.test.tsx` (25): 7b-T2 chip from Now, a slot and a custom time;
+  none in edit-roster and save-only ("Log it instead" brings it back); 7b-W rows, ✓, quiet line;
+  greyed slots unpickable; a slot picked keeps name, components, amounts and units (one in ml)
+  while the chip, bar and default name follow; Other time… → 7i → Yesterday 21:15 → Done (chip,
+  "Sun 8 Nov after this meal", 772 / 2,450 kcal) and logged at 2026-11-08T21:15Z with the same
+  components; Cancel in 7b-W and in 7i; the corrected copy's chip and bar (original left out, then
+  on yesterday); 7a-C card, Continue, default name, a name alone, no card when empty, WHEN chip
+  changing the kept meal's time, roster edits not kept; asking before build from scratch, roster
+  Log, Log again, batch builder and roster edit (Keep it and Discard), nothing asked without a kept
+  meal; cleared after logging, save-only and Cancel; consent off. Two older tests updated for the
+  chip (`saved-batches` 7b-R header, `time-edit-units` 7b-T now via 7b-W).
+- **e2e** (2 more, 37 in all): W1 a meal built at Now, kept, its time changed to yesterday 21:15 as
+  7b does it, logged through the app's backend → on yesterday at 21:15 with the same components,
+  amounts and units (one in ml) and server-recomputed kcal, not on today; W2 a slot more than an hour
+  ahead forced through the Data API (`rpc/log_meal`) → 400 / 22023, and through the app → refused,
+  nothing written. (Run after 22:30, no slot can be ahead today, so W2 uses the same time 90 minutes
+  ahead; earlier in the day it takes the time of a greyed plan dinner from `whenChoices`.)
+
+What looking at it found and what was fixed (headless Chrome, 390 × 844, web against the local
+stack, signed in as the seeded account, the browser clock held at 13:40 so later slots are greyed:
+7a, 7b-T2 from Now with two components, 7b-W, 7i on Yesterday, 7b-T2 after the change, 7b-W with
+a picked time, 7a-C, the web discard question):
+
+| Found                                                                | Fix                                                 |
+| -------------------------------------------------------------------- | --------------------------------------------------- |
+| the chip's ▾ was as big as the time (the wireframe draws it smaller) | ▾ at 11 pt inside the chip; checked again in Chrome |
+
+Everything else matched the wireframes: chip outline and placement, 7b-W rows, greyed slots, ✓ and
+the quiet line, "Sun 8 Nov after this meal", the 7a-C card and the line under the build buttons.
+
+### Checks (Tue 10 Nov 2026, this branch)
+
+| Check                                                               | Result                                                                             |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `npm run lint` · `format:check` · `typecheck`                       | ✅                                                                                 |
+| `npx tsc --noEmit` in apps/mobile with `.expo/types` (typed routes) | ✅                                                                                 |
+| `npm test` (core · functions · scripts · mobile)                    | ✅ 136 · 45 · 18 · 259                                                             |
+| `npm run test:db` (plain Postgres 16 + pgTAP, fresh database)       | ✅ 319 ok, 0 not ok                                                                |
+| `npm run test:integration` (local stack)                            | ✅ 42                                                                              |
+| `npm run test:e2e`, three runs back to back                         | ✅ 37 · 37 · 37                                                                    |
+| `deno check` food-lookup · auth-api                                 | ✅ both                                                                            |
+| `npx expo export` ios · web · android                               | ✅ all three                                                                       |
+| `npm run doctor` against the local stack                            | ✅ all but "from the phone": the stack here listens on 127.0.0.1 only (see the PR) |
+| CI                                                                  | not checked from here: this session had no GitHub API access (see the PR)          |
+
 ## Log meal and water follow-ups (Mon 9 Nov 2026)
 
 Branch `claude/log-meal-and-water-follow-ups`, after PR #9 was merged into main. Criteria N1–N18
