@@ -3,6 +3,8 @@ import {
   formatDateUK,
   isInLogWindow,
   londonDateTimeToInstant,
+  pickerStart,
+  toLondonTime,
   type Instant,
   type LocalDate,
   type LocalTime,
@@ -114,3 +116,76 @@ export const defaultMealName = (slot: MealSlot): string =>
   slot.name === 'Now' || slot.name === 'Custom' ? slotForTime(slot.time) : slot.name;
 
 export const isValidTime = (t: string): boolean => /^([01]\d|2[0-3]):[0-5]\d$/.test(t.trim());
+
+// ---------------------------------------------------------------------------
+// The WHEN choices, shared by 7a's chips and 7b-W's sheet: one list, one rule for which are greyed,
+// one rule for which is selected.
+// ---------------------------------------------------------------------------
+
+/** One of Now and the four slots, as 7a's WHEN chips and 7b-W's rows show it. */
+export interface WhenChoice {
+  slot: MealSlot;
+  /** 7a's chip text: "Now · 13:40", "Lunch 12:30". */
+  label: string;
+  /** VoiceOver: the label, plus ", more than an hour from now" when greyed. */
+  a11yLabel: string;
+  /** More than an hour ahead: greyed and can't be chosen (core `isInLogWindow`). */
+  disabled: boolean;
+  selected: boolean;
+}
+
+/** Now and the four slots, in that order, with plan meals' usual times. */
+export function whenChoices(
+  planMeals: readonly SavedMeal[],
+  current: MealSlot,
+  today: LocalDate,
+  now: Date,
+): WhenChoice[] {
+  return slotOptions(planMeals, toLondonTime(now)).map((slot) => {
+    const ok = slotInWindow(slot, today, now);
+    const label = chipLabel(slot);
+    return {
+      slot,
+      label,
+      a11yLabel: ok ? label : `${label}, more than an hour from now`,
+      disabled: !ok,
+      selected: sameSlot(slot, current),
+    };
+  });
+}
+
+/**
+ * The time eaten as an outlined chip with ▾: 7b-T2's header, and 7a's "Other time…" chip once a
+ * time has been picked. "Now · 13:40 ▾", "Lunch · 12:30 ▾", "Yesterday · 21:15 ▾".
+ */
+export const timeChip = (
+  slot: MealSlot,
+  today: LocalDate,
+): { label: string; a11yLabel: string } => ({
+  label: `${slotLabel(slot, today)} ▾`,
+  a11yLabel: `Time eaten: ${slotLabel(slot, today)}. Change`,
+});
+
+/** The last choice: "Other time…", or the picked time once there is one. */
+export function otherTimeChoice(
+  current: MealSlot,
+  today: LocalDate,
+): { selected: boolean; picked: string | null } {
+  const custom = current.name === 'Custom';
+  return { selected: custom, picked: custom ? slotLabel(current, today) : null };
+}
+
+/** 7b-W's quiet line: the meal is kept; the second sentence only when some slots are greyed. */
+export const whenSheetNote = (choices: readonly WhenChoice[]): string =>
+  choices.some((c) => c.disabled)
+    ? 'Your meal stays as it is. Later slots are more than an hour away.'
+    : 'Your meal stays as it is.';
+
+/**
+ * Where 7i opens: on Today at now from Now or a slot (core `pickerStart`), on the meal's own day and
+ * time for a picked time.
+ */
+export const pickerFrom = (slot: MealSlot, now: Date): { date: LocalDate; time: LocalTime } =>
+  slot.name === 'Custom' && slot.date
+    ? { date: slot.date, time: slot.time }
+    : pickerStart(now, now);

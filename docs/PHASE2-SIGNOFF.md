@@ -640,3 +640,103 @@ first (the commands are in the PR). `db reset` erases local accounts: sign in as
     as a corrected copy, both water sheets — nothing cut off or overlapping. Back to the default.
 
 Tick 📱 → ✅ for N4 and N17 when done.
+
+## O · Build meal: set the time at any point, keep the draft
+
+After PR #10, on `claude/build-meal-time-and-draft`, from the wireframes "Life OS — 7b time at any
+point and keep the draft" (https://claude.ai/artifact/2yFWsxcqe4vzFkkyKudCvM: 7b-T2, 7b-W, 7b-T2
+time changed, 7a-C and the notes under each). No schema change. Tests: `jest` =
+`apps/mobile/src/__tests__/build-meal-time-draft.test.tsx`; `unit` =
+`apps/mobile/src/features/log-meal/slots.test.ts` and `draft.test.ts`; `e2e` = W1–W2 in
+`e2e/phone.e2e.test.ts`.
+
+| ID  | Criterion                                                                                                                                                                                                  | Status | Proof                                                                                                                                                                |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| O1  | 7b-T2: in log mode the time is always an outlined chip with ▾ ("Now · 13:40 ▾", "Lunch · 12:30 ▾", "Yesterday · 21:15 ▾"), label "Time eaten: …. Change"                                                   | ✅     | `jest` › "7b-T2 … from Now" · "from a slot …" · "from a custom time picked on 7a"; `unit` › "7b’s chip has the same label as 7a’s chip …"; Chrome 390 × 844          |
+| O2  | edit-roster and "Save to roster only" keep their plain text ("Edit meal", "Not logging"); a corrected copy keeps its chip                                                                                  | ✅     | `jest` › "no chip when editing a roster meal or saving to the roster only" · "7b-T2 for a corrected copy …"                                                          |
+| O3  | the chip opens 7b-W: Cancel, "Time eaten", Now and the four slots with their times, "Other time… ›", ✓ on the current choice, the quiet line                                                               | ✅     | `jest` › "opens from the chip with Now, the four slots and Other time…"; `unit` › "Now first, then the four slots …" · "7b-W’s quiet line …"; Chrome                 |
+| O4  | slots more than an hour ahead are greyed and can't be chosen (same rule and labels as 7a); the server refuses them if forced                                                                               | ✅     | `unit` › "greys slots more than an hour ahead …"; `jest` › "greyed slots can’t be chosen"; `e2e` › "W2: …"                                                           |
+| O5  | picking a row sets the time and closes the sheet; the chip, the "… after this meal" bar and the default name follow; the typed name, components, amounts and units are kept                                | ✅     | `jest` › "a slot picked closes the sheet; components, amounts, units and the name are kept"                                                                          |
+| O6  | "Other time…" → 7i (Today at now from Now or a slot, the meal's own day for a picked time) → Done sets the time ("Yesterday · 21:15 ▾", "Sun 8 Nov after this meal"); Cancel in 7b-W or 7i changes nothing | ✅     | `jest` › "Other time… → 7i → Yesterday 21:15 → Done …" · "Cancel in 7b-W and Cancel in 7i change nothing"; `unit` › "7i opens on Today at now …"                     |
+| O7  | a meal built, its time changed to yesterday from 7b, logged → lands on yesterday with the same components; the server accepts the changed time                                                             | ✅     | `e2e` › "W1: …"; `jest` › "Other time… → 7i → Yesterday 21:15 → Done; logging lands on yesterday …"                                                                  |
+| O8  | a corrected copy's chip changes its time; its bar still leaves the original out                                                                                                                            | ✅     | `jest` › "7b-T2 for a corrected copy …"                                                                                                                              |
+| O9  | 7a-C: "‹ Log meal" with a component or a typed name keeps the meal: "NOT LOGGED YET", its name (or the default), "N components · X kcal", Continue                                                         | ✅     | `jest` › "going back with components shows the card …" · "no name typed …" · "a typed name alone is kept; an empty draft is not"; `unit` › "7a-C kept draft"; Chrome |
+| O10 | Continue goes back to 7b exactly as it was, time included; the WHEN chip on 7a changes the kept meal's time                                                                                                | ✅     | `jest` › "going back with components …" · "changing the WHEN chip on 7a changes the kept meal’s time"                                                                |
+| O11 | any new start asks first ("Discard …?" / "Its N components won't be logged." / Discard / Keep it): build from scratch, roster Log, Log again, batch builder, roster edit                                   | ✅     | `jest` › "7a-C: a new start asks first" (six tests); `unit` › "asks “Discard …?” …"; Chrome (web confirm)                                                            |
+| O12 | the kept meal is cleared by logging it, "Save to roster only", Discard and closing Log meal; never kept across restarts (memory only)                                                                      | ✅     | `jest` › "7a-C: when the kept draft is cleared" (three tests) · "Discard starts an empty meal"                                                                       |
+| O13 | roster edits and corrected copies are never offered as Continue                                                                                                                                            | ✅     | `jest` › "roster edits are never offered as Continue"; `unit` › "never keeps … a roster edit or a corrected copy"                                                    |
+| O14 | consent off: Log meal says health data is off, no chip, no card                                                                                                                                            | ✅     | `jest` › "consent off …"                                                                                                                                             |
+| O15 | VoiceOver and the largest text size on 7b-T2, 7b-W and 7a-C                                                                                                                                                | 📱     | Role and label on every control. Checklist steps 7–8.                                                                                                                |
+| O16 | all automated checks and CI green                                                                                                                                                                          | ✅     | `docs/TEST-REPORT.md` › "Build meal: time at any point, keep the draft".                                                                                             |
+
+**Readings taken** (also in the PR):
+
+- **One list for both screens.** `whenChoices` (features/log-meal/slots.ts) gives Now and the four
+  slots in order, which are greyed and which is selected; 7a's chips and 7b-W's rows both draw it.
+  `timeChip` gives the chip text for 7b's header and for 7a's "Other time…" chip once a time is
+  picked, so they always read the same. `pickerFrom` is where 7i opens, for both. These live in the
+  app (they build on `slotOptions`, which is app-only), not in core.
+- **Chip VoiceOver label** keeps the existing form "Time eaten: Now · 13:40. Change" (the
+  wireframe writes "Now, 13:40"); it's the label 7a and the corrected copy already use and test.
+- **7b-W rows**: Now reads "Now · 13:40" in one piece (as drawn); each slot has its name on the
+  left and its time on the right in grey; the current one is semibold with a ✓ after the time.
+  When a picked time is current, "Other time…" is semibold and shows the time and ✓ before the ›
+  ("Other time… Yesterday · 21:15 ✓ ›"); VoiceOver "Other time: Yesterday · 21:15, selected".
+  Picking the current row just closes the sheet.
+- **7i from 7b-W** opens on Today at now from Now or a slot (as from 7a), and on the meal's own
+  day and time for a picked time. On iPhone 7i opens once 7b-W has finished sliding away (two
+  sheets can't animate at once); elsewhere straight away.
+- **The header chip** is drawn as in the wireframe: a 1.5 pt dark outline, 15 pt semibold, ▾ a
+  little smaller. That chip is shared with the corrected copy, which now has the same outline.
+- **7a-C card**: under the WHEN row, above the tabs, as drawn. With no name typed it shows the
+  default name for the time ("Lunch"). With only a name and no components it shows "0 components ·
+  0 kcal" and the question reads "It has no components yet." instead of "Its 0 components …".
+- **Starts that ask first**: "+ Build a meal from scratch", a roster "Log" (plain or dark), a roster
+  meal opened to edit, "Log again" from eaten recently, "+ Cooked a batch", and on the Saved tab
+  a batch's "Log" or "Cook again". All ask on 7a before anything happens, so the batch "how much"
+  screen and "Add to a meal" never meet a kept meal. Stars don't ask (they start nothing). On the
+  web the question is one `confirm()` ("Discard Chicken stir-fry?" and the line under it): OK
+  discards, Cancel keeps it.
+- **"Starts a new meal. You'll be asked before … is discarded."** sits under the two build buttons
+  (7a has "+ Cooked a batch" beside "+ Build a meal from scratch", which the wireframe leaves out),
+  above the existing batch line.
+- **Edit-roster drafts and corrected copies are never offered as Continue.** Going back from a
+  roster edit works as before (the edit is dropped when another start replaces it); a corrected
+  copy's "Cancel" still goes back to 7j and the copy is dropped when Log meal closes.
+- **Cleared**: logging and closing Log meal end the Log meal screens, and the draft lives only in
+  them (memory, as before), so it goes with them. "Save to roster only" clears it explicitly
+  before returning to 7a's Saved tab. Discard clears it before the new start.
+- **No schema change**: the time was already sent with every log; only the app changed.
+
+### Morning checklist (build meal: time at any point, keep the draft)
+
+About 10 minutes, signed in on your iPhone with health data on, during the day (so some slots are
+more than an hour away). Bring your local setup up to date first (the commands are in the PR).
+
+1. **Chip from Now.** Today (`screen-today`) → **+ Log meal** → `screen-log-meal` → tap **Now · …**
+   → **+ Build a meal from scratch** → `screen-build-meal`. ✔ Top right an outlined chip "Now · hh:mm
+   ▾". Type the name **Chicken stir-fry**, add two components.
+2. **7b-W.** Tap the chip → `sheet-7b-w` ✔ "Cancel", "Time eaten", Now with ✓, Breakfast, Lunch,
+   Snack, Dinner with their times, later ones grey, **Other time… ›**, and "Your meal stays as it
+   is. Later slots are more than an hour away." Tap a grey slot → ✔ nothing happens. Tap **Lunch**
+   → ✔ the sheet closes, the chip reads "Lunch · 12:30 ▾", name and components unchanged.
+3. **Yesterday from 7b.** Chip → **Other time…** → `sheet-7i` ✔ opens on Today at now. Tap
+   **Yesterday**, set 21:15 → **Done** → ✔ chip "Yesterday · 21:15 ▾", the bar reads "Sun … after
+   this meal", components and amounts unchanged. Chip → **Other time…** → ✔ 7i opens on Yesterday
+   21:15 → **Cancel** → ✔ nothing changed.
+4. **Keep the draft.** Tap **‹ Log meal** → `screen-log-meal` → `kept-draft` ✔ "NOT LOGGED YET",
+   "Chicken stir-fry", "2 components · … kcal", a dark **Continue**, and under the build buttons
+   "Starts a new meal. You'll be asked before Chicken stir-fry is discarded." ✔ the WHEN row shows
+   "Yesterday · 21:15 ▾" selected. Tap **Continue** → ✔ 7b exactly as you left it.
+5. **Ask before discarding.** **‹ Log meal** → **+ Build a meal from scratch** → ✔ "Discard Chicken
+   stir-fry?" / "Its 2 components won't be logged." → **Keep it** → ✔ still on 7a with the card. Tap
+   **Log** on a roster meal → ✔ the same question → **Keep it** → ✔ nothing logged.
+6. **Log it.** **Continue** → **Done · log meal** → ✔ Today. Tap **‹ Yesterday** → ✔ "Chicken
+   stir-fry" at 21:15 with both components. **Today ›** → **+ Log meal** → ✔ no card.
+7. **VoiceOver (O15).** VoiceOver on. 7b: "Time eaten: Now · hh:mm. Change, button". 7b-W: "Now ·
+   hh:mm, selected, button", "Snack 16:00, more than an hour from now, dimmed, button", "Other time,
+   button". 7a-C: "Continue your meal, Chicken stir-fry, button". VoiceOver off.
+8. **Largest text (O15).** Largest text size: 7b (chip), 7b-W, 7a with the card — nothing cut off
+   or overlapping. Back to the default.
+
+Tick 📱 → ✅ for O15 when done.

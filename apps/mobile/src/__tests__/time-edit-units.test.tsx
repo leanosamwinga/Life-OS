@@ -274,8 +274,10 @@ describe('7a-T and 7i: log at another time', () => {
     await screen.findByTestId('screen-build-meal');
     expect(screen.getByTestId('header-time')).toBeTruthy();
     expect(screen.getByText('Today · 06:50 ▾')).toBeTruthy();
-    // The header reopens the picker on the chosen time.
+    // The header opens 7b-W; its Other time… reopens the picker on the chosen time.
     await press('Time eaten: Today · 06:50. Change');
+    await screen.findByTestId('sheet-7b-w');
+    await press('Other time: Today · 06:50');
     await screen.findByTestId('sheet-7i');
     expect(screen.getByTestId('time-chosen').props.children).toBe('Today · Mon 9 Nov · 06:50');
     await press('Cancel');

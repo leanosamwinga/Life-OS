@@ -40,9 +40,17 @@ export function BottomSheet(props: {
   onClose: () => void;
   testID: string;
   children: ReactNode;
+  /** iPhone: called once the sheet has finished sliding away (before another sheet can open). */
+  onDismissed?: () => void;
 }) {
   return (
-    <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
+    <Modal
+      visible={props.visible}
+      transparent
+      animationType="slide"
+      onRequestClose={props.onClose}
+      onDismiss={props.onDismissed}
+    >
       <View style={styles.overlay}>
         <Pressable
           style={StyleSheet.absoluteFill}
