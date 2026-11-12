@@ -96,3 +96,46 @@ begin
   select v_meal, v_id, f.id, 200, 0 from public.foods f where f.barcode = '0000000000017' and f.user_id is null;
 end;
 $$;
+
+-- Phase 3 · Health for the local admin: Health targets, a split, four supplements, a few
+-- trained days and two weeks of fake Apple Health values (as an iPhone would sync them), so web
+-- and the simulator show the Health tab filled in. Fake numbers only.
+do $$
+declare
+  v_id uuid;
+  v_today date := (now() at time zone 'Europe/London')::date;
+  d int;
+begin
+  select id into v_id from auth.users where email = 'admin@example.test';
+  if v_id is null or exists (select 1 from public.supplements where user_id = v_id) then
+    return;
+  end if;
+
+  update public.user_settings
+     set target_weight_kg = 80.0, target_sleep_min = 450, nutrition_plan_name = 'Plan A',
+         training_per_week = 4,
+         training_split = array['Arms & shoulders', 'Chest & triceps', 'Legs', 'Back']
+   where user_id = v_id;
+
+  insert into public.supplements (user_id, name, dose, time_of_day, reminder_time, sort_order) values
+    (v_id, 'Creatine', '5 g', 'morning', '08:00', 0),
+    (v_id, 'Vitamin D', '25 µg', 'morning', null, 1),
+    (v_id, 'Omega-3', '1 g', 'morning', null, 2),
+    (v_id, 'Magnesium', '200 mg', 'evening', '21:30', 3);
+
+  insert into public.training_days (user_id, trained_on, split_day, split_name) values
+    (v_id, v_today - 3, 1, 'Arms & shoulders'),
+    (v_id, v_today - 1, 2, 'Chest & triceps');
+
+  for d in 0..13 loop
+    insert into public.health_daily (user_id, day, kind, value) values
+      (v_id, v_today - d, 'weight_kg', round((82.4 + d * 0.06)::numeric, 1)),
+      (v_id, v_today - d, 'steps', 5200 + ((d * 1370) % 6100));
+    insert into public.health_daily (user_id, day, kind, value, sleep_start, sleep_end) values
+      (v_id, v_today - d, 'sleep_min', 400 + ((d * 17) % 70),
+       ((v_today - d - 1) + time '23:48') at time zone 'Europe/London',
+       ((v_today - d - 1) + time '23:48') at time zone 'Europe/London'
+         + make_interval(mins => 400 + ((d * 17) % 70)));
+  end loop;
+end;
+$$;

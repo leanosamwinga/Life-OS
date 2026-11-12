@@ -1002,6 +1002,43 @@ export type Database = {
         };
         Relationships: [];
       };
+      health_daily: {
+        Row: {
+          created_at: string;
+          day: string;
+          id: string;
+          kind: string;
+          sleep_end: string | null;
+          sleep_start: string | null;
+          updated_at: string;
+          user_id: string;
+          value: number;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          day: string;
+          id?: string;
+          kind: string;
+          sleep_end?: string | null;
+          sleep_start?: string | null;
+          updated_at?: string;
+          user_id?: string;
+          value: number;
+        };
+        Update: {
+          created_at?: string;
+          day?: string;
+          id?: string;
+          kind?: string;
+          sleep_end?: string | null;
+          sleep_start?: string | null;
+          updated_at?: string;
+          user_id?: string;
+          value?: number;
+        };
+        Relationships: [];
+      };
       meal_log_items: {
         Row: {
           carbs_g: number;
@@ -1228,6 +1265,7 @@ export type Database = {
           id: string;
           logged_at: string;
           supplement_id: string;
+          taken_on: string;
           updated_at: string;
           user_id: string;
         };
@@ -1237,6 +1275,7 @@ export type Database = {
           id?: string;
           logged_at?: string;
           supplement_id: string;
+          taken_on?: never;
           updated_at?: string;
           user_id?: string;
         };
@@ -1245,6 +1284,7 @@ export type Database = {
           id?: string;
           logged_at?: string;
           supplement_id?: string;
+          taken_on?: never;
           updated_at?: string;
           user_id?: string;
         };
@@ -1265,6 +1305,7 @@ export type Database = {
           dose: string | null;
           id: string;
           name: string;
+          reminder_time: string | null;
           sort_order: number;
           time_of_day: string;
           updated_at: string;
@@ -1277,6 +1318,7 @@ export type Database = {
           dose?: string | null;
           id?: string;
           name: string;
+          reminder_time?: string | null;
           sort_order?: number;
           time_of_day?: string;
           updated_at?: string;
@@ -1288,8 +1330,40 @@ export type Database = {
           dose?: string | null;
           id?: string;
           name?: string;
+          reminder_time?: string | null;
           sort_order?: number;
           time_of_day?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      training_days: {
+        Row: {
+          created_at: string;
+          id: string;
+          split_day: number | null;
+          split_name: string | null;
+          trained_on: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          id?: string;
+          split_day?: number | null;
+          split_name?: string | null;
+          trained_on: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          split_day?: number | null;
+          split_name?: string | null;
+          trained_on?: string;
           updated_at?: string;
           user_id?: string;
         };
@@ -1307,6 +1381,7 @@ export type Database = {
           morning_briefing_weekday_time: string;
           morning_briefing_weekend_time: string;
           notifications_prompted_at: string | null;
+          nutrition_plan_name: string | null;
           onboarding_completed_at: string | null;
           quiet_hours_end: string;
           quiet_hours_start: string;
@@ -1318,9 +1393,13 @@ export type Database = {
           target_fat_g: number | null;
           target_kcal: number | null;
           target_protein_g: number | null;
+          target_sleep_min: number | null;
           target_steps: number | null;
           target_water_ml: number | null;
+          target_weight_kg: number | null;
           time_zone: string;
+          training_per_week: number;
+          training_split: string[];
           updated_at: string;
           urgent_bill_alerts_enabled: boolean;
           user_id: string;
@@ -1337,6 +1416,7 @@ export type Database = {
           morning_briefing_weekday_time?: string;
           morning_briefing_weekend_time?: string;
           notifications_prompted_at?: string | null;
+          nutrition_plan_name?: string | null;
           onboarding_completed_at?: string | null;
           quiet_hours_end?: string;
           quiet_hours_start?: string;
@@ -1348,9 +1428,13 @@ export type Database = {
           target_fat_g?: number | null;
           target_kcal?: number | null;
           target_protein_g?: number | null;
+          target_sleep_min?: number | null;
           target_steps?: number | null;
           target_water_ml?: number | null;
+          target_weight_kg?: number | null;
           time_zone?: string;
+          training_per_week?: number;
+          training_split?: string[];
           updated_at?: string;
           urgent_bill_alerts_enabled?: boolean;
           user_id: string;
@@ -1366,6 +1450,7 @@ export type Database = {
           morning_briefing_weekday_time?: string;
           morning_briefing_weekend_time?: string;
           notifications_prompted_at?: string | null;
+          nutrition_plan_name?: string | null;
           onboarding_completed_at?: string | null;
           quiet_hours_end?: string;
           quiet_hours_start?: string;
@@ -1377,9 +1462,13 @@ export type Database = {
           target_fat_g?: number | null;
           target_kcal?: number | null;
           target_protein_g?: number | null;
+          target_sleep_min?: number | null;
           target_steps?: number | null;
           target_water_ml?: number | null;
+          target_weight_kg?: number | null;
           time_zone?: string;
+          training_per_week?: number;
+          training_split?: string[];
           updated_at?: string;
           urgent_bill_alerts_enabled?: boolean;
           user_id?: string;
@@ -1483,6 +1572,7 @@ export type Database = {
         Args: { p_id: string; p_logged_at: string; p_name: string; p_units: Json };
         Returns: undefined;
       };
+      valid_split_rotation: { Args: { days: string[] }; Returns: boolean };
     };
     Enums: {
       [_ in never]: never;
