@@ -37,7 +37,7 @@ create table if not exists auth.identities (
   user_id uuid not null references auth.users (id) on delete cascade,
   provider text not null,
   provider_id text not null,
-  identity_data jsonb not null default '{}'::jsonb
+  identity_data jsonb not null
 );
 create table if not exists auth.sessions (
   id uuid primary key default gen_random_uuid(),
