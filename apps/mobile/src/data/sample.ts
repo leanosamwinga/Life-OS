@@ -3,8 +3,10 @@
  * Built from @life-os/core types so screens are wired to the real domain model.
  */
 import {
+  addDays,
   londonDateTimeToInstant,
   makeRotation,
+  type TrainedDay,
   snapshotComponents,
   type DailyTargets,
   type Food,
@@ -14,6 +16,8 @@ import {
   type WaterLog,
 } from '@life-os/core';
 import type { CalendarItem } from '@/features/today/timeline';
+import type { HealthDailyValue, Supplement, SupplementLog } from '@/lib/backend/health';
+import type { HealthTargets } from '@/lib/backend/settings';
 
 const USER = 'sample-user';
 
@@ -143,3 +147,93 @@ export const sampleRotation = makeRotation(
   4,
 );
 export const sampleCompletedThisCycle = 3;
+
+// ---------------------------------------------------------------------------
+// Phase 3 · Health (not connected): fake supplements, training and Apple Health values
+// ---------------------------------------------------------------------------
+
+export const sampleHealthTargets: HealthTargets = {
+  weightKg: 80,
+  sleepMin: 450,
+  planName: 'Plan A',
+  trainingPerWeek: 4,
+  split: sampleRotation.days.map((d) => d.name),
+};
+
+export const sampleSupplements: Supplement[] = [
+  {
+    id: 's-1',
+    name: 'Creatine',
+    dose: '5 g',
+    timeOfDay: 'morning',
+    reminderTime: '08:00',
+    sortOrder: 0,
+  },
+  {
+    id: 's-2',
+    name: 'Vitamin D',
+    dose: '25 µg',
+    timeOfDay: 'morning',
+    reminderTime: null,
+    sortOrder: 1,
+  },
+  {
+    id: 's-3',
+    name: 'Omega-3',
+    dose: '1 g',
+    timeOfDay: 'morning',
+    reminderTime: null,
+    sortOrder: 2,
+  },
+  {
+    id: 's-4',
+    name: 'Magnesium',
+    dose: '200 mg',
+    timeOfDay: 'evening',
+    reminderTime: '21:30',
+    sortOrder: 3,
+  },
+];
+
+/** Ticks: the first two every day, the others most days. */
+export function sampleSupplementLogs(days: readonly LocalDate[]): SupplementLog[] {
+  return days.flatMap((d, i) =>
+    sampleSupplements
+      .filter((s, j) => j < 2 || (i + j) % 3 !== 0)
+      .map((s) => ({ supplementId: s.id, takenOn: d })),
+  );
+}
+
+/** Two sessions so far this week and four in each week before (Arms, Chest, …). */
+export function sampleTraining(today: LocalDate): TrainedDay[] {
+  const out: TrainedDay[] = [];
+  let split = 0;
+  for (let d = 41; d >= 1; d--) {
+    if ([1, 3, 4, 6].includes(d % 7)) {
+      const day = sampleRotation.days[split % 4]!;
+      out.push({ trainedOn: addDays(today, -d), splitDay: day.day, splitName: day.name });
+      split++;
+    }
+  }
+  return out;
+}
+
+/** Six weeks of synced values: weight trending down, sleep around 7 hours, steps 5–11k. */
+export function sampleHealthValues(today: LocalDate): HealthDailyValue[] {
+  const out: HealthDailyValue[] = [];
+  for (let d = 41; d >= 0; d--) {
+    const day = addDays(today, -d);
+    out.push({ day, kind: 'weight_kg', value: Math.round((82.4 + d * 0.05) * 10) / 10 });
+    out.push({ day, kind: 'steps', value: d === 0 ? sampleSteps : 5200 + ((d * 1370) % 6100) });
+    const minutes = d === 0 ? sampleSleepMinutes : 390 + ((d * 17) % 80);
+    const start = londonDateTimeToInstant(addDays(day, -1), '23:48');
+    out.push({
+      day,
+      kind: 'sleep_min',
+      value: minutes,
+      sleepStart: start,
+      sleepEnd: new Date(Date.parse(start) + minutes * 60000).toISOString(),
+    });
+  }
+  return out;
+}

@@ -77,6 +77,7 @@ function RootStack() {
         <Stack.Screen name="meal" />
         <Stack.Screen name="security" />
         <Stack.Screen name="kept" />
+        <Stack.Screen name="health-targets" />
       </Stack.Protected>
       <Stack.Protected
         guard={connected && !signedIn}

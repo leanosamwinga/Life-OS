@@ -543,7 +543,6 @@ export function createMemoryBackend(
       return rec;
     },
 
-
     async listSupplements() {
       await call('listSupplements');
       requireConsent();

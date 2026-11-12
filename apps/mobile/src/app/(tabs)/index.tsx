@@ -19,6 +19,7 @@ import {
 } from '@life-os/core';
 import { Avatar, Card, OutlineButton, Overline, Row, Screen } from '@/components/ui';
 import { FormMessage, SecondaryButton } from '@/components/forms';
+import { useHealthDay } from '@/features/health/useHealthData';
 import { useDay } from '@/features/data/useDay';
 import { useNow } from '@/features/data/useNow';
 import { usePendingDelete } from '@/features/today/PendingDelete';
@@ -39,7 +40,8 @@ import { buildTimeline, nowIndex, type TimelineItem } from '@/features/today/tim
 import { colors, MIN_TOUCH, radius, space, type } from '@/theme';
 
 /** Re-render every minute so the "Now" line moves. */
-const formatSleep = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+const formatSleep = (minutes: number) =>
+  `${Math.floor(minutes / 60)}h ${String(Math.round(minutes) % 60).padStart(2, '0')}m`;
 
 /** Ring value for a metric with no target yet, or not tracked until a later phase. */
 const DASH = '—';
@@ -79,6 +81,13 @@ export default function TodayScreen() {
   });
   const nowAt = yesterday ? -1 : nowIndex(timeline, toLondonTime(now));
   const nextDay = nextSplitDay(sampleRotation, sampleCompletedThisCycle);
+  // Steps and sleep: what Apple Health synced for today (the iPhone syncs; web reads).
+  const health = useHealthDay(today);
+  const syncedSteps = health.data.values.find((v) => v.kind === 'steps' && v.day === today)?.value;
+  const syncedSleep = health.data.values.find(
+    (v) => v.kind === 'sleep_min' && v.day === today,
+  )?.value;
+  const sleepTarget = session.settings?.health.sleepMin ?? 8 * 60;
 
   const ateIt = async (savedMealId: string) => {
     const meal = planMeals.find((m) => m.id === savedMealId);
@@ -162,16 +171,32 @@ export default function TodayScreen() {
         {yesterday ? null : live ? (
           <>
             <Ring
-              fraction={0}
-              value={DASH}
+              fraction={
+                syncedSteps != null && progress.steps.target
+                  ? syncedSteps / progress.steps.target
+                  : 0
+              }
+              value={syncedSteps != null ? formatCount(syncedSteps) : DASH}
               label="steps"
-              accessibilityLabel="Steps: from Apple Health in a later update"
+              accessibilityLabel={
+                day.consentOff
+                  ? 'Steps: health data is off'
+                  : syncedSteps == null
+                    ? 'Steps: nothing from Apple Health yet today'
+                    : `Steps: ${formatCount(syncedSteps)}${progress.steps.target ? ` of ${formatCount(progress.steps.target)}` : ''}`
+              }
             />
             <Ring
-              fraction={0}
-              value={DASH}
+              fraction={syncedSleep != null ? syncedSleep / sleepTarget : 0}
+              value={syncedSleep != null ? formatSleep(syncedSleep) : DASH}
               label="sleep"
-              accessibilityLabel="Sleep: from Apple Health in a later update"
+              accessibilityLabel={
+                day.consentOff
+                  ? 'Sleep: health data is off'
+                  : syncedSleep == null
+                    ? 'Sleep: nothing from Apple Health yet today'
+                    : `Sleep: ${formatSleep(syncedSleep)}`
+              }
             />
           </>
         ) : (

@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import Constants from 'expo-constants';
 import {
   DEFAULT_NUDGE_SETTINGS,
+  formatTimeUK,
   OPEN_FOOD_FACTS_CREDIT,
   PRIVACY_POLICY_URL,
   TERMS_URL,
@@ -11,6 +12,7 @@ import {
 } from '@life-os/core';
 import { Avatar, Card, Row, Screen, SectionTitle, ToggleRow } from '@/components/ui';
 import { FormMessage } from '@/components/forms';
+import { useAppleHealth } from '@/features/health/AppleHealth';
 import { ordinal } from '@/features/nudges/labels';
 import type { NudgeKey } from '@/lib/backend/settings';
 import { useSession } from '@/lib/session';
@@ -19,7 +21,7 @@ import { colors, space, type } from '@/theme';
 /** Ask before withdrawing consent; web has no native alert with buttons. */
 function confirmWithdraw(): Promise<boolean> {
   const message =
-    'Life OS will stop processing your meals, water and supplements. Your other data and the rest of the app keep working.';
+    'Life OS will stop processing your meals, water, supplements, training and Apple Health data, and stop reading Apple Health. Your other data and the rest of the app keep working.';
   if (Platform.OS === 'web') {
     const c = (globalThis as { confirm?: (m: string) => boolean }).confirm;
     return Promise.resolve(c ? c(message) : true);
@@ -34,6 +36,7 @@ function confirmWithdraw(): Promise<boolean> {
 
 export default function MeScreen() {
   const session = useSession();
+  const apple = useAppleHealth();
   const connected = session.status === 'signedIn' && session.settings !== null;
 
   // Not connected: local state only, so the sample app still demonstrates the toggles.
@@ -153,7 +156,30 @@ export default function MeScreen() {
 
       <SectionTitle title="Connected" />
       <Card>
-        <Row label="Apple Health" detail="Steps, sleep, weight" pill="Later" />
+        {connected ? (
+          <Row
+            label="Apple Health"
+            subtitle={appleHealthSubtitle(apple, session.healthConsent)}
+            chevron={apple.access !== 'elsewhere'}
+            onPress={
+              apple.access === 'elsewhere'
+                ? undefined
+                : () =>
+                    void save(() =>
+                      apple.access === 'off' ? apple.connect() : Linking.openSettings(),
+                    )
+            }
+            accessibilityHint={
+              apple.access === 'off'
+                ? 'Asks to read steps, sleep and weight'
+                : apple.access === 'connected'
+                  ? 'Opens Settings'
+                  : undefined
+            }
+          />
+        ) : (
+          <Row label="Apple Health" detail="Steps, sleep, weight" muted />
+        )}
         <Row label="Strava" detail="Liftoff workouts" pill="Later" />
         <Row label="Apple & Google Calendar" pill="Later" />
         <Row label="Notion" detail="Church planner" pill="Later" />
@@ -165,10 +191,11 @@ export default function MeScreen() {
       <SectionTitle title="Your setup" />
       <Card>
         <Row
-          label="Meal plan & macro targets"
+          label="Health targets"
+          subtitle="Weight, nutrition, water, sleep, steps, supplements, training"
           chevron
           muted={!connected}
-          onPress={connected ? () => router.push('/targets') : undefined}
+          onPress={connected ? () => router.push('/health-targets') : undefined}
         />
         <Row label="Weekly rhythm" chevron muted />
         <Row label="Budgets & goals" chevron muted last />
@@ -246,6 +273,16 @@ export default function MeScreen() {
       <Text style={styles.version}>Life OS {Constants.expoConfig?.version ?? ''}</Text>
     </Screen>
   );
+}
+
+/** Me → Connected → Apple Health: what Life OS can do with it on this device. */
+function appleHealthSubtitle(apple: ReturnType<typeof useAppleHealth>, consent: boolean): string {
+  if (apple.access === 'elsewhere') return 'Steps, sleep, weight · synced from your iPhone';
+  if (!consent) return 'Steps, sleep, weight · needs “Use my health data” on';
+  if (apple.access === 'off') return 'Steps, sleep, weight · off · tap to connect';
+  return apple.lastSyncedAt
+    ? `Steps, sleep, weight · synced ${formatTimeUK(apple.lastSyncedAt)}`
+    : 'Steps, sleep, weight · on';
 }
 
 const styles = StyleSheet.create({
