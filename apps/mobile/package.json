@@ -13,6 +13,7 @@
     "gen:types": "supabase gen types typescript --local --schema public > src/lib/database.types.ts"
   },
   "dependencies": {
+    "@kingstinct/react-native-healthkit": "^16.2.0",
     "@life-os/core": "0.1.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.119.0",
@@ -33,6 +34,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
+    "react-native-nitro-modules": "^0.37.2",
     "react-native-safe-area-context": "~5.11.1",
     "react-native-screens": "~4.30.1",
     "react-native-svg": "15.16.0",

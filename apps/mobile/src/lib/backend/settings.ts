@@ -14,6 +14,21 @@ export interface Targets {
   steps: number | null;
 }
 
+/**
+ * Health targets beyond the daily ones (Me → Health targets, 6B). Weight, sleep and steps
+ * themselves come from Apple Health; these are only what they're compared with.
+ */
+export interface HealthTargets {
+  weightKg: number | null;
+  /** Minutes a night, e.g. 450 for 7h 30m. */
+  sleepMin: number | null;
+  /** "Plan A": the nutrition plan's name, shown on the Nutrition card. */
+  planName: string | null;
+  trainingPerWeek: number;
+  /** The split rotation in order (Day 1 first); empty until set. */
+  split: string[];
+}
+
 export type AppleHealthChoice = 'connect' | 'not_now';
 export type ScreenTimeChoice = 'show' | 'not_now';
 
@@ -28,6 +43,7 @@ export const NUDGE_KEYS: readonly NudgeKey[] = [
 
 export interface UserSettings {
   targets: Targets;
+  health: HealthTargets;
   nudges: NudgeSettings;
   appLockEnabled: boolean;
   appleHealthChoice: AppleHealthChoice | null;
@@ -38,6 +54,7 @@ export interface UserSettings {
 
 export interface SettingsPatch {
   targets?: Partial<Targets>;
+  health?: Partial<HealthTargets>;
   nudges?: Partial<Record<NudgeKey, boolean>>;
   appLockEnabled?: boolean;
   appleHealthChoice?: AppleHealthChoice | null;
@@ -55,9 +72,18 @@ const EMPTY_TARGETS: Targets = {
   steps: null,
 };
 
+export const DEFAULT_HEALTH_TARGETS: Readonly<HealthTargets> = Object.freeze({
+  weightKg: null,
+  sleepMin: null,
+  planName: null,
+  trainingPerWeek: 4,
+  split: [],
+});
+
 export function defaultUserSettings(): UserSettings {
   return {
     targets: { ...EMPTY_TARGETS },
+    health: { ...DEFAULT_HEALTH_TARGETS, split: [] },
     nudges: JSON.parse(JSON.stringify(DEFAULT_NUDGE_SETTINGS)) as NudgeSettings,
     appLockEnabled: false,
     appleHealthChoice: null,
@@ -80,6 +106,13 @@ export function settingsFromRow(row: SettingsRow): UserSettings {
       fat: num(row.target_fat_g),
       waterMl: num(row.target_water_ml),
       steps: num(row.target_steps),
+    },
+    health: {
+      weightKg: num(row.target_weight_kg),
+      sleepMin: num(row.target_sleep_min),
+      planName: row.nutrition_plan_name ?? null,
+      trainingPerWeek: row.training_per_week ?? 4,
+      split: [...(row.training_split ?? [])],
     },
     nudges: {
       morningBriefing: {
@@ -125,11 +158,22 @@ const TARGET_COLUMN: Record<keyof Targets, keyof SettingsUpdate> = {
   steps: 'target_steps',
 };
 
+const HEALTH_COLUMN: Record<keyof HealthTargets, keyof SettingsUpdate> = {
+  weightKg: 'target_weight_kg',
+  sleepMin: 'target_sleep_min',
+  planName: 'nutrition_plan_name',
+  trainingPerWeek: 'training_per_week',
+  split: 'training_split',
+};
+
 /** Turn an app-level patch into a `user_settings` update (only the fields given). */
 export function rowFromPatch(patch: SettingsPatch): SettingsUpdate {
   const row: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch.targets ?? {})) {
     row[TARGET_COLUMN[k as keyof Targets]] = v;
+  }
+  for (const [k, v] of Object.entries(patch.health ?? {})) {
+    row[HEALTH_COLUMN[k as keyof HealthTargets]] = v;
   }
   for (const [k, v] of Object.entries(patch.nudges ?? {})) {
     row[NUDGE_COLUMN[k as NudgeKey]] = v;
@@ -154,6 +198,7 @@ export function applyPatch(s: UserSettings, patch: SettingsPatch): UserSettings 
   return {
     ...s,
     targets: { ...s.targets, ...patch.targets },
+    health: { ...s.health, ...patch.health },
     nudges,
     appLockEnabled: patch.appLockEnabled ?? s.appLockEnabled,
     appleHealthChoice:

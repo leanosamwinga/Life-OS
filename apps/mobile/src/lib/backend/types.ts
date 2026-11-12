@@ -3,11 +3,21 @@ import type {
   BatchIngredient,
   Food,
   Instant,
+  LocalDate,
   LocalTime,
   MealComponent,
   MealLog,
+  SplitDay,
+  TrainedDay,
   WaterLog,
 } from '@life-os/core';
+import type {
+  DayRange,
+  HealthDailyValue,
+  Supplement,
+  SupplementInput,
+  SupplementLog,
+} from './health';
 import type {
   BarcodeLookup,
   LoggedMealEdit,
@@ -215,6 +225,30 @@ export interface Backend {
   lookupBarcode(barcode: string): Promise<BarcodeLookup>;
   /** Create your own food, or update your existing one with the same barcode. */
   saveUserFood(input: UserFoodInput): Promise<StoredFood>;
+
+  // Phase 3 · Health (health data: owner only with an active consent, enforced by RLS).
+  listSupplements(): Promise<Supplement[]>;
+  /** Add (id null) or change a supplement. Returns its id. */
+  saveSupplement(input: SupplementInput): Promise<string>;
+  /** Deletes the supplement and its logs. */
+  deleteSupplement(id: string): Promise<void>;
+  /** "Taken" ticks on the London days in `range`. */
+  listSupplementLogs(range: DayRange): Promise<SupplementLog[]>;
+  /** Tick (once per London day; ticking again is a no-op) or untick a supplement for today. */
+  setSupplementTaken(id: string, taken: boolean): Promise<void>;
+  /** Trained days in `range`, oldest first. */
+  listTrainingDays(range: DayRange): Promise<TrainedDay[]>;
+  /**
+   * Mark a London day trained with this split day (null without a split); its name is stored as
+   * a snapshot. Marking an already-trained day again is a no-op. Future days are refused.
+   */
+  markTrained(date: LocalDate, split: SplitDay | null): Promise<void>;
+  /** Untrain a day (deletes its row). */
+  unmarkTrained(date: LocalDate): Promise<void>;
+  /** Apple Health values synced from the iPhone for the London days in `range`. */
+  listHealthDaily(range: DayRange): Promise<HealthDailyValue[]>;
+  /** The iPhone's sync: upsert one row per (day, kind). */
+  upsertHealthDaily(values: readonly HealthDailyValue[]): Promise<void>;
 }
 
 /** An error whose message is safe and friendly to show to the user. */

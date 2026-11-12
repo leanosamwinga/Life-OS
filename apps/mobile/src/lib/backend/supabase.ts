@@ -1,5 +1,5 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { PRIVACY_POLICY_VERSION, summariseBatch, toFood } from '@life-os/core';
+import { PRIVACY_POLICY_VERSION, summariseBatch, toFood, toLondonDate } from '@life-os/core';
 import type { AuthClient } from '../auth/client';
 import type { LifeOsClient } from '../supabase';
 import {
@@ -19,6 +19,7 @@ import {
   type SavedMealRow,
 } from './foods';
 import { rowFromPatch, settingsFromRow } from './settings';
+import { healthDailyFromRow, supplementFromRow, trainingDayFromRow } from './health';
 import { SESSION_ENDED_CODES } from './sessionFetch';
 import { SessionEndedError, UserFacingError, type Backend } from './types';
 import type { StoredFood } from './foods';
@@ -374,6 +375,112 @@ export function supabaseBackend(client: LifeOsClient, authClient: AuthClient): B
       const { data, error } = await query.select('*').single();
       if (error) friendly(error);
       return foodRecordFromRow(data);
+    },
+
+    async listSupplements() {
+      const { data, error } = await client
+        .from('supplements')
+        .select('*')
+        .order('sort_order')
+        .order('name');
+      if (error) friendly(error);
+      return data.map(supplementFromRow);
+    },
+    async saveSupplement(input) {
+      const row = {
+        name: input.name.trim().slice(0, 80),
+        dose: input.dose?.trim().slice(0, 40) || null,
+        time_of_day: input.timeOfDay,
+        reminder_time: input.reminderTime,
+        sort_order: input.sortOrder,
+      };
+      const query = input.id
+        ? client.from('supplements').update(row).eq('id', input.id)
+        : client.from('supplements').insert(row);
+      const { data, error } = await query.select('id').single();
+      if (error) friendly(error);
+      return data.id;
+    },
+    async deleteSupplement(id) {
+      const { error } = await client.from('supplements').delete().eq('id', id);
+      if (error) friendly(error);
+    },
+    async listSupplementLogs({ start, end }) {
+      const { data, error } = await client
+        .from('supplement_logs')
+        .select('supplement_id, taken_on')
+        .gte('taken_on', start)
+        .lte('taken_on', end);
+      if (error) friendly(error);
+      return data.map((r) => ({ supplementId: r.supplement_id, takenOn: r.taken_on }));
+    },
+    async setSupplementTaken(id, taken) {
+      if (taken) {
+        // taken_on is generated from logged_at (now) in London time: one per day, again = no-op.
+        const { error } = await client
+          .from('supplement_logs')
+          .upsert(
+            { supplement_id: id },
+            { onConflict: 'supplement_id,taken_on', ignoreDuplicates: true },
+          );
+        if (error) friendly(error);
+        return;
+      }
+      const { error } = await client
+        .from('supplement_logs')
+        .delete()
+        .eq('supplement_id', id)
+        .eq('taken_on', toLondonDate(new Date()));
+      if (error) friendly(error);
+    },
+    async listTrainingDays({ start, end }) {
+      const { data, error } = await client
+        .from('training_days')
+        .select('*')
+        .gte('trained_on', start)
+        .lte('trained_on', end)
+        .order('trained_on');
+      if (error) friendly(error);
+      return data.map(trainingDayFromRow);
+    },
+    async markTrained(date, split) {
+      const { error } = await client
+        .from('training_days')
+        .upsert(
+          { trained_on: date, split_day: split?.day ?? null, split_name: split?.name ?? null },
+          { onConflict: 'user_id,trained_on', ignoreDuplicates: true },
+        );
+      if (error) friendly(error);
+    },
+    async unmarkTrained(date) {
+      const { error } = await client.from('training_days').delete().eq('trained_on', date);
+      if (error) friendly(error);
+    },
+    async listHealthDaily({ start, end }) {
+      const { data, error } = await client
+        .from('health_daily')
+        .select('*')
+        .gte('day', start)
+        .lte('day', end)
+        .order('day');
+      if (error) friendly(error);
+      return data.map(healthDailyFromRow);
+    },
+    async upsertHealthDaily(values) {
+      if (values.length === 0) return;
+      const id = await uid();
+      const { error } = await client.from('health_daily').upsert(
+        values.map((v) => ({
+          user_id: id,
+          day: v.day,
+          kind: v.kind,
+          value: v.value,
+          sleep_start: v.kind === 'sleep_min' ? (v.sleepStart ?? null) : null,
+          sleep_end: v.kind === 'sleep_min' ? (v.sleepEnd ?? null) : null,
+        })),
+        { onConflict: 'user_id,day,kind' },
+      );
+      if (error) friendly(error);
     },
   };
 }
