@@ -14,6 +14,7 @@
 // (docs/PHASE2-SIGNOFF.md).
 import { createHash } from 'node:crypto';
 import {
+  addDays,
   ateItAt,
   componentsFromLog,
   dayEnd,
@@ -1785,5 +1786,94 @@ describe.skipIf(!stack)('phone end to end on the real stack', () => {
     expect((await b.listMealLogs(wideRange())).filter((l) => l.name === 'E2E forced slot')).toEqual(
       [],
     );
+  });
+
+  // ------------------------------------------------------------------ Phase 3 · Health (P3-*)
+
+  it('P3-1: Health targets, supplements (one tick per day), training days and Apple Health values on the real Data API', async () => {
+    const { p } = await signUp(s, 'health-p3');
+    const b = p.backend;
+    await b.setHealthConsent(true);
+    const today = toLondonDate(new Date());
+
+    // Health targets round-trip through user_settings.
+    await b.updateSettings({
+      health: {
+        weightKg: 80,
+        sleepMin: 450,
+        planName: 'Plan A',
+        trainingPerWeek: 4,
+        split: ['Arms & shoulders', 'Chest & triceps', 'Legs', 'Back'],
+      },
+    });
+    expect((await b.getSettings()).health).toEqual({
+      weightKg: 80,
+      sleepMin: 450,
+      planName: 'Plan A',
+      trainingPerWeek: 4,
+      split: ['Arms & shoulders', 'Chest & triceps', 'Legs', 'Back'],
+    });
+
+    // Supplements with a reminder time; ticking twice keeps one log; untick removes it.
+    const id = await b.saveSupplement({
+      id: null,
+      name: 'E2E creatine',
+      dose: '5 g',
+      timeOfDay: 'morning',
+      reminderTime: '08:00',
+      sortOrder: 0,
+    });
+    expect((await b.listSupplements())[0]).toMatchObject({ id, reminderTime: '08:00' });
+    await b.setSupplementTaken(id, true);
+    await b.setSupplementTaken(id, true);
+    expect(await b.listSupplementLogs({ start: today, end: today })).toEqual([
+      { supplementId: id, takenOn: today },
+    ]);
+    await b.setSupplementTaken(id, false);
+    expect(await b.listSupplementLogs({ start: today, end: today })).toEqual([]);
+
+    // Training: twice is a no-op (the first mark stands), untrain deletes, no future days.
+    await b.markTrained(today, { day: 3, name: 'Legs' });
+    await b.markTrained(today, { day: 1, name: 'Arms & shoulders' });
+    expect(await b.listTrainingDays({ start: today, end: today })).toEqual([
+      { trainedOn: today, splitDay: 3, splitName: 'Legs' },
+    ]);
+    await expect(b.markTrained(addDays(today, 1), null)).rejects.toThrow(/hasn.t happened/);
+    await b.unmarkTrained(today);
+    expect(await b.listTrainingDays({ start: today, end: today })).toEqual([]);
+
+    // The iPhone's sync: upsert per (day, kind); a re-sync replaces the value.
+    const start = '2026-11-11T23:48:00.000Z';
+    await b.upsertHealthDaily([
+      { day: today, kind: 'steps', value: 6240 },
+      { day: today, kind: 'weight_kg', value: 82.4 },
+      {
+        day: today,
+        kind: 'sleep_min',
+        value: 432,
+        sleepStart: start,
+        sleepEnd: '2026-11-12T07:00:00.000Z',
+      },
+    ]);
+    await b.upsertHealthDaily([{ day: today, kind: 'steps', value: 7100 }]);
+    const values = await b.listHealthDaily({ start: today, end: today });
+    expect(values.find((v) => v.kind === 'steps')!.value).toBe(7100);
+    expect(values.find((v) => v.kind === 'weight_kg')!.value).toBe(82.4);
+    expect(values.find((v) => v.kind === 'sleep_min')).toMatchObject({
+      value: 432,
+      sleepStart: start,
+    });
+
+    // Another user sees none of it.
+    const other = await signUp(s, 'health-p3-other');
+    await other.p.backend.setHealthConsent(true);
+    expect(await other.p.backend.listHealthDaily({ start: today, end: today })).toEqual([]);
+    expect(await other.p.backend.listSupplements()).toEqual([]);
+
+    // Consent off: hidden, and nothing syncs.
+    await b.setHealthConsent(false);
+    expect(await b.listHealthDaily({ start: today, end: today })).toEqual([]);
+    await expect(b.upsertHealthDaily([{ day: today, kind: 'steps', value: 1 }])).rejects.toThrow();
+    await expect(b.markTrained(today, null)).rejects.toThrow();
   });
 });
