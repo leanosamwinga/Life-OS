@@ -156,3 +156,161 @@ spec said, what Supabase allows, what was built, and why. "Open" items need a de
 5. **Android Apple/Google screens** (Q-ANDROID). With the Android release, after phase 7.
 
 Phase 2 sign-off status for every criterion: `docs/PHASE2-SIGNOFF.md`.
+
+---
+
+# Phase 3 · Health — decisions taken and open questions
+
+Where the Phase 3 build prompt, the decisions doc (`health-phase-3-decisions.md`) and the
+wireframes ("Life OS — Phase 3 Health wireframes": 1B, training option 1, 3a–3c, 4A, 5, 6B + the
+Nutrition edit screen, 7, 8a–8b) didn't say, the build took the option most consistent with them.
+Each entry says what was built and why. "Open" items need a decision from you.
+
+## Apple Health
+
+### H-ACCESS · HealthKit never says whether read access was denied
+
+- **Fact:** iOS doesn't tell an app that the user denied **read** access (it would reveal that the
+  data exists). A denied type just returns no samples.
+- **Built:** the "not granted" states (3c weight card, 8b banner and per-card messages) show only
+  when we _know_ access isn't granted: `user_settings.apple_health_choice` is "Not now" or was never
+  set, or the module's `getRequestStatusForAuthorization` says the request was never made. Every
+  other empty card shows the no-data states (3b, 8a). Synced data always wins: if values exist
+  (e.g. synced before), the card shows them.
+- **Why:** the alternative — guessing "denied" from missing data — would tell someone with no
+  weigh-ins yet that access is off.
+
+### H-OPEN-SETTINGS · What "Open Settings ↗" does
+
+- **Built:** iOS lists Life OS under Settings › Health only after it has asked once. So before the
+  first request, "Open Settings ↗" shows iOS's permission sheet (and records "connect"); after it,
+  it records "connect" and opens Settings (`Linking.openSettings()`), where the user switches the
+  items on. The labels are the wireframe's.
+
+### H-MODULE · Which HealthKit module
+
+- **Built:** `@kingstinct/react-native-healthkit` 16.2 (+ `react-native-nitro-modules`), added with
+  `npx expo install` (offline mode here: React Native Directory wasn't reachable). Maintained
+  (release Oct 2026), React Native ≥ 0.79, ships an Expo config plugin. Configured read only:
+  `NSHealthShareUsageDescription` set, `NSHealthUpdateUsageDescription: false`, `background: false`
+  — no write permission string and no background-delivery entitlement. Needs a development build
+  (README › Health, and `npm run doctor` says so). Expo Go, web and Android have no reader and show
+  what the iPhone synced.
+
+### H-SYNC · What is read and stored
+
+- Steps: HealthKit's statistics collection (cumulative sum, de-duplicated across iPhone and Watch),
+  one bucket per day from London midnight. UK only, so the phone's calendar is London's.
+- Sleep: asleep stages only (asleep, core, deep, REM — never "in bed" or "awake"), grouped by
+  **wake date**: an interval belongs to the London date it ends on, or the next date when it ends
+  at or after 18:00. Minutes are the union of the intervals, so two sources count once; start and
+  end are the earliest start and latest end ("23:48–07:00"). Uses London wall-clock time, so the
+  BST/GMT nights are right (tested both changes).
+- Weight: the latest reading each London day, in kg, 1 dp.
+- Last 35 London days on app open and on return to the foreground; upserted per (day, kind) into
+  `health_daily`, which accepts only `weight_kg`, `sleep_min` (with start/end) and `steps`.
+
+### H-CONSENT · Withdrawing consent
+
+- **Built:** as for meals and water: RLS hides `health_daily` and `training_days` without an active
+  consent, reading and syncing stop, and this device's supplement reminders are cancelled. Rows
+  are not deleted.
+- **Open:** should withdrawing consent also delete the synced Apple Health values? (They're a copy
+  of what's on the phone, so deleting them loses nothing.) Easy to add if you want it.
+
+### H-8A · Copy for sleep and steps without data
+
+- **Wireframe 8a:** a dashed ring with "Connect Apple Health to see this" — written for "not
+  connected".
+- **Built:** on an iPhone that _is_ connected (8a's case), "No sleep from Apple Health yet." /
+  "No steps from Apple Health yet." under the dashed ring; on web and Android, "Connect Apple
+  Health on your iPhone to see this." The weight card uses the decided copy everywhere.
+
+### H-0D · 0d now asks for real
+
+- Continue on 0d shows iOS's read-only sheet (after consent on 0c; "Not now" on 0c still skips
+  0d). The "Coming soon" note is gone, and so is the "Workouts" row: Phase 3 reads no workouts.
+  Me → Connected → Apple Health asks (when off) or opens Settings (when on).
+
+## Targets and data
+
+### H-SPLIT · The split rotation's shape
+
+- **Built:** `user_settings.training_split text[]` (ordered names, Day 1 first; 1–40 characters
+  each, at most 14, checked by `valid_split_rotation`), plus `training_per_week smallint default 4`.
+  The rotation is always read and saved whole, so a child table would add joins and nothing else.
+  New users start with no split (nothing hard-coded to one person): the card says "Today:
+  training?" with Done, and points to Me → Health targets → Training.
+
+### H-SUGGEST · "Trained count since the cycle start"
+
+- **Built:** each trained day stores its split day number. The count since the cycle started is
+  the split day number of the latest trained day before today, so the suggestion is
+  `nextSplitDay(rotation, lastSplitDay mod n)`. "Change" stores the day picked, so the rotation
+  carries on from it. Days marked without a split are skipped. The Day view looks back 90 days.
+- Tapping a past day in the strip marks it with the split day it would have been (the suggestion
+  for that date). Future days are disabled in the app and refused by the database
+  (`training_days_guard`). Rows are never updated (update revoked): untraining deletes.
+
+### H-PLAN · The plan name
+
+- The Nutrition edit screen (6B) has "Plan name" ("Plan A"); it's a new column
+  `user_settings.nutrition_plan_name` and shows on the Nutrition card. Empty shows nothing.
+
+### H-SUPP · Supplements
+
+- At most one log per supplement per London day: `supplement_logs.taken_on` is generated from
+  `logged_at` in Europe/London and unique with the supplement. Ticking again is a no-op.
+- The editor (7) offers Morning / Evening like the wireframe; an existing `any` supplement shows in
+  an "Any time" group on Health. A group's heading shows the time ("Evening · 21:30") when every
+  supplement in it has the same reminder time.
+- Done (and "‹ Health targets") saves every change; deleting a supplement deletes its logs, so Week
+  and Month count adherence for the current list.
+- Reminders are daily local notifications on each phone (24-hour, London wall clock), rescheduled
+  whenever the list changes, cancelled when consent is withdrawn. Turning a reminder on asks for
+  notification permission.
+- **Open:** should supplement reminders respect quiet hours (22:30–07:00)? Nudges arrive in phase
+  6; for now a reminder at 23:00 fires at 23:00.
+
+## Week and Month
+
+### H-AVG · What "average" and "n of N" mean
+
+- **Average** = the mean over the days that have data (logged or synced). Days with nothing are
+  skipped, not counted as zero (stated in `packages/core/src/health.ts`).
+- **n of N:** N is the days of the period that have happened (all of a past period; Monday to today
+  for this week). Calories count "within target" within ±10% of the target; water, sleep and steps
+  count at or above it; supplements "All taken" when every supplement on the list was ticked.
+- Training: sessions in the period against the target — per week, or per week × days ÷ 7 rounded
+  for a month (4 a week → 17 in November, 18 in October).
+- Weight: the average of the days with a reading and the change from the first to the last
+  reading in the period. Day view: "this week" = latest reading minus the latest reading on or
+  before seven days earlier.
+- "Next ›" stops at the current period; "‹ Previous" has no limit.
+
+## Other
+
+### H-WATER · The water card stays as it is
+
+- The decisions say to keep water exactly as now, so the total reads "750 ml of 3 L" (`formatMl`),
+  not the wireframe's "1,250 ml of 3,000 ml". The glasses are now 24 pt tall as in 1B.
+
+### H-TODAY · Today's steps and sleep rings
+
+- Today's rings now show the synced steps and last night's sleep (they said "in a later update"
+  before). Nothing synced → "—".
+
+### H-LIFTOFF · Opening Liftoff
+
+- **Built:** "Log workout in Liftoff ↗" tries `liftoff://` (listed in
+  `LSApplicationQueriesSchemes`) and falls back to the App Store page for **Liftoff — Ranked Gym
+  Workouts (id 6448081563)**.
+- **Open:** confirm that's your Liftoff (there's an older "Liftoff – Workout Log" too) and its URL
+  scheme. Only `src/lib/liftoff.ts` and `app.json` change if not.
+
+### H-NOT-PHASE-3
+
+- Not built, moved to a later phase in CLAUDE.md: Strava / Liftoff sync, the Screen Time card,
+  manual weight entry, Health Connect on Android. The Screen Time onboarding step (0e) is unchanged.
+
+Phase 3 sign-off status for every acceptance point: `docs/PHASE3-SIGNOFF.md`.

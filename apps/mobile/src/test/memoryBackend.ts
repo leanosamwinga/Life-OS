@@ -4,6 +4,8 @@
  */
 import {
   componentUnit,
+  toLondonDate,
+  type TrainedDay,
   logWindow,
   portionMacros,
   summariseBatch,
@@ -21,6 +23,12 @@ import {
   type SavedBatch,
   type StoredFood,
 } from '@/lib/backend/foods';
+import {
+  sortSupplements,
+  type HealthDailyValue,
+  type Supplement,
+  type SupplementLog,
+} from '@/lib/backend/health';
 import {
   applyPatch,
   defaultUserSettings,
@@ -59,6 +67,11 @@ export interface MemoryState {
   lastPortions: Record<string, { grams: number; loggedAt: string; unit?: AmountUnit }>;
   /** Internal edited-at bookkeeping by log id (never shown in the app). */
   editedAt: Record<string, string>;
+  supplements: Supplement[];
+  supplementLogs: SupplementLog[];
+  trainingDays: TrainedDay[];
+  /** What the iPhone has synced from Apple Health (health_daily). */
+  healthDaily: HealthDailyValue[];
 }
 
 export type MemoryBackend = Backend & {
@@ -92,6 +105,10 @@ export function createMemoryBackend(
     lastPortions: {},
     editedAt: {},
     batchIngredients: {},
+    supplements: [],
+    supplementLogs: [],
+    trainingDays: [],
+    healthDaily: [],
     ...init,
   };
   let seq = 0;
@@ -220,6 +237,8 @@ export function createMemoryBackend(
   };
   const inRange = (t: string, r: { from: string; to: string }) =>
     Date.parse(t) >= Date.parse(r.from) && Date.parse(t) < Date.parse(r.to);
+  const inDays = (d: string, r: { start: string; end: string }) => d >= r.start && d <= r.end;
+  const today = () => toLondonDate(new Date());
 
   const backend: MemoryBackend = {
     state,
@@ -522,6 +541,96 @@ export function createMemoryBackend(
         ? state.foods.map((f) => (f.id === existing.id ? rec : f))
         : [...state.foods, rec];
       return rec;
+    },
+
+    async listSupplements() {
+      await call('listSupplements');
+      requireConsent();
+      return sortSupplements(state.supplements);
+    },
+    async saveSupplement(input) {
+      await call('saveSupplement');
+      requireConsent();
+      const name = input.name.trim();
+      // Like the supplements checks: a name of 1–80 characters, a dose of up to 40.
+      if (!name || name.length > 80) throw new UserFacingError('Give the supplement a name.');
+      if ((input.dose ?? '').length > 40) throw new UserFacingError('Keep the dose short.');
+      const row: Supplement = {
+        id: input.id ?? newId('supp'),
+        name,
+        dose: input.dose?.trim() || null,
+        timeOfDay: input.timeOfDay,
+        reminderTime: input.reminderTime,
+        sortOrder: input.sortOrder,
+      };
+      if (input.id && !state.supplements.some((x) => x.id === input.id))
+        throw new UserFacingError('Supplement not found.');
+      state.supplements = input.id
+        ? state.supplements.map((x) => (x.id === input.id ? row : x))
+        : [...state.supplements, row];
+      return row.id;
+    },
+    async deleteSupplement(id) {
+      await call('deleteSupplement');
+      requireConsent();
+      state.supplements = state.supplements.filter((x) => x.id !== id);
+      state.supplementLogs = state.supplementLogs.filter((l) => l.supplementId !== id);
+    },
+    async listSupplementLogs(range) {
+      await call('listSupplementLogs');
+      requireConsent();
+      return state.supplementLogs.filter((l) => inDays(l.takenOn, range));
+    },
+    async setSupplementTaken(id, taken) {
+      await call('setSupplementTaken');
+      requireConsent();
+      const day = today();
+      const has = state.supplementLogs.some((l) => l.supplementId === id && l.takenOn === day);
+      if (taken && !has) state.supplementLogs.push({ supplementId: id, takenOn: day });
+      if (!taken)
+        state.supplementLogs = state.supplementLogs.filter(
+          (l) => !(l.supplementId === id && l.takenOn === day),
+        );
+    },
+    async listTrainingDays(range) {
+      await call('listTrainingDays');
+      requireConsent();
+      return state.trainingDays
+        .filter((d) => inDays(d.trainedOn, range))
+        .sort((a, b) => (a.trainedOn < b.trainedOn ? -1 : 1));
+    },
+    async markTrained(date, split) {
+      await call('markTrained');
+      requireConsent();
+      // Like training_days_guard and the unique (user_id, trained_on) with on conflict do nothing.
+      if (date > today())
+        throw new UserFacingError('Training can’t be marked for a day that hasn’t happened yet.');
+      if (state.trainingDays.some((d) => d.trainedOn === date)) return;
+      state.trainingDays.push({
+        trainedOn: date,
+        splitDay: split?.day ?? null,
+        splitName: split?.name ?? null,
+      });
+    },
+    async unmarkTrained(date) {
+      await call('unmarkTrained');
+      requireConsent();
+      state.trainingDays = state.trainingDays.filter((d) => d.trainedOn !== date);
+    },
+    async listHealthDaily(range) {
+      await call('listHealthDaily');
+      requireConsent();
+      return state.healthDaily.filter((v) => inDays(v.day, range));
+    },
+    async upsertHealthDaily(values) {
+      await call('upsertHealthDaily');
+      requireConsent();
+      for (const v of values) {
+        state.healthDaily = [
+          ...state.healthDaily.filter((x) => !(x.day === v.day && x.kind === v.kind)),
+          { ...v },
+        ];
+      }
     },
   };
   return backend;

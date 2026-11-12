@@ -109,7 +109,7 @@ describe('G3: relaunching mid-onboarding resumes at the right step', () => {
 
 // ------------------------------------------------------------------------------------------ I2
 
-describe('I2: no made-up steps or sleep when signed in (Apple Health is phase 3)', () => {
+describe('I2: no made-up steps or sleep when signed in (only what Apple Health synced)', () => {
   const sampleNumbers = [
     formatCount(sampleSteps),
     `${Math.floor(sampleSleepMinutes / 60)}h ${sampleSleepMinutes % 60}m`,
@@ -117,12 +117,12 @@ describe('I2: no made-up steps or sleep when signed in (Apple Health is phase 3)
 
   it('Today: the steps and sleep rings are empty and say why', async () => {
     await start(liveState());
-    expect(screen.getByLabelText('Steps: from Apple Health in a later update')).toBeTruthy();
-    expect(screen.getByLabelText('Sleep: from Apple Health in a later update')).toBeTruthy();
+    expect(screen.getByLabelText('Steps: nothing from Apple Health yet today')).toBeTruthy();
+    expect(screen.getByLabelText('Sleep: nothing from Apple Health yet today')).toBeTruthy();
     for (const n of sampleNumbers) expect(screen.queryByText(new RegExp(n))).toBeNull();
   });
 
-  it('Health: Steps and Sleep cards show no numbers, only that they come later', async () => {
+  it('Health: Steps and Sleep cards show no numbers without synced data', async () => {
     await start(liveState(), '/health');
     await screen.findByTestId('screen-health');
     for (const n of sampleNumbers) expect(screen.queryByText(new RegExp(n))).toBeNull();

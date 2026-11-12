@@ -127,10 +127,10 @@ select ok(public.auth_custom_access_token_hook(jsonb_build_object(
 select is(public.auth_send_email_hook('{"email_data":{"email_action_type":"magiclink"}}'), '{}'::jsonb, 'send-email hook sends nothing');
 
 -- ---------------------------------------------------------------------------- guards on Supabase Auth tables
-select throws_ok($$insert into auth.identities (user_id, provider, provider_id) values ('a1a1a1a1-0000-4000-8000-000000000001', 'google', 'g')$$,
+select throws_ok($$insert into auth.identities (user_id, provider, provider_id, identity_data) values ('a1a1a1a1-0000-4000-8000-000000000001', 'google', 'g', '{}')$$,
   'P0001', null, 'no Apple/Google identities in auth.identities');
-insert into auth.identities (user_id, provider, provider_id) values ('a1a1a1a1-0000-4000-8000-000000000001', 'email', 'a1a1a1a1-0000-4000-8000-000000000001');
-select throws_ok($$insert into auth.identities (user_id, provider, provider_id) values ('a1a1a1a1-0000-4000-8000-000000000001', 'email', 'second')$$,
+insert into auth.identities (user_id, provider, provider_id, identity_data) values ('a1a1a1a1-0000-4000-8000-000000000001', 'email', 'a1a1a1a1-0000-4000-8000-000000000001', '{"sub":"a1a1a1a1-0000-4000-8000-000000000001"}');
+select throws_ok($$insert into auth.identities (user_id, provider, provider_id, identity_data) values ('a1a1a1a1-0000-4000-8000-000000000001', 'email', 'second', '{}')$$,
   'P0001', null, 'one identity per user');
 select throws_ok($$update auth.users set encrypted_password = 'x' where id = 'a1a1a1a1-0000-4000-8000-000000000001'$$,
   'P0001', null, 'password changes need an auth-api permit');

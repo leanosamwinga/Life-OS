@@ -200,6 +200,17 @@ export function checkPhoneUrl(url, localAddresses, target = 'phone') {
   return pass(name, `${host} is this machine on the network`);
 }
 
+/**
+ * Apple Health (Phase 3) is only read in a development build: Expo Go has no HealthKit module.
+ * Always a note (!), never a failure — Expo Go still works and shows what has been synced.
+ */
+export function appleHealthNote() {
+  return warn(
+    'Apple Health',
+    'needs a development build on the iPhone — Expo Go has no HealthKit, so Health shows only synced data. Build one with `cd apps/mobile`, `npx expo prebuild --platform ios --clean`, `npx expo run:ios --device` (README › Health)',
+  );
+}
+
 /** One output line per check. */
 export function line(r) {
   const mark = r.ok === true ? '✓' : r.ok === false ? '✗' : '!';

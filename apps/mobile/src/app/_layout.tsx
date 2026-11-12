@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/forms';
 import { getBackend } from '@/lib/backend/current';
 import { postSignIn } from '@/features/auth/hooks';
+import { AppleHealthProvider } from '@/features/health/AppleHealth';
 import { PendingDeleteProvider } from '@/features/today/PendingDelete';
 import { SessionProvider, useSession } from '@/lib/session';
 import { colors, space, type } from '@/theme';
@@ -17,9 +18,11 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <SessionProvider backend={getBackend()}>
-        <PendingDeleteProvider>
-          <RootStack />
-        </PendingDeleteProvider>
+        <AppleHealthProvider>
+          <PendingDeleteProvider>
+            <RootStack />
+          </PendingDeleteProvider>
+        </AppleHealthProvider>
       </SessionProvider>
     </SafeAreaProvider>
   );
@@ -74,6 +77,7 @@ function RootStack() {
         <Stack.Screen name="meal" />
         <Stack.Screen name="security" />
         <Stack.Screen name="kept" />
+        <Stack.Screen name="health-targets" />
       </Stack.Protected>
       <Stack.Protected
         guard={connected && !signedIn}

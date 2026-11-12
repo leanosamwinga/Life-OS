@@ -270,12 +270,11 @@ describe('B. Daily targets', () => {
     expect(within(shell).getByRole('button', { name: 'Save targets' })).toBeTruthy();
   }
 
-  it('from Me: in-page header and intro visible; Cancel goes back', async () => {
+  it('from Me: targets now live in Health targets (6B); back returns to Me', async () => {
     await start(state(), '/me');
-    await press('Meal plan & macro targets');
-    await screen.findByTestId('screen-targets');
-    expectTargetsVisible();
-    await press('Cancel');
+    await press(/^Health targets/);
+    await screen.findByTestId('screen-health-targets');
+    await press('Back to Me');
     await screen.findByTestId('screen-me');
   });
 

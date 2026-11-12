@@ -36,6 +36,18 @@ numbers are the draft's.
   a town from the IP yet (SPEC-QUESTIONS Q-GEOIP). If that's added later, say "an approximate town
   from your IP address, shown in your list of signed-in devices".
 
+## Phase 3 · Health (added Thu 12 Nov 2026)
+
+Proposals only, like the rest of this page. The draft already asks consent for "nutrition, water,
+supplements and Apple Health"; these make it say exactly what Phase 3 does.
+
+| Draft section       | Change                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2 — Health data row | List what is read from Apple Health, on iPhone only and only with your consent: **daily step count, last night's time asleep (with when it started and ended) and your weight (the latest each day)**. Nothing else is read, and Life OS never writes to Apple Health. Add **training days** (the day and split name you mark) and **supplement ticks**. |
+| 2 — source          | "You; Apple Health on your iPhone (only the three types above, read only)". Say the iPhone copies the last 35 days to our servers so the website and Android app can show them.                                                                                                                                                                          |
+| 3 — purposes        | Same basis as other health data: explicit consent, Art. 9(2)(a). Withdrawing it stops reading Apple Health and hides the copied values (see SPEC-QUESTIONS H-CONSENT for whether to delete them as well).                                                                                                                                                |
+| 7 — storage         | Supplement reminders are scheduled on your phone as local notifications; their times are stored with your supplement list.                                                                                                                                                                                                                               |
+
 ## Terms of Service
 
 The Terms draft (https://claude.ai/artifact/QdA3u8qenBH7LLzBEuiRNK) should match: one sign-in

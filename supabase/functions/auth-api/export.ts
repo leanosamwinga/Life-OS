@@ -17,6 +17,8 @@ const TABLES: { name: string; owner: string }[] = [
   { name: 'water_logs', owner: 'user_id' },
   { name: 'supplements', owner: 'user_id' },
   { name: 'supplement_logs', owner: 'user_id' },
+  { name: 'training_days', owner: 'user_id' },
+  { name: 'health_daily', owner: 'user_id' },
 ];
 
 export async function collectExport(sql: Sql, userId: string) {

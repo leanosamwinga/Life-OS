@@ -13,6 +13,9 @@
       "usesAppleSignIn": true,
       "config": {
         "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["liftoff"]
       }
     },
     "android": {
@@ -41,6 +44,14 @@
           "microphonePermission": false,
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Life OS reads your steps, sleep and weight from Apple Health to show them on your Health tab and Today rings. It never writes to Apple Health and never uses this data for ads or marketing.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
         }
       ]
     ],

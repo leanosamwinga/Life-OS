@@ -22,7 +22,7 @@ Read this first in every session. It is the source of truth for product decision
 - App: Expo SDK 58 + TypeScript (strict) + Expo Router (routes in `apps/mobile/src/app`). JS tabs from `expo-router/js-tabs`. Read `apps/mobile/AGENTS.md` — Expo changes every SDK; check versioned docs, use `npx expo install`.
 - Backend: Supabase — Postgres, Auth, Storage, Edge Functions (Deno), scheduled jobs (pg_cron). **RLS on every user table.** Sign-in is **sign-in v3** (`docs/sign-in-spec.md`, built as described in `docs/sign-in-supabase-mapping.md`): Supabase Auth issues and stores sessions and password hashes, but every sign-in goes through the `auth-api` edge function — email + password (15–128 characters), Sign in with Apple and Google, one method per email, never linked automatically. On web the tokens live in httpOnly cookies behind Expo Router API routes (`apps/mobile/src/app/api`, `src/server/bff.ts`).
 - Shared logic: `packages/core` (pure TS, no I/O). App and edge functions import the same types and maths. Relative imports inside core use explicit `.ts` extensions so Deno can load it directly.
-- Apple Health: a maintained Expo-compatible HealthKit module, added in phase 3.
+- Apple Health: `@kingstinct/react-native-healthkit` (config plugin, read only; needs a development build — Expo Go, web and Android have no HealthKit and show what the iPhone synced). Reached only through `HealthReader` (`src/lib/health`), so jest uses a fake (`src/test/fakeHealth.ts`).
 
 ## Repo layout
 
@@ -30,7 +30,7 @@ Read this first in every session. It is the source of truth for product decision
 apps/mobile            Expo app (src/app routes, src/components, src/features, src/lib, src/data)
                        src/lib/backend: Backend interface + Supabase implementation; src/test: in-memory fake
 packages/core          types.ts, nutrition.ts, format.ts, time.ts, training.ts, defaults.ts, batch.ts, mealedit.ts,
-                       followups.ts (+ *.test.ts)
+                       followups.ts, health.ts (+ *.test.ts)
 supabase/config.toml   local stack config
 supabase/migrations    timestamped SQL migrations
 supabase/functions     edge functions (food-lookup, auth-api); pure logic in handler.ts/service.ts etc., Deno wiring in index.ts;
@@ -45,7 +45,7 @@ scripts/doctor         `npm run doctor`: checks the local setup for running on a
 e2e                    phone-like end-to-end test (the app's own AuthClient + backend in Node) on the real stack;
                        each phone is a fresh module graph (own device ID, Keychain, IP)
 docs                   sign-in spec, decisions, Supabase mapping, SPEC-QUESTIONS, TEST-REPORT, PRIVACY-POLICY-CHANGES,
-                       PHASE2-SIGNOFF (acceptance criteria → the test that proves each)
+                       PHASE2-SIGNOFF, PHASE3-SIGNOFF (acceptance criteria → the test that proves each)
 ```
 
 ## Commands
@@ -94,13 +94,17 @@ npx deno check --config supabase/functions/auth-api/deno.json supabase/functions
 - Missing nutrition is `null`, never invented. Pack/serving sizes (`foods.pack_g`, `serving_g`) are in the food's own unit (g or ml); a size in any other unit (e.g. cl, oz) gets `null`, not a guess. A user's own food for a barcode (one per user, `foods_user_barcode_key`) wins over the global cache; `remembered = false` keeps it out of search and suggestions. A food with unknown kcal/macros is a `FoodRecord`, not a loggable `Food` (`toFood` returns null) — the user completes it (wireframe 7e).
 - **Daily targets**: kcal, protein, carbs, fat, water (ml), steps. Today's progress = sum of logs for the **Europe/London local day** (`dayProgress`).
 - **Money**: integer **pence** (`bigint` in Postgres, `MoneyAmount` in TS) — never floats. Balances can be negative (credit cards). Display with `formatPence` → "£1,234.56" / "−£628.40" (U+2212 minus).
-- **Training**: the split is a rotation (e.g. Day 1 Arms & shoulders, Day 2 Chest & triceps, Day 3 Legs, Day 4 Back; target 4/week). Each new synced workout advances it; the user can correct it (`nextSplitDay(rotation, completedCount)`). **Sets/reps stay in Liftoff — never model them.**
+- **Training** (manual in Phase 3): the split is a rotation in `user_settings.training_split` (ordered names, e.g. Arms & shoulders, Chest & triceps, Legs, Back; `training_per_week`, default 4; empty until the user sets one). A trained day is one `training_days` row per London date with the split day number and a **snapshot of its name**; marking twice is a no-op, untraining deletes, rows are never updated, no future days. The suggestion is `suggestSplitDay` = `nextSplitDay(rotation, trained count since the cycle start)`, where that count is the latest trained day's split day number; "Change" stores the day picked, so the rotation continues from it. "Log workout in Liftoff ↗" opens Liftoff (`src/lib/liftoff.ts`, App Store fallback). **Sets/reps stay in Liftoff — never model them.**
+- **Health tab** (Phase 3, wireframes 1B, training option 1, 3a–3c, 4A, 5, 6B, 7, 8a–8b): Day (Body: Weight, Sleep | Steps; Intake: Nutrition, Water, Supplements; Training), Week and Month. Targets live in **Me → Health targets** (weight, calories/macros + plan name, water, sleep, steps, supplements, training); `app/targets.tsx` stays for onboarding 0g.
+- **Apple Health** (iPhone only, read only: step count, sleep analysis, body mass): never read without an active `health_data` consent; 0d and Me → Apple Health make the real request; `apple_health_choice` records the choice. The iPhone syncs the last 35 London days on open and on return to the foreground into `health_daily` (only `weight_kg`, `sleep_min` with start/end, `steps`; one row per user, day and kind). Sleep counts towards its **wake date** (18:00 cut-off, union of asleep stages). HealthKit never says read access was denied, so "access is off" (3c, 8b) shows only when we know it (choice not "connect", or the request was never made); otherwise empty cards show the no-data states. Weight comes only from Apple Health — no manual entry.
+- **Week / Month**: averages skip days with no data; "n of N days" counts the days of the period that have happened; kcal "within target" is ±10%, water/sleep/steps at or above target (`packages/core/src/health.ts`).
+- **Supplements**: a list (name, dose, morning/evening, optional reminder time) edited in Me → Health targets → Supplements; at most one `supplement_logs` row per supplement per London day (`taken_on` generated from `logged_at`); tap a chip on Health to tick, again to untick. Reminders are daily local notifications (`expo-notifications`), rescheduled when the list changes and cancelled when consent is withdrawn.
 - **Nudges**: quiet by default, individually toggleable — morning briefing 07:30 weekdays / 08:30 weekends (on), evening check-in 21:30 (on), event reminders (off), urgent bill alerts (on), monthly statement import reminder 1st at 09:00 (on), quiet hours 22:30–07:00 (`DEFAULT_NUDGE_SETTINGS`, `user_settings` defaults).
 
 ## Conventions
 
 - **RLS everywhere**: every user table has `user_id`, RLS enabled, owner-only policies via `(select auth.uid())`. Child tables carry `user_id` and use composite FKs `(parent_id, user_id)` so rows can't attach to someone else's parent.
-- **Health tables** (nutrition logs, saved meals, last portions, water, supplements) also require `public.has_active_consent('health_data')` in their policies. New health tables must do the same.
+- **Health tables** (nutrition logs, saved meals, last portions, water, supplements, training days, synced Apple Health values) also require `public.has_active_consent('health_data')` in their policies. New health tables must do the same.
 - Global Open Food Facts cache rows have `user_id IS NULL`: readable by `authenticated`, writable only by the service role (edge functions).
 - New tables: add `created_at`/`updated_at` + the `set_updated_at` trigger, revoke from `anon`, grant to `authenticated`, enable RLS, write pgTAP tests proving cross-user isolation. Supabase's default privileges grant new tables to `anon` — revoke explicitly in each migration.
 - Never edit an applied migration; add a new timestamped one. Regenerate `apps/mobile/src/lib/database.types.ts` after schema changes.
@@ -118,10 +122,11 @@ npx deno check --config supabase/functions/auth-api/deno.json supabase/functions
 
 1. **Foundations** (done): monorepo, core maths, schema + RLS, food-lookup function, app shell.
 2. **Sign-in, onboarding and log meal flow**: sign-in v3 (`docs/sign-in-spec.md`: email + password, Apple, Google; wireframes v3 0a–0b-8i and Me → Security S-1–S-5; iPhone and web, Android screens later) and first-run onboarding (wireframes 0c–0g; HealthKit and Screen Time steps record the choice only); wireframes 7a–7e: roster or new, build meal from components, scan barcode → food-lookup, "how much" with last-time amount, manual entry; "Ate it" from plan; water quick add; Today and Health on real data.
-3. **Health**: Apple Health (steps, sleep, weight), supplements, Strava workouts + split rotation, "Log workout in Liftoff" deep link; Screen Time card (display-only, via the DeviceActivityReport extension; needs the Family Controls distribution entitlement).
+3. **Health** (`docs/PHASE3-SIGNOFF.md`): Health tab Day / Week / Month; Apple Health read only (steps, sleep, weight) synced from the iPhone, shown on web and Android; supplements with reminders; manual training with the split rotation and "Log workout in Liftoff ↗"; Me → Health targets. Moved out of Phase 3 to the later phase below: Strava / Liftoff sync, the Screen Time card, manual weight entry, Health Connect on Android.
 4. **Week**: device calendars, weekly rhythm, Notion church card with "remind me to chase".
 5. **Money**: monthly CSV import (Starling, NatWest, Amex), categories, budgets, 3-month-average forecast, bill detection, Trading 212 S&S ISA daily sync via read-only API key, manual monthly balances for T212 Cash ISA and Hargreaves Lansdown LISA.
 6. **Nudges** + morning briefing / evening check-in screens.
 7. **Privacy**: export/delete, legal screens, Face ID lock, TestFlight.
+8. **Health, later** (moved from Phase 3): Strava / Liftoff workout sync (each synced workout advances the rotation), the Screen Time card (display-only, via the DeviceActivityReport extension; needs the Family Controls distribution entitlement — the 0e onboarding step already records the choice), manual weight entry, Health Connect on Android.
 
 Do not build beyond the current phase.

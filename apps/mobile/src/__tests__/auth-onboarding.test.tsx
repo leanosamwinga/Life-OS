@@ -66,7 +66,10 @@ describe('onboarding', () => {
     expect(mockBackend.state.consentLog).toEqual(['granted']);
 
     await screen.findByTestId('screen-onboarding-apple-health');
-    expect(screen.getByText('Coming soon')).toBeTruthy();
+    expect(screen.queryByText('Coming soon')).toBeNull();
+    expect(screen.getByTestId('apple-health-next').props.children).toMatch(
+      /^Next, iOS will show its own Health permissions sheet/,
+    );
     await press('Continue');
     expect(mockBackend.state.settings.appleHealthChoice).toBe('connect');
 
