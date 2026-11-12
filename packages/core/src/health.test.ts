@@ -7,7 +7,6 @@ import {
   formatAdherence,
   formatKg1,
   formatKgChange,
-  formatLitres,
   formatPeriod,
   formatSleep,
   formatSleepWindow,
@@ -28,6 +27,7 @@ import {
   weightChange,
   type TrainedDay,
 } from './health.ts';
+import { formatMl } from './format.ts';
 import { makeRotation } from './training.ts';
 
 describe('London-day periods', () => {
@@ -261,8 +261,10 @@ describe('the split suggestion', () => {
 });
 
 describe('small formats', () => {
-  it('litres and steps', () => {
-    expect(formatLitres(2600)).toBe('2.6 L');
-    expect(formatLitres(3000)).toBe('3.0 L');
+  it('water averages use the same format as Day (2 dp, ml under 1 L)', () => {
+    expect(formatMl(2346.67)).toBe('2.35 L');
+    expect(formatMl(2600)).toBe('2.6 L');
+    expect(formatMl(3000)).toBe('3 L');
+    expect(formatMl(850.4)).toBe('850 ml');
   });
 });

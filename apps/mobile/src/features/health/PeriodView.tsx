@@ -9,7 +9,7 @@ import {
   formatKcal,
   formatKg1,
   formatKgChange,
-  formatLitres,
+  formatMl,
   formatPeriod,
   formatSleep,
   formatSteps,
@@ -378,13 +378,13 @@ function WaterPeriodCard(props: {
       </Card>
     );
   }
-  const target = props.target ? formatLitres(props.target) : null;
+  const target = props.target ? formatMl(props.target) : null;
   if (props.light) {
     return (
       <Card title={title}>
         <View style={[styles.body, healthStyles.row]} testID="period-water">
           <Text style={styles.side}>
-            {target ? `${formatLitres(avg).replace(' L', '')} of ${target}` : formatLitres(avg)}
+            {target ? `${formatMl(avg)} of ${target}` : formatMl(avg)}
           </Text>
           {target ? <Muted>{formatAdherence(hit)}</Muted> : null}
         </View>
@@ -397,9 +397,9 @@ function WaterPeriodCard(props: {
         <View style={healthStyles.row}>
           <View
             accessible
-            accessibilityLabel={`Water: daily average ${formatLitres(avg)}${target ? ` of ${target}` : ''}`}
+            accessibilityLabel={`Water: daily average ${formatMl(avg)}${target ? ` of ${target}` : ''}`}
           >
-            <Big size={24}>{formatLitres(avg)}</Big>
+            <Big size={24}>{formatMl(avg)}</Big>
             {target ? <Muted>{`of ${target}`}</Muted> : null}
           </View>
           {target ? (

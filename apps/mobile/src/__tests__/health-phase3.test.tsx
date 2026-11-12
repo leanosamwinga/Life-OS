@@ -550,9 +550,9 @@ describe('G. Week and Month', () => {
     // Nutrition: one day logged (2,449 kcal), within ±10% of 2,450.
     expect(screen.getByText('2,449')).toBeTruthy();
     expect(screen.getByLabelText('1 of 4 days within target')).toBeTruthy();
-    // Water: average of the days with water (3 L and 1 L) → 2.0 L; 1 of 4 days hit.
-    expect(screen.getByText('2.0 L')).toBeTruthy();
-    expect(screen.getByText('of 3.0 L')).toBeTruthy();
+    // Water: average of the days with water (3 L and 1 L) → 2 L; 1 of 4 days hit.
+    expect(screen.getByText('2 L')).toBeTruthy();
+    expect(screen.getByText('of 3 L')).toBeTruthy();
     // Sleep and steps.
     expect(screen.getByText('6h 56m')).toBeTruthy();
     expect(screen.getByText(/Target 7h 30m\s0 of 4 nights/)).toBeTruthy();
@@ -614,7 +614,7 @@ describe('H. Me → Health targets', () => {
         name: 'Nutrition: Plan A · 2,450 kcal · P 180 · C 250 · F 75 g',
       }),
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Water: 3.0 L a day' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Water: 3 L a day' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sleep: 7h 30m a night' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Steps: 10,000 a day' })).toBeTruthy();
     await screen.findByRole('button', { name: 'Supplements: 2 · 1 morning, 1 evening' });

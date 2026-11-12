@@ -358,8 +358,5 @@ export const splitShortName = (name: string | null): string =>
 // Small formats
 // ---------------------------------------------------------------------------
 
-/** Litres to 1 dp for averages: 2600 → "2.6 L". */
-export const formatLitres = (ml: number): string => `${roundTo(ml / 1000, 1).toFixed(1)} L`;
-
 /** Steps "6,240". */
 export const formatSteps = (n: number): string => formatCount(Math.round(n));
