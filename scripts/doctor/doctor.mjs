@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import {
   SUPABASE,
+  appleHealthNote,
   checkAppEnv,
   checkFunctionsEnv,
   checkNestedClones,
@@ -349,6 +350,9 @@ if (appEnv?.EXPO_PUBLIC_SUPABASE_URL) {
     );
   }
 }
+
+// ---------------------------------------------------------------- 9. Apple Health (Phase 3)
+if (target === 'phone') report(appleHealthNote());
 
 const bad = results.filter((r) => r.ok === false).length;
 console.log(bad ? `\n${bad} thing${bad === 1 ? '' : 's'} to fix.` : '\nAll good.');

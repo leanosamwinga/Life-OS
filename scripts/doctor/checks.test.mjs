@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  appleHealthNote,
   checkAppEnv,
   checkFunctionsEnv,
   checkLegacySupabaseEnv,
@@ -230,5 +231,14 @@ describe('doctor: which checkout', () => {
 
   it('says nothing when there is no nested clone', () => {
     expect(checkNestedClones([], '/r')).toBeNull();
+  });
+});
+
+describe('doctor: Apple Health (Phase 3)', () => {
+  it('says Apple Health needs a development build, as a note and never a failure', () => {
+    const r = appleHealthNote();
+    expect(r.ok).toBeNull();
+    expect(line(r)).toMatch(/^! Apple Health — needs a development build/);
+    expect(r.detail).toContain('npx expo run:ios --device');
   });
 });

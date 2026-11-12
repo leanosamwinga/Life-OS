@@ -7,7 +7,7 @@ This repo is an npm workspaces monorepo:
 | Path                 | What                                                                              |
 | -------------------- | --------------------------------------------------------------------------------- |
 | `apps/mobile`        | Expo (SDK 58) + Expo Router app — tabs: Today, Health, Week, Money, Me            |
-| `packages/core`      | Pure TypeScript: domain types, nutrition maths, UK formatting. No I/O             |
+| `packages/core`      | Pure TypeScript: domain types, nutrition and health maths, UK formatting. No I/O  |
 | `supabase/`          | `config.toml`, `migrations/`, `functions/` (Edge Functions), `seed.sql`, `tests/` |
 | `scripts/`           | `test-db.sh` + a Supabase shim for running database tests on plain Postgres       |
 | `.github/workflows/` | CI: install, lint, typecheck, tests                                               |
@@ -109,7 +109,8 @@ is easy to run commands in by mistake); then Docker and the stack; this
 branch's migrations and the Data API guard; that `config.toml`'s Auth hooks are running (if not:
 `npx supabase stop`, then `npx supabase start`); both env files (an empty `APPLE_BUNDLE_ID` is an
 error, and Apple/Google ids still sitting in `supabase/.env` are reported as moved); that `auth-api` answers; that `auth-api` can
-reach Mailpit; that `EXPO_PUBLIC_SUPABASE_URL` isn't `127.0.0.1` and answers. Testing in the
+reach Mailpit; that `EXPO_PUBLIC_SUPABASE_URL` isn't `127.0.0.1` and answers; and a reminder
+that Apple Health needs a development build (Expo Go shows only synced data). Testing in the
 simulator or on the web instead? `npm run doctor -- --simulator` accepts `127.0.0.1`.
 
 **Expo Go and Apple / Google.** Sign in with Apple works in Expo Go (the native sheet; set
@@ -335,6 +336,33 @@ like before **Done**, without touching the components. Going back to Log meal ke
 were building: Log meal shows it as **Not logged yet** with **Continue**, and anything that would
 start another meal asks before discarding it. Logging it, **Save to roster only**, **Discard** or
 closing Log meal clears it; it is kept in memory only, never across app restarts.
+
+### Health: Apple Health, supplements and training (Phase 3)
+
+The Health tab has **Day**, **Week** and **Month**. Weight, sleep and steps come from Apple Health
+on the iPhone (read only: step count, sleep analysis and body mass; Life OS never writes to Apple
+Health). The iPhone syncs the last 35 days to Supabase when the app opens and when it comes back
+to the foreground; the web and Android show what it synced. Nothing is read without "Use my
+health data" (0c), and withdrawing it stops reading and syncing and cancels supplement reminders.
+Supplements, training and every target live in **Me → Health targets**; tap a supplement chip on
+Health to mark it taken today, and a day in the training strip to mark it trained.
+
+**Apple Health needs a development build.** Expo Go doesn't include the HealthKit module, so in
+Expo Go the Health tab shows only what has been synced (`npm run doctor` says so too). Build and
+install a development build on the iPhone (Xcode, the iPhone plugged in or on the same Wi-Fi and
+in Developer Mode), then start the app as usual:
+
+```bash
+cd apps/mobile
+npx expo prebuild --platform ios --clean
+npx expo run:ios --device
+```
+
+The first time, iOS shows its own Health permission sheet from 0d (or from **Me → Apple Health**).
+If you tapped "Don't Allow", switch the items on in Settings › Health › Data access & Devices ›
+Life OS. HealthKit never tells an app that read access was denied, so without data the cards say
+"No … yet" rather than "access is off". The local seed gives `admin@example.test` fake Health
+targets, four supplements, two trained days and two weeks of synced values.
 
 ### Run the app
 
