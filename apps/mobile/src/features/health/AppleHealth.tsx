@@ -39,7 +39,8 @@ export interface AppleHealthValue {
   connect(): Promise<void>;
   /**
    * "Open Settings ↗": iOS lists an app under Settings › Health only after it has asked, so
-   * before that this asks (the permission sheet); afterwards it opens Settings.
+   * before that this asks (the permission sheet); afterwards it records "connect" and opens
+   * Settings, where the user switches the items on.
    */
   openSettings(): Promise<void>;
   syncing: boolean;
@@ -191,14 +192,28 @@ export function AppleHealthProvider({ children }: { children: ReactNode }) {
       },
       connect,
       async openSettings() {
-        if (reader && (status === 'never_asked' || choice !== 'connect')) return connect();
+        // iOS lists Life OS under Settings › Health only once it has asked: ask first.
+        if (reader && status === 'never_asked') return connect();
+        // Asked before but "Not now" here: count it as connecting, then Settings to switch on.
+        if (reader && choice !== 'connect') await updateSettings({ appleHealthChoice: 'connect' });
         await Linking.openSettings();
       },
       syncing,
       lastSyncedAt,
       syncError,
     }),
-    [access, bannerDismissed, connect, reader, status, choice, syncing, lastSyncedAt, syncError],
+    [
+      access,
+      bannerDismissed,
+      connect,
+      reader,
+      status,
+      choice,
+      updateSettings,
+      syncing,
+      lastSyncedAt,
+      syncError,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
